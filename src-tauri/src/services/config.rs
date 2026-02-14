@@ -321,6 +321,13 @@ impl ConfigService {
             AppType::Codex => Self::sync_codex_live(config, &current_id, &provider)?,
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
             AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app_type.as_str()),
+                    format!("App '{}' is not supported yet.", app_type.as_str()),
+                ));
+            }
         }
 
         Ok(())

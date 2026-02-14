@@ -54,6 +54,23 @@ describe("useSkills hooks", () => {
     expect(result.current.data).toEqual(expected);
   });
 
+  it("fetches skills list for a specific app", async () => {
+    const requestedApps: Array<string | undefined> = [];
+    server.use(
+      http.post("http://tauri.local/get_skills", async ({ request }) => {
+        const body = (await request.json()) as { app?: string };
+        requestedApps.push(body.app);
+        return HttpResponse.json(getSkillsState());
+      }),
+    );
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useAllSkills("codex"), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(requestedApps).toContain("codex");
+  });
+
   it("fetches skill repositories", async () => {
     const expected = getSkillReposState();
     const { wrapper } = createWrapper();
@@ -142,14 +159,77 @@ describe("useSkills hooks", () => {
       await result.current.mutateAsync(directory);
     });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["skills", "all"] });
-
-    await act(async () => {
-      await queryClient.refetchQueries({ queryKey: ["skills", "all"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "all", "claude"],
     });
 
-    const updated = queryClient.getQueryData<SkillsResponse>(["skills", "all"]);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["skills", "all", "claude"] });
+    });
+
+    const updated = queryClient.getQueryData<SkillsResponse>([
+      "skills",
+      "all",
+      "claude",
+    ]);
     expect(updated?.skills?.find((skill) => skill.directory === directory)?.installed).toBe(true);
+  });
+
+  it("installs a skill with force flag", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    const directory = "/skills/notes";
+
+    const skillsQuery = renderHook(() => useAllSkills(), { wrapper });
+    await waitFor(() => expect(skillsQuery.result.current.isSuccess).toBe(true));
+
+    const { result } = renderHook(() => useInstallSkill(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ directory, force: true });
+    });
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["skills", "all", "claude"] });
+    });
+
+    const updated = queryClient.getQueryData<SkillsResponse>([
+      "skills",
+      "all",
+      "claude",
+    ]);
+    expect(updated?.skills?.find((skill) => skill.directory === directory)?.installed).toBe(true);
+  });
+
+  it("installs a skill for a specific app and forwards force/app payload", async () => {
+    const payloads: Array<{ directory?: string; force?: boolean; app?: string }> = [];
+    server.use(
+      http.post("http://tauri.local/install_skill", async ({ request }) => {
+        const body = (await request.json()) as {
+          directory?: string;
+          force?: boolean;
+          app?: string;
+        };
+        payloads.push(body);
+        return HttpResponse.json(true);
+      }),
+    );
+
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useInstallSkill("gemini"), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ directory: "/skills/notes", force: true });
+    });
+
+    expect(payloads[0]).toMatchObject({
+      directory: "/skills/notes",
+      force: true,
+      app: "gemini",
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "all", "gemini"],
+    });
   });
 
   it("uninstalls a skill and invalidates the skills query", async () => {
@@ -166,13 +246,19 @@ describe("useSkills hooks", () => {
       await result.current.mutateAsync(directory);
     });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["skills", "all"] });
-
-    await act(async () => {
-      await queryClient.refetchQueries({ queryKey: ["skills", "all"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["skills", "all", "claude"],
     });
 
-    const updated = queryClient.getQueryData<SkillsResponse>(["skills", "all"]);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["skills", "all", "claude"] });
+    });
+
+    const updated = queryClient.getQueryData<SkillsResponse>([
+      "skills",
+      "all",
+      "claude",
+    ]);
     expect(updated?.skills?.find((skill) => skill.directory === directory)?.installed).toBe(false);
   });
 

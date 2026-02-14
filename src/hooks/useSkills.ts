@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { skillsApi, type SkillRepo, type SkillsResponse } from "@/lib/api/skills";
+import type { AppId } from "@/lib/api";
 
 /**
  * 查询所有技能
  */
-export function useAllSkills() {
+export function useAllSkills(app: AppId = "claude") {
   return useQuery<SkillsResponse>({
-    queryKey: ["skills", "all"],
-    queryFn: () => skillsApi.getAll(),
+    queryKey: ["skills", "all", app],
+    queryFn: () => skillsApi.getAll(app),
   });
 }
 
@@ -24,12 +25,17 @@ export function useSkillRepos() {
 /**
  * 安装技能
  */
-export function useInstallSkill() {
+export function useInstallSkill(app: AppId = "claude") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (directory: string) => skillsApi.install(directory),
+    mutationFn: (input: { directory: string; force?: boolean } | string) => {
+      if (typeof input === "string") {
+        return skillsApi.install(input, undefined, app);
+      }
+      return skillsApi.install(input.directory, input.force, app);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["skills", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["skills", "all", app] });
     },
   });
 }
@@ -37,12 +43,12 @@ export function useInstallSkill() {
 /**
  * 卸载技能
  */
-export function useUninstallSkill() {
+export function useUninstallSkill(app: AppId = "claude") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (directory: string) => skillsApi.uninstall(directory),
+    mutationFn: (directory: string) => skillsApi.uninstall(directory, app),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["skills", "all"] });
+      queryClient.invalidateQueries({ queryKey: ["skills", "all", app] });
     },
   });
 }

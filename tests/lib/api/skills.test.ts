@@ -98,4 +98,35 @@ describe("skills API module", () => {
       refreshing: false,
     });
   });
+
+  it("getAll forwards app parameter", async () => {
+    invokeMock.mockResolvedValueOnce({ skills: [skill] });
+
+    await skillsApi.getAll("codex");
+
+    expect(invokeMock).toHaveBeenCalledWith("get_skills", { app: "codex" });
+  });
+
+  it("install forwards directory, force and app", async () => {
+    invokeMock.mockResolvedValueOnce(true);
+
+    await skillsApi.install("skills/sample", true, "gemini");
+
+    expect(invokeMock).toHaveBeenCalledWith("install_skill", {
+      directory: "skills/sample",
+      force: true,
+      app: "gemini",
+    });
+  });
+
+  it("uninstall forwards directory and app", async () => {
+    invokeMock.mockResolvedValueOnce(true);
+
+    await skillsApi.uninstall("skills/sample", "claude");
+
+    expect(invokeMock).toHaveBeenCalledWith("uninstall_skill", {
+      directory: "skills/sample",
+      app: "claude",
+    });
+  });
 });

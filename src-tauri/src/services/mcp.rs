@@ -202,6 +202,13 @@ impl McpService {
             AppType::Gemini => {
                 mcp::sync_single_server_to_gemini(cfg, &server.id, &server.server)?;
             }
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         }
         Ok(())
     }
@@ -224,6 +231,13 @@ impl McpService {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         }
         Ok(())
     }

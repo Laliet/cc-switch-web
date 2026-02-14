@@ -835,19 +835,45 @@ export function commandToEndpoint(
     }
 
     // Skill commands
-    case "get_skills":
-      return { method: "GET", url: `${apiBase}/skills` };
+    case "get_skills": {
+      const app = typeof args.app === "string" ? args.app : undefined;
+      return {
+        method: "GET",
+        url: app
+          ? `${apiBase}/skills?app=${encode(app)}`
+          : `${apiBase}/skills`,
+      };
+    }
     case "install_skill":
       return {
         method: "POST",
         url: `${apiBase}/skills/install`,
-        body: { directory: requireArg(args, "directory", cmd) },
+        body: (() => {
+          const directory = requireArg<string>(args, "directory", cmd);
+          const payload: { directory: string; force?: boolean; app?: string } =
+            { directory };
+          if (typeof args.force === "boolean") {
+            payload.force = args.force;
+          }
+          if (typeof args.app === "string") {
+            payload.app = args.app;
+          }
+          return payload;
+        })(),
       };
     case "uninstall_skill":
       return {
         method: "POST",
         url: `${apiBase}/skills/uninstall`,
-        body: { directory: requireArg(args, "directory", cmd) },
+        body: (() => {
+          const payload: { directory: string; app?: string } = {
+            directory: requireArg(args, "directory", cmd),
+          };
+          if (typeof args.app === "string") {
+            payload.app = args.app;
+          }
+          return payload;
+        })(),
       };
     case "get_skill_repos":
       return { method: "GET", url: `${apiBase}/skills/repos` };

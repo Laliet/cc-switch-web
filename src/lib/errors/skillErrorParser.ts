@@ -12,10 +12,12 @@ export interface SkillError {
 const ERROR_I18N_KEY_MAP: Record<string, string> = {
   SKILL_NOT_FOUND: "skills.error.skillNotFound",
   MISSING_REPO_INFO: "skills.error.missingRepoInfo",
+  APP_NOT_SUPPORTED: "skills.error.appNotSupported",
   DOWNLOAD_TIMEOUT: "skills.error.downloadTimeout",
   DOWNLOAD_FAILED: "skills.error.downloadFailed",
   SKILL_PATH_INVALID: "skills.error.skillPathInvalid",
   SKILL_DIR_NOT_FOUND: "skills.error.skillDirNotFound",
+  SKILL_INSTALL_PATH_CONFLICT: "skills.error.skillInstallPathConflict",
   EMPTY_ARCHIVE: "skills.error.emptyArchive",
   GET_HOME_DIR_FAILED: "skills.error.getHomeDirFailed",
 };
@@ -61,6 +63,22 @@ export function parseSkillError(errorString: string): SkillError | null {
   const codeCandidate = errorString.trim();
   if (codeCandidate && isKnownErrorCode(codeCandidate)) {
     return { code: codeCandidate, context: {} };
+  }
+  const zhUnsupportedMatch = codeCandidate.match(/应用\s*['"]([^'"]+)['"]\s*暂未支持/);
+  if (zhUnsupportedMatch) {
+    return {
+      code: "APP_NOT_SUPPORTED",
+      context: { app: zhUnsupportedMatch[1] },
+    };
+  }
+  const enUnsupportedMatch = codeCandidate.match(
+    /App\s*['"]([^'"]+)['"]\s*is not supported yet/i,
+  );
+  if (enUnsupportedMatch) {
+    return {
+      code: "APP_NOT_SUPPORTED",
+      context: { app: enUnsupportedMatch[1] },
+    };
   }
   return null;
 }

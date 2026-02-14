@@ -12,12 +12,20 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Claude => get_base_dir_with_fallback(get_claude_settings_path()?, ".claude")?,
         AppType::Codex => get_base_dir_with_fallback(get_codex_auth_path()?, ".codex")?,
         AppType::Gemini => get_gemini_dir()?,
+        AppType::Opencode | AppType::Omo => {
+            return Err(AppError::localized(
+                "app_not_supported_yet",
+                format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                format!("App '{}' is not supported yet.", app.as_str()),
+            ))
+        }
     };
 
     let filename = match app {
         AppType::Claude => "CLAUDE.md",
         AppType::Codex => "AGENTS.md",
         AppType::Gemini => "GEMINI.md",
+        AppType::Opencode | AppType::Omo => unreachable!("unsupported app should return above"),
     };
 
     Ok(base_dir.join(filename))

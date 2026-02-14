@@ -664,6 +664,7 @@ impl ProviderService {
                 }
                 state.save()?;
             }
+            AppType::Opencode | AppType::Omo => return Err(Self::app_not_supported(app_type)),
         }
         Ok(())
     }
@@ -716,6 +717,7 @@ impl ProviderService {
                 };
                 Ok(LiveSnapshot::Gemini { env, config })
             }
+            AppType::Opencode | AppType::Omo => Err(Self::app_not_supported(app_type)),
         }
     }
 
@@ -950,6 +952,7 @@ impl ProviderService {
                     "config": config_obj
                 })
             }
+            AppType::Opencode | AppType::Omo => return Err(Self::app_not_supported(&app_type)),
         };
 
         let mut provider = Provider::with_id(
@@ -1066,6 +1069,7 @@ impl ProviderService {
                     "config": config_obj
                 }))
             }
+            AppType::Opencode | AppType::Omo => Err(Self::app_not_supported(&app_type)),
         }
     }
 
@@ -1376,6 +1380,9 @@ impl ProviderService {
                 AppType::Codex => Self::prepare_switch_codex(config, &provider_id_owned)?,
                 AppType::Claude => Self::prepare_switch_claude(config, &provider_id_owned)?,
                 AppType::Gemini => Self::prepare_switch_gemini(config, &provider_id_owned)?,
+                AppType::Opencode | AppType::Omo => {
+                    return Err(Self::app_not_supported(&app_type_clone));
+                }
             };
 
             let action = PostCommitAction {
@@ -1689,6 +1696,7 @@ impl ProviderService {
             AppType::Codex => Self::write_codex_live(provider),
             AppType::Claude => Self::write_claude_live(provider),
             AppType::Gemini => Self::write_gemini_live(provider), // 新增
+            AppType::Opencode | AppType::Omo => Err(Self::app_not_supported(app_type)),
         }
     }
 
@@ -1748,6 +1756,7 @@ impl ProviderService {
                 use crate::gemini_config::validate_gemini_settings;
                 validate_gemini_settings(&provider.settings_config)?
             }
+            AppType::Opencode | AppType::Omo => return Err(Self::app_not_supported(app_type)),
         }
 
         // 🔧 验证并清理 UsageScript 配置（所有应用类型通用）
@@ -1906,6 +1915,7 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
+            AppType::Opencode | AppType::Omo => Err(Self::app_not_supported(app_type)),
         }
     }
 
@@ -1914,6 +1924,14 @@ impl ProviderService {
             "provider.app_not_found",
             format!("应用类型不存在: {app_type:?}"),
             format!("App type not found: {app_type:?}"),
+        )
+    }
+
+    fn app_not_supported(app_type: &AppType) -> AppError {
+        AppError::localized(
+            "app_not_supported_yet",
+            format!("应用 '{}' 暂未支持，敬请期待。", app_type.as_str()),
+            format!("App '{}' is not supported yet.", app_type.as_str()),
         )
     }
 
@@ -1966,6 +1984,7 @@ impl ProviderService {
             AppType::Gemini => {
                 // Gemini 使用单一的 .env 文件，不需要删除单独的供应商配置文件
             }
+            AppType::Opencode | AppType::Omo => return Err(Self::app_not_supported(&app_type)),
         }
 
         {

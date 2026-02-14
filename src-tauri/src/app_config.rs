@@ -22,6 +22,7 @@ impl McpApps {
             AppType::Claude => self.claude,
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
+            AppType::Opencode | AppType::Omo => false,
         }
     }
 
@@ -31,6 +32,7 @@ impl McpApps {
             AppType::Claude => self.claude = enabled,
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
+            AppType::Opencode | AppType::Omo => {}
         }
     }
 
@@ -217,7 +219,9 @@ fn is_stale_lock(path: &Path) -> bool {
 pub enum AppType {
     Claude,
     Codex,
-    Gemini, // 新增
+    Gemini,
+    Opencode,
+    Omo,
 }
 
 impl AppType {
@@ -225,8 +229,31 @@ impl AppType {
         match self {
             AppType::Claude => "claude",
             AppType::Codex => "codex",
-            AppType::Gemini => "gemini", // 新增
+            AppType::Gemini => "gemini",
+            AppType::Opencode => "opencode",
+            AppType::Omo => "omo",
         }
+    }
+
+    pub fn is_supported(&self) -> bool {
+        matches!(self, AppType::Claude | AppType::Codex | AppType::Gemini)
+    }
+
+    pub fn ensure_supported(&self) -> Result<(), AppError> {
+        if self.is_supported() {
+            return Ok(());
+        }
+        Err(AppError::localized(
+            "app_not_supported_yet",
+            format!("应用 '{}' 暂未支持，敬请期待。", self.as_str()),
+            format!("App '{}' is not supported yet.", self.as_str()),
+        ))
+    }
+
+    pub fn parse_supported(s: &str) -> Result<Self, AppError> {
+        let app = Self::from_str(s)?;
+        app.ensure_supported()?;
+        Ok(app)
     }
 }
 
@@ -238,11 +265,17 @@ impl FromStr for AppType {
         match normalized.as_str() {
             "claude" => Ok(AppType::Claude),
             "codex" => Ok(AppType::Codex),
-            "gemini" => Ok(AppType::Gemini), // 新增
+            "gemini" => Ok(AppType::Gemini),
+            "opencode" => Ok(AppType::Opencode),
+            "omo" => Ok(AppType::Omo),
             other => Err(AppError::localized(
                 "unsupported_app",
-                format!("不支持的应用标识: '{other}'。可选值: claude, codex, gemini。"),
-                format!("Unsupported app id: '{other}'. Allowed: claude, codex, gemini."),
+                format!(
+                    "不支持的应用标识: '{other}'。可选值: claude, codex, gemini, opencode, omo。"
+                ),
+                format!(
+                    "Unsupported app id: '{other}'. Allowed: claude, codex, gemini, opencode, omo."
+                ),
             )),
         }
     }
@@ -268,6 +301,7 @@ impl CommonConfigSnippets {
             AppType::Claude => self.claude.as_ref(),
             AppType::Codex => self.codex.as_ref(),
             AppType::Gemini => self.gemini.as_ref(),
+            AppType::Opencode | AppType::Omo => None,
         }
     }
 
@@ -277,6 +311,7 @@ impl CommonConfigSnippets {
             AppType::Claude => self.claude = snippet,
             AppType::Codex => self.codex = snippet,
             AppType::Gemini => self.gemini = snippet,
+            AppType::Opencode | AppType::Omo => {}
         }
     }
 }
@@ -497,6 +532,7 @@ impl MultiAppConfig {
             AppType::Claude => &self.mcp.claude,
             AppType::Codex => &self.mcp.codex,
             AppType::Gemini => &self.mcp.gemini,
+            AppType::Opencode | AppType::Omo => &self.mcp.codex,
         }
     }
 
@@ -506,6 +542,7 @@ impl MultiAppConfig {
             AppType::Claude => &mut self.mcp.claude,
             AppType::Codex => &mut self.mcp.codex,
             AppType::Gemini => &mut self.mcp.gemini,
+            AppType::Opencode | AppType::Omo => &mut self.mcp.codex,
         }
     }
 
@@ -614,6 +651,7 @@ impl MultiAppConfig {
             AppType::Claude => &mut config.prompts.claude.prompts,
             AppType::Codex => &mut config.prompts.codex.prompts,
             AppType::Gemini => &mut config.prompts.gemini.prompts,
+            AppType::Opencode | AppType::Omo => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -647,6 +685,7 @@ impl MultiAppConfig {
                 AppType::Claude => &self.mcp.claude.servers,
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
+                AppType::Opencode | AppType::Omo => continue,
             };
 
             for (id, entry) in old_servers {

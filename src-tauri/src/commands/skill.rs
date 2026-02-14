@@ -1,3 +1,4 @@
+use crate::app_config::AppType;
 use crate::error::format_skill_error;
 use crate::services::skill::SkillState;
 use crate::services::{Skill, SkillRepo, SkillService};
@@ -21,9 +22,13 @@ pub struct SkillsResponse {
 
 #[tauri::command]
 pub async fn get_skills(
-    service: State<'_, SkillServiceState>,
+    app: Option<String>,
+    _service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<SkillsResponse, String> {
+    let app = parse_skill_app(app)?;
+    let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+
     let (repos, mut repo_cache) = {
         let config = app_state.config.read().map_err(|e| e.to_string())?;
         (
@@ -32,8 +37,7 @@ pub async fn get_skills(
         )
     };
 
-    let result = service
-        .0
+    let result = service_for_app
         .list_skills(repos, &mut repo_cache)
         .await
         .map_err(|e| e.to_string())?;
@@ -59,9 +63,15 @@ pub async fn get_skills(
 #[tauri::command]
 pub async fn install_skill(
     directory: String,
-    service: State<'_, SkillServiceState>,
+    force: Option<bool>,
+    app: Option<String>,
+    _service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {
+    let force = force.unwrap_or(false);
+    let app = parse_skill_app(app)?;
+    let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+
     // 先在不持有写锁的情况下收集仓库与技能信息
     let (repos, mut repo_cache) = {
         let config = app_state.config.read().map_err(|e| e.to_string())?;
@@ -71,25 +81,16 @@ pub async fn install_skill(
         )
     };
 
-    let skills = service
-        .0
+    let skills = service_for_app
         .list_skills(repos, &mut repo_cache)
         .await
         .map_err(|e| e.to_string())?
         .skills;
 
-    let skill = skills
-        .iter()
-        .find(|s| s.directory.eq_ignore_ascii_case(&directory))
-        .ok_or_else(|| {
-            format_skill_error(
-                "SKILL_NOT_FOUND",
-                &[("directory", &directory)],
-                Some("checkRepoUrl"),
-            )
-        })?;
+    let skill =
+        SkillService::resolve_install_target(&skills, &directory).map_err(|err| err.to_string())?;
 
-    if !skill.installed {
+    if !skill.installed || force {
         let repo = SkillRepo {
             owner: skill.repo_owner.clone().ok_or_else(|| {
                 format_skill_error(
@@ -113,9 +114,8 @@ pub async fn install_skill(
             skills_path: skill.skills_path.clone(), // 使用技能记录的 skills_path
         };
 
-        service
-            .0
-            .install_skill(directory.clone(), repo)
+        service_for_app
+            .install_skill(directory.clone(), repo, force)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -124,7 +124,7 @@ pub async fn install_skill(
         let mut config = app_state.config.write().map_err(|e| e.to_string())?;
         config.skills.repo_cache = repo_cache;
         config.skills.skills.insert(
-            directory.clone(),
+            SkillService::state_key(&app, &directory),
             SkillState {
                 installed: true,
                 installed_at: Utc::now(),
@@ -140,23 +140,58 @@ pub async fn install_skill(
 #[tauri::command]
 pub fn uninstall_skill(
     directory: String,
-    service: State<'_, SkillServiceState>,
+    app: Option<String>,
+    _service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    service
-        .0
+    let app = parse_skill_app(app)?;
+    let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+
+    service_for_app
         .uninstall_skill(directory.clone())
         .map_err(|e| e.to_string())?;
 
     {
         let mut config = app_state.config.write().map_err(|e| e.to_string())?;
 
-        config.skills.skills.remove(&directory);
+        config
+            .skills
+            .skills
+            .remove(&SkillService::state_key(&app, &directory));
     }
 
     app_state.save().map_err(|e| e.to_string())?;
 
     Ok(true)
+}
+
+fn parse_skill_app(raw: Option<String>) -> Result<AppType, String> {
+    match raw {
+        Some(value) => AppType::parse_supported(&value).map_err(|e| e.to_string()),
+        None => Ok(AppType::Claude),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_skill_app;
+    use crate::AppType;
+
+    #[test]
+    fn parse_skill_app_defaults_to_claude() {
+        let app = parse_skill_app(None).expect("default app should parse");
+        assert_eq!(app, AppType::Claude);
+    }
+
+    #[test]
+    fn parse_skill_app_rejects_upcoming_app_ids() {
+        let err = parse_skill_app(Some("opencode".into()))
+            .expect_err("upcoming app id should be rejected for now");
+        assert!(
+            err.contains("暂未支持") || err.contains("not supported yet"),
+            "unexpected error message: {err}"
+        );
+    }
 }
 
 #[tauri::command]

@@ -225,7 +225,10 @@
   "apps": {
     "claude": "Claude Code",
     "codex": "Codex",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "opencode": "OpenCode",
+    "omo": "OMO",
+    "comingSoon": "Coming soon"
   },
   "console": {
     "providerSwitchReceived": "Received provider switch event:",
@@ -699,6 +702,7 @@
       "refreshing": "Background refresh"
     },
     "repoManager": "Repository Management",
+    "targetApp": "Install target app",
     "count": "{{count}} skills",
     "empty": "No skills available",
     "emptyDescription": "Add skill repositories to discover available skills",
@@ -717,11 +721,14 @@
     "loadFailed": "Failed to load",
     "installSuccess": "Skill {{name}} installed",
     "installFailed": "Failed to install",
+    "crossAppInstallHintTitle": "This skill is already installed in other apps",
+    "crossAppInstallHintDescription": "It will also be installed to {{targetApp}}. Already installed in: {{installedApps}}",
     "uninstallSuccess": "Skill {{name}} uninstalled",
     "uninstallFailed": "Failed to uninstall",
     "error": {
       "skillNotFound": "Skill not found: {{directory}}",
       "missingRepoInfo": "Missing repository info (owner or name)",
+      "appNotSupported": "App {{app}} is not supported yet",
       "downloadTimeout": "Download repository {{owner}}/{{name}} timeout ({{timeout}}s)",
       "downloadTimeoutHint": "Please check network connection or retry later",
       "skillPathNotFound": "Skill path '{{path}}' not found in repository {{owner}}/{{name}}",

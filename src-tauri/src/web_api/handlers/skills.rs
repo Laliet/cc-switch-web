@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -11,6 +11,7 @@ use chrono::Utc;
 use serde::Serialize;
 
 use crate::{
+    app_config::AppType,
     error::format_skill_error,
     error::AppError,
     services::{
@@ -94,45 +95,18 @@ impl From<ServiceSkill> for SkillResponse {
     }
 }
 
-pub async fn list_skills(State(state): State<Arc<AppState>>) -> ApiResult<SkillsResponse> {
-    let (repos, mut repo_cache) = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        (cfg.skills.repos.clone(), cfg.skills.repo_cache.clone())
-    };
-
-    let service = SkillService::new().map_err(internal_error)?;
-    let result = service
-        .list_skills(repos, &mut repo_cache)
-        .await
-        .map_err(internal_error)?;
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        cfg.skills.repo_cache = repo_cache;
-    }
-    state.save().map_err(internal_error)?;
-    let skills = result.skills.into_iter().map(SkillResponse::from).collect();
-    Ok(Json(SkillsResponse {
-        skills,
-        warnings: result.warnings,
-        cache_hit: result.cache_hit,
-        refreshing: result.refreshing,
-    }))
-}
-
 pub async fn install_skill(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<InstallPayload>,
 ) -> ApiResult<bool> {
-    let InstallPayload { directory } = payload;
-    let service = SkillService::new().map_err(internal_error)?;
+    let InstallPayload {
+        directory,
+        force,
+        app,
+    } = payload;
+    let force = force.unwrap_or(false);
+    let app = parse_skill_app(app)?;
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
 
     // 收集仓库信息并查找目标技能
     let (repos, mut repo_cache) = {
@@ -147,19 +121,10 @@ pub async fn install_skill(
         .list_skills(repos, &mut repo_cache)
         .await
         .map_err(internal_error)?;
-    let skill = skills
-        .skills
-        .iter()
-        .find(|s| s.directory.eq_ignore_ascii_case(&directory))
-        .ok_or_else(|| {
-            ApiError::bad_request(format_skill_error(
-                "SKILL_NOT_FOUND",
-                &[("directory", directory.as_str())],
-                Some("checkRepoUrl"),
-            ))
-        })?;
+    let skill = SkillService::resolve_install_target(&skills.skills, &directory)
+        .map_err(ApiError::bad_request)?;
 
-    if !skill.installed {
+    if !skill.installed || force {
         let repo = SkillRepo {
             owner: skill.repo_owner.clone().ok_or_else(|| {
                 ApiError::bad_request(format_skill_error(
@@ -184,7 +149,7 @@ pub async fn install_skill(
         };
 
         service
-            .install_skill(directory.clone(), repo)
+            .install_skill(directory.clone(), repo, force)
             .await
             .map_err(internal_error)?;
     }
@@ -198,7 +163,7 @@ pub async fn install_skill(
             .map_err(ApiError::from)?;
         cfg.skills.repo_cache = repo_cache;
         cfg.skills.skills.insert(
-            directory.clone(),
+            SkillService::state_key(&app, &directory),
             crate::services::skill::SkillState {
                 installed: true,
                 installed_at: Utc::now(),
@@ -214,9 +179,10 @@ pub async fn uninstall_skill(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<InstallPayload>,
 ) -> ApiResult<bool> {
+    let app = parse_skill_app(payload.app.clone())?;
     SkillService::validate_skill_directory(&payload.directory)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let service = SkillService::new().map_err(internal_error)?;
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
     service
         .uninstall_skill(payload.directory.clone())
         .map_err(internal_error)?;
@@ -227,7 +193,9 @@ pub async fn uninstall_skill(
             .write()
             .map_err(AppError::from)
             .map_err(ApiError::from)?;
-        cfg.skills.skills.remove(&payload.directory);
+        cfg.skills
+            .skills
+            .remove(&SkillService::state_key(&app, &payload.directory));
     }
     state.save().map_err(internal_error)?;
 
@@ -289,8 +257,88 @@ pub async fn remove_repo(
 #[serde(rename_all = "camelCase")]
 pub struct InstallPayload {
     pub directory: String,
+    #[serde(default)]
+    pub force: Option<bool>,
+    #[serde(default)]
+    pub app: Option<String>,
 }
 
 fn internal_error(err: impl ToString) -> ApiError {
     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSkillsQuery {
+    pub app: Option<String>,
+}
+
+pub async fn list_skills(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListSkillsQuery>,
+) -> ApiResult<SkillsResponse> {
+    let app = parse_skill_app(query.app)?;
+    let (repos, mut repo_cache) = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(AppError::from)
+            .map_err(ApiError::from)?;
+        (cfg.skills.repos.clone(), cfg.skills.repo_cache.clone())
+    };
+
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
+    let result = service
+        .list_skills(repos, &mut repo_cache)
+        .await
+        .map_err(internal_error)?;
+    {
+        let mut cfg = state
+            .config
+            .write()
+            .map_err(AppError::from)
+            .map_err(ApiError::from)?;
+        cfg.skills.repo_cache = repo_cache;
+    }
+    state.save().map_err(internal_error)?;
+    let skills = result.skills.into_iter().map(SkillResponse::from).collect();
+    Ok(Json(SkillsResponse {
+        skills,
+        warnings: result.warnings,
+        cache_hit: result.cache_hit,
+        refreshing: result.refreshing,
+    }))
+}
+
+fn parse_skill_app(raw: Option<String>) -> Result<AppType, ApiError> {
+    match raw {
+        Some(value) => AppType::parse_supported(&value)
+            .map_err(|e: AppError| ApiError::bad_request(e.to_string())),
+        None => Ok(AppType::Claude),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_skill_app;
+    use crate::AppType;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn parse_skill_app_defaults_to_claude() {
+        let app = parse_skill_app(None).expect("default app should parse");
+        assert_eq!(app, AppType::Claude);
+    }
+
+    #[test]
+    fn parse_skill_app_rejects_upcoming_app_ids() {
+        let err = parse_skill_app(Some("omo".into()))
+            .expect_err("upcoming app id should be rejected for now");
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(
+            err.message.contains("暂未支持") || err.message.contains("not supported yet"),
+            "unexpected error message: {}",
+            err.message
+        );
+    }
 }

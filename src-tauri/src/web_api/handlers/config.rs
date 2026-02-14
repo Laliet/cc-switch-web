@@ -175,24 +175,28 @@ pub async fn export_config_snapshot(
 
 pub async fn get_config_dir(Path(app): Path<String>) -> ApiResult<String> {
     let app_type = parse_app_type(&app)?;
-    let dir = match app_type {
-        AppType::Claude => crate::config::get_claude_config_dir().map_err(ApiError::from)?,
-        AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from)?,
-        AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from)?,
-    };
+    let dir = get_supported_config_dir(app_type)?;
     Ok(Json(dir.to_string_lossy().to_string()))
 }
 
 pub async fn open_config_folder(Path(app): Path<String>) -> ApiResult<bool> {
     let app_type = parse_app_type(&app)?;
-    let dir = match app_type {
-        AppType::Claude => crate::config::get_claude_config_dir().map_err(ApiError::from)?,
-        AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from)?,
-        AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from)?,
-    };
+    let dir = get_supported_config_dir(app_type)?;
 
     std::fs::create_dir_all(&dir).map_err(|e| ApiError::from(AppError::io(&dir, e)))?;
     Ok(Json(true))
+}
+
+fn get_supported_config_dir(app_type: AppType) -> Result<std::path::PathBuf, ApiError> {
+    match app_type {
+        AppType::Claude => crate::config::get_claude_config_dir().map_err(ApiError::from),
+        AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from),
+        AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from),
+        AppType::Opencode | AppType::Omo => Err(ApiError::bad_request(format!(
+            "应用 '{}' 暂未支持，敬请期待。",
+            app_type.as_str()
+        ))),
+    }
 }
 
 pub async fn pick_directory() -> ApiResult<Option<String>> {
@@ -270,9 +274,8 @@ pub async fn set_common_config_snippet(
     Path(app): Path<String>,
     Json(payload): Json<SnippetPayload>,
 ) -> ApiResult<bool> {
-    use std::str::FromStr;
-
-    let app_type = AppType::from_str(&app).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let app_type =
+        AppType::parse_supported(&app).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let mut guard = state
         .config
         .write()
@@ -286,6 +289,12 @@ pub async fn set_common_config_snippet(
                     .map_err(|e| ApiError::bad_request(format!("无效的 JSON 格式: {e}")))?;
             }
             AppType::Codex => { /* 不验证 TOML */ }
+            AppType::Opencode | AppType::Omo => {
+                return Err(ApiError::bad_request(format!(
+                    "应用 '{}' 暂未支持，敬请期待。",
+                    app_type.as_str()
+                )));
+            }
         }
     }
 

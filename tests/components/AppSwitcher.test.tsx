@@ -12,7 +12,7 @@ const renderAppSwitcher = (activeApp: AppId, onSwitch = vi.fn()) => {
   return { onSwitch, ...renderResult };
 };
 
-const getButton = (name: "Claude" | "Codex" | "Gemini") =>
+const getButton = (name: string | RegExp) =>
   screen.getByRole("button", { name });
 
 const getButtonIcon = (button: HTMLElement) => {
@@ -24,13 +24,15 @@ const getButtonIcon = (button: HTMLElement) => {
 };
 
 describe("AppSwitcher", () => {
-  it("renders three app buttons", () => {
+  it("renders supported and upcoming app buttons", () => {
     renderAppSwitcher("claude");
 
-    expect(getButton("Claude")).toBeInTheDocument();
-    expect(getButton("Codex")).toBeInTheDocument();
-    expect(getButton("Gemini")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(getButton("apps.claude")).toBeInTheDocument();
+    expect(getButton("apps.codex")).toBeInTheDocument();
+    expect(getButton("apps.gemini")).toBeInTheDocument();
+    expect(getButton(/apps\.opencode/i)).toBeDisabled();
+    expect(getButton(/apps\.omo/i)).toBeDisabled();
+    expect(screen.getAllByRole("button")).toHaveLength(5);
   });
 
   it("calls onSwitch when clicking different buttons", async () => {
@@ -38,8 +40,9 @@ describe("AppSwitcher", () => {
     const onSwitch = vi.fn();
     renderAppSwitcher("claude", onSwitch);
 
-    await user.click(getButton("Codex"));
-    await user.click(getButton("Gemini"));
+    await user.click(getButton("apps.codex"));
+    await user.click(getButton("apps.gemini"));
+    await user.click(getButton(/apps\.opencode/i));
 
     expect(onSwitch).toHaveBeenCalledTimes(2);
     expect(onSwitch).toHaveBeenNthCalledWith(1, "codex");
@@ -51,7 +54,7 @@ describe("AppSwitcher", () => {
     const onSwitch = vi.fn();
     renderAppSwitcher("codex", onSwitch);
 
-    await user.click(getButton("Codex"));
+    await user.click(getButton("apps.codex"));
 
     expect(onSwitch).not.toHaveBeenCalled();
   });
@@ -62,9 +65,9 @@ describe("AppSwitcher", () => {
       <AppSwitcher activeApp="claude" onSwitch={onSwitch} />,
     );
 
-    const claudeButton = getButton("Claude");
-    const codexButton = getButton("Codex");
-    const geminiButton = getButton("Gemini");
+    const claudeButton = getButton("apps.claude");
+    const codexButton = getButton("apps.codex");
+    const geminiButton = getButton("apps.gemini");
 
     expect(claudeButton).toHaveClass("bg-white");
     expect(claudeButton).toHaveClass("text-gray-900");
@@ -82,8 +85,8 @@ describe("AppSwitcher", () => {
 
     rerender(<AppSwitcher activeApp="gemini" onSwitch={onSwitch} />);
 
-    const claudeButtonAfter = getButton("Claude");
-    const geminiButtonAfter = getButton("Gemini");
+    const claudeButtonAfter = getButton("apps.claude");
+    const geminiButtonAfter = getButton("apps.gemini");
 
     expect(geminiButtonAfter).toHaveClass("bg-white");
     expect(geminiButtonAfter).toHaveClass("text-gray-900");

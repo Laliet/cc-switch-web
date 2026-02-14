@@ -47,7 +47,6 @@ pub struct McpConfigResponse {
 }
 
 /// 获取 MCP 配置（来自 ~/.cc-switch/config.json）
-use std::str::FromStr;
 
 #[tauri::command]
 #[allow(deprecated)] // 兼容层命令，内部调用已废弃的 Service 方法
@@ -59,7 +58,7 @@ pub async fn get_mcp_config(
         .map_err(|e| e.to_string())?
         .to_string_lossy()
         .to_string();
-    let app_ty = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let app_ty = AppType::parse_supported(&app).map_err(|e| e.to_string())?;
     let servers = McpService::get_servers(&state, app_ty).map_err(|e| e.to_string())?;
     Ok(McpConfigResponse {
         config_path,
@@ -79,7 +78,7 @@ pub async fn upsert_mcp_server_in_config(
 ) -> Result<bool, String> {
     use crate::app_config::McpServer;
 
-    let app_ty = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let app_ty = AppType::parse_supported(&app).map_err(|e| e.to_string())?;
 
     // 读取现有的服务器（如果存在）
     let existing_server = {
@@ -152,7 +151,7 @@ pub async fn set_mcp_enabled(
     id: String,
     enabled: bool,
 ) -> Result<bool, String> {
-    let app_ty = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let app_ty = AppType::parse_supported(&app).map_err(|e| e.to_string())?;
     McpService::set_enabled(&state, app_ty, &id, enabled).map_err(|e| e.to_string())
 }
 
@@ -193,6 +192,6 @@ pub async fn toggle_mcp_app(
     app: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let app_ty = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let app_ty = AppType::parse_supported(&app).map_err(|e| e.to_string())?;
     McpService::toggle_app(&state, &server_id, app_ty, enabled).map_err(|e| e.to_string())
 }

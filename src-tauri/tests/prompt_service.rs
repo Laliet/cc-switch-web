@@ -89,6 +89,9 @@ fn expected_prompt_path(app: &AppType, home: &Path) -> PathBuf {
             .expect("codex auth parent")
             .join("AGENTS.md"),
         AppType::Gemini => home.join(".gemini").join("GEMINI.md"),
+        AppType::Opencode | AppType::Omo => {
+            panic!("upcoming app should not be used in prompt service tests")
+        }
     }
 }
 

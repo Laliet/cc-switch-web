@@ -128,7 +128,7 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/get_skills`, () => success(getSkillsState())),
 
   http.post(`${TAURI_ENDPOINT}/install_skill`, async ({ request }) => {
-    const { directory } = await withJson<{ directory: string }>(request);
+    const { directory } = await withJson<{ directory: string; force?: boolean }>(request);
     installSkillState(directory);
     return success(true);
   }),

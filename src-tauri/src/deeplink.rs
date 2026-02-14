@@ -9,7 +9,6 @@ use crate::store::AppState;
 use crate::AppType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::str::FromStr;
 use url::Url;
 
 /// Deep link import request model
@@ -172,7 +171,7 @@ pub fn import_provider_from_deeplink(
     request: DeepLinkImportRequest,
 ) -> Result<String, AppError> {
     // Parse app type
-    let app_type = AppType::from_str(&request.app)
+    let app_type = AppType::parse_supported(&request.app)
         .map_err(|_| AppError::InvalidInput(format!("Invalid app type: {}", request.app)))?;
 
     // Build provider configuration based on app type
@@ -306,6 +305,13 @@ requires_openai_auth = true
             }
 
             json!({ "env": env })
+        }
+        AppType::Opencode | AppType::Omo => {
+            return Err(AppError::localized(
+                "app_not_supported_yet",
+                format!("应用 '{}' 暂未支持，敬请期待。", app_type.as_str()),
+                format!("App '{}' is not supported yet.", app_type.as_str()),
+            ));
         }
     };
 

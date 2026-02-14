@@ -1,7 +1,5 @@
 #![cfg(feature = "web-server")]
 
-use std::str::FromStr;
-
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -69,5 +67,29 @@ struct ErrorResponse {
 pub type ApiResult<T> = Result<Json<T>, ApiError>;
 
 pub fn parse_app_type(app: &str) -> Result<AppType, ApiError> {
-    AppType::from_str(app).map_err(|e| ApiError::bad_request(e.to_string()))
+    AppType::parse_supported(app).map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_app_type;
+    use crate::AppType;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn parse_app_type_accepts_supported_apps() {
+        let app = parse_app_type("gemini").expect("supported app should parse");
+        assert_eq!(app, AppType::Gemini);
+    }
+
+    #[test]
+    fn parse_app_type_rejects_upcoming_apps() {
+        let err = parse_app_type("opencode").expect_err("upcoming app should be rejected");
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        assert!(
+            err.message.contains("暂未支持") || err.message.contains("not supported yet"),
+            "unexpected error message: {}",
+            err.message
+        );
+    }
 }

@@ -23,9 +23,12 @@ import { SkillCard } from "./SkillCard";
 import { RepoManager } from "./RepoManager";
 import { skillsApi, type Skill, type SkillRepo } from "@/lib/api/skills";
 import { formatSkillError } from "@/lib/errors/skillErrorParser";
+import type { AppId } from "@/lib/api";
+import { SUPPORTED_APPS } from "@/config/apps";
 
 interface SkillsPageProps {
   onClose?: () => void;
+  appId?: AppId;
 }
 
 const getRepoKey = (skill: Skill) => {
@@ -36,15 +39,17 @@ const getRepoKey = (skill: Skill) => {
   return "__local__";
 };
 
-export function SkillsPage({ onClose: _onClose }: SkillsPageProps = {}) {
+export function SkillsPage({ onClose: _onClose, appId }: SkillsPageProps = {}) {
   return (
     <SkillsErrorBoundary>
-      <SkillsPageContent onClose={_onClose} />
+      <SkillsPageContent onClose={_onClose} appId={appId} />
     </SkillsErrorBoundary>
   );
 }
 
-function SkillsPageContent({ onClose: _onClose }: SkillsPageProps = {}) {
+function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
+  const [selectedApp, setSelectedApp] = useState<AppId>(() => appId ?? "claude");
+  const currentApp: AppId = selectedApp;
   const { t } = useTranslation();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [repos, setRepos] = useState<SkillRepo[]>([]);
@@ -214,7 +219,7 @@ function SkillsPageContent({ onClose: _onClose }: SkillsPageProps = {}) {
         warnings,
         cacheHit = false,
         refreshing = false,
-      } = await skillsApi.getAll();
+      } = await skillsApi.getAll(currentApp);
       const isLatestRequest = requestId === loadSkillsRequestId.current;
       if (isLatestRequest && isMountedRef.current) {
         setSkills(data);
@@ -299,11 +304,41 @@ function SkillsPageContent({ onClose: _onClose }: SkillsPageProps = {}) {
 
   useEffect(() => {
     Promise.all([loadSkills(), loadRepos()]);
-  }, []);
+  }, [currentApp]);
 
   const handleInstall = async (directory: string) => {
+    const targetSkill = skills.find((item) => item.directory === directory);
+    const otherInstalledApps = (targetSkill?.installedApps ?? []).filter(
+      (app) => app !== currentApp,
+    );
+    if (otherInstalledApps.length > 0) {
+      const otherAppNames = otherInstalledApps
+        .map((app) =>
+          t(`apps.${app}`, {
+            defaultValue: app,
+          }),
+        )
+        .join(" / ");
+      toast.warning(
+        t("skills.crossAppInstallHintTitle", {
+          defaultValue: "该技能已安装到其他客户端",
+        }),
+        {
+          description: t("skills.crossAppInstallHintDescription", {
+            targetApp: t(`apps.${currentApp}`, {
+              defaultValue: currentApp,
+            }),
+            installedApps: otherAppNames,
+            defaultValue:
+              "当前会继续安装到 {{targetApp}}。已安装客户端：{{installedApps}}",
+          }),
+          duration: 7000,
+        },
+      );
+    }
+
     try {
-      await skillsApi.install(directory);
+      await skillsApi.install(directory, undefined, currentApp);
       toast.success(t("skills.installSuccess", { name: directory }));
       await loadSkills();
     } catch (error) {
@@ -333,7 +368,7 @@ function SkillsPageContent({ onClose: _onClose }: SkillsPageProps = {}) {
 
   const handleUninstall = async (directory: string) => {
     try {
-      await skillsApi.uninstall(directory);
+      await skillsApi.uninstall(directory, currentApp);
       toast.success(t("skills.uninstallSuccess", { name: directory }));
       await loadSkills();
     } catch (error) {
@@ -518,6 +553,21 @@ function SkillsPageContent({ onClose: _onClose }: SkillsPageProps = {}) {
         <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
           {t("skills.description")}
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {t("skills.targetApp", { defaultValue: "安装目标客户端" })}
+          </span>
+          {SUPPORTED_APPS.map((app) => (
+            <Button
+              key={app.id}
+              variant={currentApp === app.id ? "default" : "mcp"}
+              size="sm"
+              onClick={() => setSelectedApp(app.id)}
+            >
+              {t(app.labelKey, { defaultValue: app.id })}
+            </Button>
+          ))}
+        </div>
         {statusLabel && (
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {statusLabel}

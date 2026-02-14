@@ -14,11 +14,9 @@ pub async fn get_claude_config_status() -> Result<ConfigStatus, String> {
     config::get_claude_config_status().map_err(|e| e.to_string())
 }
 
-use std::str::FromStr;
-
 #[tauri::command]
 pub async fn get_config_status(app: String) -> Result<ConfigStatus, String> {
-    match AppType::from_str(&app).map_err(|e| e.to_string())? {
+    match AppType::parse_supported(&app).map_err(|e| e.to_string())? {
         AppType::Claude => config::get_claude_config_status().map_err(|e| e.to_string()),
         AppType::Codex => {
             let auth_path = codex_config::get_codex_auth_path().map_err(|e| e.to_string())?;
@@ -41,6 +39,7 @@ pub async fn get_config_status(app: String) -> Result<ConfigStatus, String> {
 
             Ok(ConfigStatus { exists, path })
         }
+        AppType::Opencode | AppType::Omo => Err(format!("应用暂未支持: {app}")),
     }
 }
 
@@ -54,10 +53,11 @@ pub async fn get_claude_code_config_path() -> Result<String, String> {
 /// 获取当前生效的配置目录
 #[tauri::command]
 pub async fn get_config_dir(app: String) -> Result<String, String> {
-    let dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
+    let dir = match AppType::parse_supported(&app).map_err(|e| e.to_string())? {
         AppType::Claude => config::get_claude_config_dir().map_err(|e| e.to_string())?,
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
+        AppType::Opencode | AppType::Omo => return Err(format!("应用暂未支持: {app}")),
     };
 
     Ok(dir.to_string_lossy().to_string())
@@ -66,10 +66,11 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
 /// 打开配置文件夹
 #[tauri::command]
 pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, String> {
-    let config_dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
+    let config_dir = match AppType::parse_supported(&app).map_err(|e| e.to_string())? {
         AppType::Claude => config::get_claude_config_dir().map_err(|e| e.to_string())?,
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
+        AppType::Opencode | AppType::Omo => return Err(format!("应用暂未支持: {app}")),
     };
 
     if !config_dir.exists() {
@@ -186,9 +187,8 @@ pub async fn get_common_config_snippet(
     state: tauri::State<'_, crate::store::AppState>,
 ) -> Result<Option<String>, String> {
     use crate::app_config::AppType;
-    use std::str::FromStr;
 
-    let app = AppType::from_str(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
+    let app = AppType::parse_supported(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
 
     let guard = state
         .config
@@ -206,9 +206,8 @@ pub async fn set_common_config_snippet(
     state: tauri::State<'_, crate::store::AppState>,
 ) -> Result<(), String> {
     use crate::app_config::AppType;
-    use std::str::FromStr;
 
-    let app = AppType::from_str(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
+    let app = AppType::parse_supported(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
 
     let mut guard = state
         .config
@@ -226,6 +225,9 @@ pub async fn set_common_config_snippet(
             AppType::Codex => {
                 // TOML 格式暂不验证（或可使用 toml crate）
                 // 注意：TOML 验证较为复杂，暂时跳过
+            }
+            AppType::Opencode | AppType::Omo => {
+                return Err(format!("应用暂未支持: {}", app.as_str()));
             }
         }
     }

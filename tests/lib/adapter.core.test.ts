@@ -529,6 +529,11 @@ describe("commandToEndpoint", () => {
         expected: { method: "GET", url: "/api/skills" },
       },
       {
+        cmd: "get_skills",
+        args: { app: "codex" },
+        expected: { method: "GET", url: "/api/skills?app=codex" },
+      },
+      {
         cmd: "install_skill",
         args: { directory: "/skills/notes" },
         expected: {
@@ -538,12 +543,39 @@ describe("commandToEndpoint", () => {
         },
       },
       {
+        cmd: "install_skill",
+        args: { directory: "/skills/notes", force: true },
+        expected: {
+          method: "POST",
+          url: "/api/skills/install",
+          body: { directory: "/skills/notes", force: true },
+        },
+      },
+      {
+        cmd: "install_skill",
+        args: { directory: "/skills/notes", app: "gemini" },
+        expected: {
+          method: "POST",
+          url: "/api/skills/install",
+          body: { directory: "/skills/notes", app: "gemini" },
+        },
+      },
+      {
         cmd: "uninstall_skill",
         args: { directory: "/skills/notes" },
         expected: {
           method: "POST",
           url: "/api/skills/uninstall",
           body: { directory: "/skills/notes" },
+        },
+      },
+      {
+        cmd: "uninstall_skill",
+        args: { directory: "/skills/notes", app: "codex" },
+        expected: {
+          method: "POST",
+          url: "/api/skills/uninstall",
+          body: { directory: "/skills/notes", app: "codex" },
         },
       },
       {

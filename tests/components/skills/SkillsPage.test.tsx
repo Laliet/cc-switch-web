@@ -200,6 +200,7 @@ const createSkill = (overrides: Partial<Skill> = {}): Skill => ({
   repoName: overrides.repoName,
   repoBranch: overrides.repoBranch,
   skillsPath: overrides.skillsPath,
+  installedApps: overrides.installedApps,
 });
 
 beforeEach(() => {
@@ -444,7 +445,11 @@ describe("SkillsPage", () => {
     await user.click(within(notInstalledCard).getByRole("button", { name: "install" }));
 
     await waitFor(() => {
-      expect(installMock).toHaveBeenCalledWith("skills/not-installed");
+      expect(installMock).toHaveBeenCalledWith(
+        "skills/not-installed",
+        undefined,
+        "claude",
+      );
       expect(getAllMock).toHaveBeenCalledTimes(2);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith("skills.installSuccess");
@@ -453,10 +458,82 @@ describe("SkillsPage", () => {
     await user.click(within(installedCard).getByRole("button", { name: "uninstall" }));
 
     await waitFor(() => {
-      expect(uninstallMock).toHaveBeenCalledWith("skills/installed");
+      expect(uninstallMock).toHaveBeenCalledWith("skills/installed", "claude");
       expect(getAllMock).toHaveBeenCalledTimes(3);
     });
     expect(toastSuccessMock).toHaveBeenCalledWith("skills.uninstallSuccess");
+  });
+
+  it("switches target app without relying on global app switch", async () => {
+    const user = userEvent.setup();
+    const skill = createSkill({
+      key: "skill-1",
+      name: "Target Switch Skill",
+      directory: "skills/target-switch",
+      installed: false,
+    });
+
+    getAllMock
+      .mockResolvedValueOnce({ skills: [skill] })
+      .mockResolvedValueOnce({ skills: [skill] })
+      .mockResolvedValueOnce({
+        skills: [{ ...skill, installed: true }],
+      });
+
+    render(<SkillsPage appId="claude" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Target Switch Skill")).toBeInTheDocument(),
+    );
+    expect(getAllMock).toHaveBeenCalledWith("claude");
+
+    await user.click(screen.getByRole("button", { name: "apps.codex" }));
+
+    await waitFor(() => expect(getAllMock).toHaveBeenLastCalledWith("codex"));
+
+    const card = screen.getByTestId("skill-card-skill-1");
+    await user.click(within(card).getByRole("button", { name: "install" }));
+
+    await waitFor(() =>
+      expect(installMock).toHaveBeenCalledWith(
+        "skills/target-switch",
+        undefined,
+        "codex",
+      ),
+    );
+  });
+
+  it("shows cross-app warning before install when already installed in another app", async () => {
+    const user = userEvent.setup();
+    const skill = createSkill({
+      key: "skill-1",
+      name: "Shared Skill",
+      directory: "skills/shared",
+      installed: false,
+      installedApps: ["codex"],
+    });
+
+    getAllMock
+      .mockResolvedValueOnce({ skills: [skill] })
+      .mockResolvedValueOnce({
+        skills: [{ ...skill, installed: true, installedApps: ["claude", "codex"] }],
+      });
+
+    render(<SkillsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Shared Skill")).toBeInTheDocument(),
+    );
+    const card = screen.getByTestId("skill-card-skill-1");
+    await user.click(within(card).getByRole("button", { name: "install" }));
+
+    await waitFor(() =>
+      expect(toastWarningMock).toHaveBeenCalledWith(
+        "skills.crossAppInstallHintTitle",
+        expect.objectContaining({ duration: 7000 }),
+      ),
+    );
+    expect(installMock).toHaveBeenCalledWith("skills/shared", undefined, "claude");
   });
 
   it("renders error boundary fallback and retries", async () => {
@@ -567,6 +644,37 @@ describe("SkillsPage", () => {
     await user.click(within(card).getByRole("button", { name: "install" }));
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
+    consoleSpy.mockRestore();
+  });
+
+  it("maps unsupported-app install error to localized toast message", async () => {
+    const user = userEvent.setup();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const skill = createSkill({
+      key: "skill-1",
+      name: "Coming Soon Skill",
+      directory: "skills/coming-soon",
+      installed: false,
+    });
+    getAllMock.mockResolvedValue({ skills: [skill] });
+    installMock.mockRejectedValueOnce(new Error("App 'omo' is not supported yet."));
+
+    render(<SkillsPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Coming Soon Skill")).toBeInTheDocument(),
+    );
+    const card = screen.getByTestId("skill-card-skill-1");
+    await user.click(within(card).getByRole("button", { name: "install" }));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "skills.installFailed",
+        expect.objectContaining({
+          description: "skills.error.appNotSupported",
+        }),
+      ),
+    );
     consoleSpy.mockRestore();
   });
 

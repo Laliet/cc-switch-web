@@ -225,7 +225,10 @@
   "apps": {
     "claude": "Claude Code",
     "codex": "Codex",
-    "gemini": "Gemini"
+    "gemini": "Gemini",
+    "opencode": "OpenCode",
+    "omo": "OMO",
+    "comingSoon": "即将支持"
   },
   "console": {
     "providerSwitchReceived": "收到供应商切换事件:",
@@ -699,6 +702,7 @@
       "refreshing": "后台刷新中"
     },
     "repoManager": "仓库管理",
+    "targetApp": "安装目标客户端",
     "count": "共 {{count}} 个技能",
     "empty": "暂无可用技能",
     "emptyDescription": "添加技能仓库以发现可用的技能",
@@ -717,11 +721,14 @@
     "loadFailed": "加载失败",
     "installSuccess": "技能 {{name}} 已安装",
     "installFailed": "安装失败",
+    "crossAppInstallHintTitle": "该技能已安装到其他客户端",
+    "crossAppInstallHintDescription": "当前会继续安装到 {{targetApp}}。已安装客户端：{{installedApps}}",
     "uninstallSuccess": "技能 {{name}} 已卸载",
     "uninstallFailed": "卸载失败",
     "error": {
       "skillNotFound": "技能不存在：{{directory}}",
       "missingRepoInfo": "缺少仓库信息（owner 或 name）",
+      "appNotSupported": "应用 {{app}} 暂未支持",
       "downloadTimeout": "下载仓库 {{owner}}/{{name}} 超时（{{timeout}}秒）",
       "downloadTimeoutHint": "请检查网络连接或稍后重试",
       "skillPathNotFound": "仓库 {{owner}}/{{name}} 中未找到技能路径 '{{path}}'",

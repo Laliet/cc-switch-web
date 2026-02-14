@@ -20,6 +20,13 @@ impl PromptService {
             AppType::Claude => &cfg.prompts.claude.prompts,
             AppType::Codex => &cfg.prompts.codex.prompts,
             AppType::Gemini => &cfg.prompts.gemini.prompts,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         };
         Ok(prompts.clone())
     }
@@ -35,6 +42,13 @@ impl PromptService {
             AppType::Claude => &mut cfg.prompts.claude.prompts,
             AppType::Codex => &mut cfg.prompts.codex.prompts,
             AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         };
         let was_enabled = prompts.get(id).map(|p| p.enabled).unwrap_or(false);
         prompts.insert(id.to_string(), prompt.clone());
@@ -60,6 +74,13 @@ impl PromptService {
             AppType::Claude => &mut cfg.prompts.claude.prompts,
             AppType::Codex => &mut cfg.prompts.codex.prompts,
             AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         };
 
         if let Some(prompt) = prompts.get(id) {
@@ -86,6 +107,13 @@ impl PromptService {
                     AppType::Claude => &mut cfg.prompts.claude.prompts,
                     AppType::Codex => &mut cfg.prompts.codex.prompts,
                     AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+                    AppType::Opencode | AppType::Omo => {
+                        return Err(AppError::localized(
+                            "app_not_supported_yet",
+                            format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                            format!("App '{}' is not supported yet.", app.as_str()),
+                        ));
+                    }
                 };
 
                 // 尝试回填到当前已启用的提示词
@@ -136,6 +164,13 @@ impl PromptService {
             AppType::Claude => &mut cfg.prompts.claude.prompts,
             AppType::Codex => &mut cfg.prompts.codex.prompts,
             AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+            AppType::Opencode | AppType::Omo => {
+                return Err(AppError::localized(
+                    "app_not_supported_yet",
+                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                    format!("App '{}' is not supported yet.", app.as_str()),
+                ));
+            }
         };
 
         for prompt in prompts.values_mut() {

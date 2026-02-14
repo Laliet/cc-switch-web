@@ -11,6 +11,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tokio::time::timeout;
 
+use crate::app_config::AppType;
 use crate::config::{get_app_config_dir, get_home_dir, write_json_file};
 use crate::error::format_skill_error;
 
@@ -46,6 +47,13 @@ pub struct Skill {
     pub readme_url: Option<String>,
     /// 是否已安装
     pub installed: bool,
+    /// 已安装到哪些客户端
+    #[serde(
+        rename = "installedApps",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub installed_apps: Vec<String>,
     /// 仓库所有者
     #[serde(rename = "repoOwner")]
     pub repo_owner: Option<String>,
@@ -197,6 +205,7 @@ struct WorkflowMetadata {
 pub struct SkillService {
     http_client: Client,
     install_dir: PathBuf,
+    app: AppType,
 }
 
 #[derive(Debug, Clone)]
@@ -246,7 +255,11 @@ enum RepoFetchOutcome {
 
 impl SkillService {
     pub fn new() -> Result<Self> {
-        let install_dir = Self::get_install_dir()?;
+        Self::new_for_app(&AppType::Claude)
+    }
+
+    pub fn new_for_app(app: &AppType) -> Result<Self> {
+        let install_dir = Self::get_install_dir_for_app(app)?;
 
         // 确保目录存在
         fs::create_dir_all(&install_dir)?;
@@ -260,16 +273,48 @@ impl SkillService {
         Ok(Self {
             http_client,
             install_dir,
+            app: app.clone(),
         })
     }
 
-    fn get_install_dir() -> Result<PathBuf> {
+    fn get_install_dir_for_app(app: &AppType) -> Result<PathBuf> {
         let home = get_home_dir().context(format_skill_error(
             "GET_HOME_DIR_FAILED",
             &[],
             Some("checkPermission"),
         ))?;
-        Ok(home.join(".claude").join("skills"))
+        let dir = match app {
+            AppType::Claude => ".claude",
+            AppType::Codex => ".codex",
+            AppType::Gemini => ".gemini",
+            AppType::Opencode | AppType::Omo => {
+                return Err(anyhow!(format_skill_error(
+                    "APP_NOT_SUPPORTED",
+                    &[("app", app.as_str())],
+                    None,
+                )))
+            }
+        };
+        Ok(home.join(dir).join("skills"))
+    }
+
+    pub fn state_key(app: &AppType, directory: &str) -> String {
+        format!("{}:{directory}", app.as_str())
+    }
+
+    fn installed_apps_for_directory(directory: &str) -> Vec<String> {
+        [AppType::Claude, AppType::Codex, AppType::Gemini]
+            .into_iter()
+            .filter_map(|app| {
+                let install_dir = Self::get_install_dir_for_app(&app).ok()?;
+                let skill_md = install_dir.join(directory).join("SKILL.md");
+                if skill_md.is_file() {
+                    Some(app.as_str().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -341,6 +386,45 @@ impl SkillService {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn resolve_install_target<'a>(
+        skills: &'a [Skill],
+        directory: &str,
+    ) -> Result<&'a Skill, String> {
+        let matches: Vec<&Skill> = skills
+            .iter()
+            .filter(|skill| skill.directory.eq_ignore_ascii_case(directory))
+            .collect();
+        if matches.len() > 1 {
+            let mut sources: Vec<String> = matches
+                .iter()
+                .map(|skill| {
+                    if let (Some(owner), Some(name)) = (&skill.repo_owner, &skill.repo_name) {
+                        let branch = skill.repo_branch.as_deref().unwrap_or("main");
+                        format!("{owner}/{name}@{branch}")
+                    } else {
+                        "local".to_string()
+                    }
+                })
+                .collect();
+            sources.sort();
+            sources.dedup();
+            let sources_joined = sources.join(", ");
+            return Err(format_skill_error(
+                "SKILL_INSTALL_PATH_CONFLICT",
+                &[("directory", directory), ("sources", &sources_joined)],
+                None,
+            ));
+        }
+
+        matches.first().copied().ok_or_else(|| {
+            format_skill_error(
+                "SKILL_NOT_FOUND",
+                &[("directory", directory)],
+                Some("checkRepoUrl"),
+            )
+        })
     }
 
     fn relative_path_components(root: &Path, current_dir: &Path) -> Option<Vec<String>> {
@@ -655,6 +739,13 @@ impl SkillService {
 
         // 去重并排序
         Self::deduplicate_skills(&mut skills);
+        for skill in skills.iter_mut() {
+            let installed_apps = Self::installed_apps_for_directory(&skill.directory);
+            skill.installed = installed_apps
+                .iter()
+                .any(|app_id| app_id == self.app.as_str());
+            skill.installed_apps = installed_apps;
+        }
         skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         Ok(SkillListResult {
@@ -809,7 +900,10 @@ impl SkillService {
                 (None, false)
             }
         } else {
-            (Self::relative_path_components(scan_root, current_dir), false)
+            (
+                Self::relative_path_components(scan_root, current_dir),
+                false,
+            )
         };
 
         if let Some(components) = components {
@@ -858,6 +952,7 @@ impl SkillService {
                                             repo.owner, repo.name, repo.branch, readme_path
                                         )),
                                         installed: false,
+                                        installed_apps: Vec::new(),
                                         repo_owner: Some(repo.owner.clone()),
                                         repo_name: Some(repo.name.clone()),
                                         repo_branch: Some(repo.branch.clone()),
@@ -1155,6 +1250,7 @@ impl SkillService {
                                     depth,
                                     readme_url: None,
                                     installed: true,
+                                    installed_apps: vec![self.app.as_str().to_string()],
                                     repo_owner: None,
                                     repo_name: None,
                                     repo_branch: None,
@@ -1573,12 +1669,17 @@ impl SkillService {
     }
 
     /// 安装技能（仅负责下载和文件操作，状态更新由上层负责）
-    pub async fn install_skill(&self, directory: String, repo: SkillRepo) -> Result<()> {
+    pub async fn install_skill(
+        &self,
+        directory: String,
+        repo: SkillRepo,
+        force: bool,
+    ) -> Result<()> {
         Self::validate_skill_directory(&directory)?;
         let dest = self.install_dir.join(&directory);
 
         // 若目标目录已存在，则视为已安装，避免重复下载
-        if dest.exists() {
+        if dest.exists() && !force {
             return Ok(());
         }
 
@@ -1612,36 +1713,8 @@ impl SkillService {
         let temp_path = temp_dir.path().to_path_buf();
 
         // 根据 skills_path 确定源目录路径
-        let source = if let Some(ref skills_path) = repo.skills_path {
-            // 如果指定了 skills_path，源路径为: temp_dir/skills_path/directory
-            let normalized_skills_path = match Self::normalize_skills_path(skills_path) {
-                Ok(path) => path,
-                Err(err) => {
-                    return Err(err);
-                }
-            };
-            match normalized_skills_path {
-                Some(path) => {
-                    let skills_leaf = path.rsplit('/').next().unwrap_or("");
-                    let directory_leaf = directory
-                        .rsplit(|c| ['/', '\\'].contains(&c))
-                        .next()
-                        .unwrap_or("");
-                    if !skills_leaf.is_empty()
-                        && !directory_leaf.is_empty()
-                        && skills_leaf.eq_ignore_ascii_case(directory_leaf)
-                    {
-                        temp_path.join(path)
-                    } else {
-                        temp_path.join(path).join(&directory)
-                    }
-                }
-                None => temp_path.join(&directory),
-            }
-        } else {
-            // 否则源路径为: temp_dir/directory
-            temp_path.join(&directory)
-        };
+        let source =
+            Self::resolve_install_source_path(&temp_path, &directory, repo.skills_path.as_deref())?;
 
         if !source.exists() {
             return Err(anyhow::anyhow!(format_skill_error(
@@ -1651,15 +1724,54 @@ impl SkillService {
             )));
         }
 
-        // 删除旧版本
-        if dest.exists() {
-            fs::remove_dir_all(&dest)?;
-        }
-
-        // 递归复制
-        Self::copy_dir_recursive(&source, &dest)?;
+        Self::install_from_source(&source, &dest, force)?;
 
         Ok(())
+    }
+
+    fn resolve_install_source_path(
+        temp_path: &Path,
+        directory: &str,
+        skills_path: Option<&str>,
+    ) -> Result<PathBuf> {
+        let normalized_skills_path = match skills_path {
+            Some(skills_path) => Self::normalize_skills_path(skills_path)?,
+            None => None,
+        };
+
+        let source = match normalized_skills_path {
+            Some(path) => {
+                let skills_leaf = path.rsplit('/').next().unwrap_or("");
+                let directory_leaf = directory
+                    .rsplit(|c| ['/', '\\'].contains(&c))
+                    .next()
+                    .unwrap_or("");
+                if !skills_leaf.is_empty()
+                    && !directory_leaf.is_empty()
+                    && skills_leaf.eq_ignore_ascii_case(directory_leaf)
+                {
+                    temp_path.join(path)
+                } else {
+                    temp_path.join(path).join(directory)
+                }
+            }
+            None => temp_path.join(directory),
+        };
+
+        Ok(source)
+    }
+
+    fn install_from_source(source: &Path, dest: &Path, force: bool) -> Result<bool> {
+        if dest.exists() {
+            if !force {
+                return Ok(false);
+            }
+            fs::remove_dir_all(dest)?;
+        }
+
+        Self::copy_dir_recursive(source, dest)?;
+
+        Ok(true)
     }
 
     /// 递归复制目录
@@ -1727,6 +1839,7 @@ impl SkillService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::io::Write;
     use zip::write::FileOptions;
 
@@ -1737,6 +1850,7 @@ mod tests {
                 .build()
                 .expect("client build should succeed"),
             install_dir: dir,
+            app: AppType::Claude,
         }
     }
 
@@ -1750,6 +1864,7 @@ mod tests {
             depth: 0,
             readme_url: None,
             installed: false,
+            installed_apps: Vec::new(),
             repo_owner: None,
             repo_name: None,
             repo_branch: None,
@@ -1823,6 +1938,104 @@ description: Useful skill
     }
 
     #[test]
+    fn test_resolve_install_target_conflict_same_directory() {
+        let mut first = make_skill("owner1/repo1:alpha", "alpha");
+        first.repo_owner = Some("owner1".to_string());
+        first.repo_name = Some("repo1".to_string());
+        first.repo_branch = Some("main".to_string());
+        let mut second = make_skill("owner2/repo2:alpha", "alpha");
+        second.repo_owner = Some("owner2".to_string());
+        second.repo_name = Some("repo2".to_string());
+        second.repo_branch = Some("dev".to_string());
+
+        let err = SkillService::resolve_install_target(&[first, second], "alpha")
+            .expect_err("should reject install path conflicts");
+        let parsed: Value = serde_json::from_str(&err).expect("should parse conflict error json");
+        assert_eq!(parsed["code"], "SKILL_INSTALL_PATH_CONFLICT");
+        assert_eq!(parsed["context"]["directory"], "alpha");
+        let sources = parsed["context"]["sources"].as_str().unwrap_or("");
+        assert!(sources.contains("owner1/repo1@main"));
+        assert!(sources.contains("owner2/repo2@dev"));
+    }
+
+    #[tokio::test]
+    async fn test_install_skill_skips_when_installed_without_force() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let install_dir = temp_dir.path().join("install");
+        fs::create_dir_all(&install_dir).expect("install dir should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+
+        let dest = install_dir.join("demo");
+        fs::create_dir_all(&dest).expect("dest should exist");
+        fs::write(dest.join("SKILL.md"), "old").expect("write existing skill");
+
+        let repo = SkillRepo {
+            owner: "owner".to_string(),
+            name: "repo".to_string(),
+            branch: "main".to_string(),
+            enabled: true,
+            skills_path: None,
+        };
+
+        service
+            .install_skill("demo".to_string(), repo, false)
+            .await
+            .expect("install should skip when already installed");
+
+        let content = fs::read_to_string(dest.join("SKILL.md")).expect("read existing skill");
+        assert_eq!(content, "old");
+    }
+
+    #[test]
+    fn test_install_from_source_respects_force() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let source = temp_dir.path().join("source");
+        let dest = temp_dir.path().join("dest");
+        fs::create_dir_all(&source).expect("source dir should exist");
+        fs::create_dir_all(&dest).expect("dest dir should exist");
+        fs::write(source.join("SKILL.md"), "new").expect("write source skill");
+        fs::write(dest.join("SKILL.md"), "old").expect("write dest skill");
+
+        let skipped = SkillService::install_from_source(&source, &dest, false)
+            .expect("install from source should succeed");
+        assert!(!skipped, "expected install to be skipped without force");
+        let content = fs::read_to_string(dest.join("SKILL.md")).expect("read dest skill");
+        assert_eq!(content, "old");
+
+        let installed = SkillService::install_from_source(&source, &dest, true)
+            .expect("force install should succeed");
+        assert!(installed, "expected install to proceed with force");
+        let content = fs::read_to_string(dest.join("SKILL.md")).expect("read dest skill");
+        assert_eq!(content, "new");
+    }
+
+    #[test]
+    fn test_resolve_install_source_path_skills_path_edges() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+
+        let source =
+            SkillService::resolve_install_source_path(temp_dir.path(), "foo", Some("skills/foo"))
+                .expect("should resolve source for leaf match");
+        assert_eq!(source, temp_dir.path().join("skills").join("foo"));
+
+        let source =
+            SkillService::resolve_install_source_path(temp_dir.path(), "foo", Some("skills"))
+                .expect("should resolve source with skills path");
+        assert_eq!(source, temp_dir.path().join("skills").join("foo"));
+
+        let source = SkillService::resolve_install_source_path(temp_dir.path(), "foo", Some(" / "))
+            .expect("should resolve source for empty skills path");
+        assert_eq!(source, temp_dir.path().join("foo"));
+
+        let err =
+            SkillService::resolve_install_source_path(temp_dir.path(), "foo", Some("../skills"))
+                .expect_err("should reject traversal skills path");
+        let parsed: Value =
+            serde_json::from_str(&err.to_string()).expect("should parse error json");
+        assert_eq!(parsed["code"], "SKILL_PATH_INVALID");
+    }
+
+    #[test]
     fn test_scan_root_skill_md() {
         let temp_dir = tempfile::tempdir().expect("temp dir should exist");
         let skill_dir = temp_dir.path().join("skills").join("foo");
@@ -1879,9 +2092,7 @@ description: Root level skill
             zip_writer
                 .start_file("README.md", options)
                 .expect("start readme file");
-            zip_writer
-                .write_all(b"readme")
-                .expect("write readme file");
+            zip_writer.write_all(b"readme").expect("write readme file");
             zip_writer.finish().expect("finish zip");
         }
 

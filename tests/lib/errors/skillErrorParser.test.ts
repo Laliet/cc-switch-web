@@ -76,6 +76,13 @@ describe("parseSkillError", () => {
     });
   });
 
+  it("extracts app id from localized not-supported message", () => {
+    expect(parseSkillError("应用 'opencode' 暂未支持，敬请期待。")).toEqual({
+      code: "APP_NOT_SUPPORTED",
+      context: { app: "opencode" },
+    });
+  });
+
   it("returns null for unknown format", () => {
     expect(parseSkillError("unknown error")).toBeNull();
   });
@@ -92,6 +99,15 @@ describe("formatSkillError", () => {
     expect(formatSkillError(input, t)).toEqual({
       title: "skills.installFailed",
       description: "skills.error.skillNotFound:{\"name\":\"demo\"}",
+    });
+  });
+
+  it("formats not-supported app error from plain message", () => {
+    const t = createT();
+
+    expect(formatSkillError("App 'omo' is not supported yet.", t)).toEqual({
+      title: "skills.installFailed",
+      description: "skills.error.appNotSupported:{\"app\":\"omo\"}",
     });
   });
 

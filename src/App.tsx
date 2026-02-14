@@ -639,7 +639,10 @@ function AppContent() {
               </DialogDescription>
             </VisuallyHidden>
           </DialogHeader>
-          <SkillsPage onClose={() => setIsSkillsOpen(false)} />
+          <SkillsPage
+            onClose={() => setIsSkillsOpen(false)}
+            appId={activeApp}
+          />
         </DialogContent>
       </Dialog>
       <DeepLinkImportDialog />

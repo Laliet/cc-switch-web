@@ -1,4 +1,5 @@
 import { invoke } from "./adapter";
+import type { AppId } from "./types";
 
 export interface SkillCommand {
   name: string;
@@ -16,6 +17,7 @@ export interface Skill {
   commands?: SkillCommand[];
   readmeUrl?: string;
   installed: boolean;
+  installedApps?: string[];
   repoOwner?: string;
   repoName?: string;
   repoBranch?: string;
@@ -41,8 +43,11 @@ const toBoolean = (value: unknown): boolean =>
   typeof value === "boolean" ? value : false;
 
 export const skillsApi = {
-  async getAll(): Promise<SkillsResponse> {
-    const result = await invoke("get_skills");
+  async getAll(app?: AppId): Promise<SkillsResponse> {
+    const result =
+      app !== undefined
+        ? await invoke("get_skills", { app })
+        : await invoke("get_skills");
 
     if (Array.isArray(result)) {
       return {
@@ -68,12 +73,23 @@ export const skillsApi = {
     };
   },
 
-  async install(directory: string): Promise<boolean> {
-    return await invoke("install_skill", { directory });
+  async install(
+    directory: string,
+    force?: boolean,
+    app?: AppId,
+  ): Promise<boolean> {
+    const payload: Record<string, unknown> = { directory };
+    if (typeof force === "boolean") {
+      payload.force = force;
+    }
+    if (app) {
+      payload.app = app;
+    }
+    return await invoke("install_skill", payload);
   },
 
-  async uninstall(directory: string): Promise<boolean> {
-    return await invoke("uninstall_skill", { directory });
+  async uninstall(directory: string, app?: AppId): Promise<boolean> {
+    return await invoke("uninstall_skill", app ? { directory, app } : { directory });
   },
 
   async getRepos(): Promise<SkillRepo[]> {
