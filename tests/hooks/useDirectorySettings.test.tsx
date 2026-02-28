@@ -54,6 +54,7 @@ describe("useDirectorySettings", () => {
   const onUpdateSettings = vi.fn();
 
   beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.clearAllMocks();
 
     homeDirMock.mockResolvedValue("/home/mock");

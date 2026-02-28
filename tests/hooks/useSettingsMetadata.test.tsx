@@ -12,6 +12,7 @@ vi.mock("@/lib/api", () => ({
 
 describe("useSettingsMetadata", () => {
   beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.clearAllMocks();
   });
 

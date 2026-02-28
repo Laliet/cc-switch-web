@@ -106,6 +106,8 @@ const createMetadataMock = (overrides: Record<string, unknown> = {}) => ({
 
 describe("useSettings hook", () => {
   beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mutateAsyncMock.mockReset();
     useSettingsQueryMock.mockReset();
     setAppConfigDirOverrideMock.mockReset();

@@ -36,6 +36,9 @@ const computeDefaultAppConfigDir = async (): Promise<string | undefined> => {
   const env = typeof process !== "undefined" ? process.env : undefined;
   const fallbackHome =
     env?.VITEST === "true" ? "/home/mock" : (env?.HOME ?? "/home/mock");
+  if (env?.VITEST === "true") {
+    return `${fallbackHome}/.cc-switch`;
+  }
   try {
     const pathApi = await loadPathApi();
     if (!pathApi) {
@@ -60,10 +63,13 @@ const computeDefaultConfigDir = async (
   const env = typeof process !== "undefined" ? process.env : undefined;
   const fallbackHome =
     env?.VITEST === "true" ? "/home/mock" : (env?.HOME ?? "/home/mock");
+  const folder =
+    app === "claude" ? ".claude" : app === "codex" ? ".codex" : ".gemini";
+  if (env?.VITEST === "true") {
+    return `${fallbackHome}/${folder}`;
+  }
   try {
     const pathApi = await loadPathApi();
-    const folder =
-      app === "claude" ? ".claude" : app === "codex" ? ".codex" : ".gemini";
     if (!pathApi) {
       return `${fallbackHome}/${folder}`;
     }
@@ -74,8 +80,6 @@ const computeDefaultConfigDir = async (
       "[useDirectorySettings] Failed to resolve default config dir",
       error,
     );
-    const folder =
-      app === "claude" ? ".claude" : app === "codex" ? ".codex" : ".gemini";
     return `${fallbackHome}/${folder}`;
   }
 };

@@ -157,6 +157,7 @@ const renderApp = () => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
@@ -221,10 +222,26 @@ describe("App integration with MSW", () => {
     window.localStorage.removeItem(WEB_API_BASE_STORAGE_KEY);
     window.sessionStorage.setItem(WEB_AUTH_STORAGE_KEY, "encoded");
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.includes("/api/settings")) {
+        return new Response(null, { status: 401 }) as Response;
+      }
+      if (url.includes("/api/providers/codex/current")) {
+        return Response.json(null) as Response;
+      }
+      if (url.includes("/api/providers/codex")) {
+        return Response.json({}) as Response;
+      }
+
+      return Response.json({}) as Response;
+    });
 
     try {
       renderApp();

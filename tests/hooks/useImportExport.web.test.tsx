@@ -65,6 +65,7 @@ describe("useImportExport (web mode)", () => {
   const originalCreateElement = document.createElement.bind(document);
 
   beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     toastWarningMock.mockReset();

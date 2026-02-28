@@ -31,6 +31,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
   openFileDialogMock.mockReset();
   importConfigMock.mockReset();
   saveFileDialogMock.mockReset();
