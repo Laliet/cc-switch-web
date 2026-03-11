@@ -13,7 +13,9 @@ const importHealthCheck = async () => {
 // Mock check_relay_pulse tauri command with custom payload
 const mockRelayPulseResponse = (payload: Record<string, unknown> | null) => {
   server.use(
-    http.post(`${TAURI_ENDPOINT}/check_relay_pulse`, () => HttpResponse.json(payload)),
+    http.post(`${TAURI_ENDPOINT}/check_relay_pulse`, () =>
+      HttpResponse.json(payload),
+    ),
   );
 };
 
@@ -30,8 +32,12 @@ describe("healthCheck API module", () => {
   it("calculateAvailability averages valid timeline entries", async () => {
     const { calculateAvailability } = await importHealthCheck();
 
-    expect(calculateAvailability([{ availability: 100 }, { availability: 80 }])).toBe(90);
-    expect(calculateAvailability([{ availability: -1 }, { availability: -5 }])).toBeUndefined();
+    expect(
+      calculateAvailability([{ availability: 100 }, { availability: 80 }]),
+    ).toBe(90);
+    expect(
+      calculateAvailability([{ availability: -1 }, { availability: -5 }]),
+    ).toBeUndefined();
     expect(calculateAvailability([])).toBeUndefined();
   });
 
@@ -80,6 +86,51 @@ describe("healthCheck API module", () => {
 
     const secondResult = await fetchAllHealthStatus();
     expect(secondResult).toBe(firstResult);
+  });
+
+  it("fetchAllHealthStatus supports the current relay-pulse groups response", async () => {
+    const payload = {
+      meta: { period: "24h", count: 1 },
+      data: [],
+      groups: [
+        {
+          provider: "88code",
+          service: "cx",
+          current_status: 1,
+          layers: [
+            {
+              current_status: {
+                status: 1,
+                latency: 180,
+                timestamp: 1_710_000_300,
+              },
+              timeline: [{ availability: 100 }, { availability: 90 }],
+            },
+            {
+              current_status: {
+                status: 2,
+                latency: 220,
+                timestamp: 1_710_000_400,
+              },
+              timeline: [{ availability: 70 }, { availability: 80 }],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockRelayPulseResponse(payload);
+    const { fetchAllHealthStatus } = await importHealthCheck();
+
+    const result = await fetchAllHealthStatus();
+
+    expect(result.get("88code/cx")).toEqual<ProviderHealth>({
+      isHealthy: true,
+      status: "degraded",
+      latency: 220,
+      lastChecked: 1_710_000_400 * 1000,
+      availability: 75,
+    });
   });
 
   it("checkProviderHealth returns provider health or fallback when missing", async () => {

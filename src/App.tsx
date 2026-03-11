@@ -22,6 +22,7 @@ import {
   isWeb,
 } from "@/lib/api/adapter";
 import { AppSwitcher } from "@/components/AppSwitcher";
+import { SUPPORTED_APPS } from "@/config/apps";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
@@ -67,10 +68,28 @@ async function validateWebCredentials(url: string): Promise<boolean> {
   return response.ok;
 }
 
+const ACTIVE_APP_STORAGE_KEY = "cc-switch:active-app";
+
+function isSupportedAppId(value: unknown): value is AppId {
+  return SUPPORTED_APPS.some((app) => app.id === value);
+}
+
+function readPersistedActiveApp(): AppId {
+  if (typeof window === "undefined") return "claude";
+  try {
+    const stored = window.localStorage.getItem(ACTIVE_APP_STORAGE_KEY);
+    return isSupportedAppId(stored) ? stored : "claude";
+  } catch {
+    return "claude";
+  }
+}
+
 function AppContent() {
   const { t } = useTranslation();
 
-  const [activeApp, setActiveApp] = useState<AppId>("claude");
+  const [activeApp, setActiveApp] = useState<AppId>(() =>
+    readPersistedActiveApp(),
+  );
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -93,6 +112,16 @@ function AppContent() {
     providers,
   );
   const lastFailoverCheckRef = useRef<string | null>(null);
+
+  const handleSwitchApp = useCallback((app: AppId) => {
+    setActiveApp(app);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(ACTIVE_APP_STORAGE_KEY, app);
+    } catch (error) {
+      console.warn("[App] Failed to persist active app", error);
+    }
+  }, []);
 
   // 🎯 使用 useProviderActions Hook 统一管理所有 Provider 操作
   const {
@@ -486,7 +515,15 @@ function AppContent() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <AppSwitcher activeApp={activeApp} onSwitch={setActiveApp} />
+            <div className="flex flex-col gap-1">
+              <AppSwitcher activeApp={activeApp} onSwitch={handleSwitchApp} />
+              <span className="text-xs text-muted-foreground">
+                {t("apps.scopeHint", {
+                  defaultValue:
+                    "Switches the current management view only. Live config changes happen when you switch providers.",
+                })}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 {t("provider.backupLabel", { defaultValue: "备用" })}
@@ -613,38 +650,46 @@ function AppContent() {
         onCancel={() => setConfirmDelete(null)}
       />
 
-      <SettingsDialog
-        open={isSettingsOpen}
-        onOpenChange={setIsSettingsOpen}
-        onImportSuccess={handleImportSuccess}
-      />
+      {isSettingsOpen ? (
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+          onImportSuccess={handleImportSuccess}
+        />
+      ) : null}
 
-      <PromptPanel
-        open={isPromptOpen}
-        onOpenChange={setIsPromptOpen}
-        appId={activeApp}
-      />
+      {isPromptOpen ? (
+        <PromptPanel
+          open={isPromptOpen}
+          onOpenChange={setIsPromptOpen}
+          appId={activeApp}
+        />
+      ) : null}
 
-      <UnifiedMcpPanel open={isMcpOpen} onOpenChange={setIsMcpOpen} />
+      {isMcpOpen ? (
+        <UnifiedMcpPanel open={isMcpOpen} onOpenChange={setIsMcpOpen} />
+      ) : null}
 
-      <Dialog open={isSkillsOpen} onOpenChange={setIsSkillsOpen}>
-        <DialogContent className="max-w-4xl max-h-[85vh] min-h-[600px] flex flex-col p-0">
-          <DialogHeader className="sr-only">
-            <VisuallyHidden>
-              <DialogTitle>{t("skills.title")}</DialogTitle>
-              <DialogDescription>
-                {t("skills.description", {
-                  defaultValue: "管理技能库条目并配置仓库来源。",
-                })}
-              </DialogDescription>
-            </VisuallyHidden>
-          </DialogHeader>
-          <SkillsPage
-            onClose={() => setIsSkillsOpen(false)}
-            appId={activeApp}
-          />
-        </DialogContent>
-      </Dialog>
+      {isSkillsOpen ? (
+        <Dialog open={isSkillsOpen} onOpenChange={setIsSkillsOpen}>
+          <DialogContent className="max-w-4xl max-h-[85vh] min-h-[600px] flex flex-col p-0">
+            <DialogHeader className="sr-only">
+              <VisuallyHidden>
+                <DialogTitle>{t("skills.title")}</DialogTitle>
+                <DialogDescription>
+                  {t("skills.description", {
+                    defaultValue: "管理技能库条目并配置仓库来源。",
+                  })}
+                </DialogDescription>
+              </VisuallyHidden>
+            </DialogHeader>
+            <SkillsPage
+              onClose={() => setIsSkillsOpen(false)}
+              appId={activeApp}
+            />
+          </DialogContent>
+        </Dialog>
+      ) : null}
       <DeepLinkImportDialog />
     </div>
   );

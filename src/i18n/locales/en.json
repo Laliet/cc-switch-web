@@ -228,7 +228,8 @@
     "gemini": "Gemini",
     "opencode": "OpenCode",
     "omo": "OMO",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "scopeHint": "This only switches the management view. Live config changes happen when you switch providers."
   },
   "console": {
     "providerSwitchReceived": "Received provider switch event:",
@@ -551,11 +552,11 @@
     },
     "error": {
       "idRequired": "Please enter identifier",
-    "idExists": "Identifier already exists. Please choose another.",
-    "jsonInvalid": "Invalid JSON format",
-    "tomlInvalid": "Invalid TOML format",
-    "typeInvalid": "Invalid server type (use stdio, http, or sse)",
-    "commandRequired": "Please enter command",
+      "idExists": "Identifier already exists. Please choose another.",
+      "jsonInvalid": "Invalid JSON format",
+      "tomlInvalid": "Invalid TOML format",
+      "typeInvalid": "Invalid server type (use stdio, http, or sse)",
+      "commandRequired": "Please enter command",
       "singleServerObjectRequired": "Please paste a single MCP server object (do not include top-level mcpServers)",
       "saveFailed": "Save failed",
       "deleteFailed": "Delete failed"

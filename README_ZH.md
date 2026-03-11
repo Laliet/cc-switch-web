@@ -13,6 +13,9 @@
 
 [English](README.md) | 中文 | [更新日志](CHANGELOG.md)
 
+> 当前推荐稳定版本：[v0.8.0](https://github.com/Laliet/CC-Switch-Web/releases/tag/v0.8.0)  
+> `v0.9.x` 版本线继续保留，用于回归问题修复和持续调试。
+
 ---
 
 ## 项目简介
@@ -34,12 +37,14 @@
 
 ## 更新内容
 
-### v0.9.0 - 正式稳定版
-- Claude Code / Codex / Gemini 统一管理进入正式稳定发布
-- 发布工作流支持自动区分正式版与预发布，并产出完整构件
-- CI、测试与发布打包链路稳定性进一步提升
+### v0.9.1 - 预览 / 修正版本线
 
-### v0.8.0 - Web 安全基线
+- Claude Code / Codex / Gemini 统一管理能力继续保留用于验证
+- 当前版本线正在集中修复已发现的发布后回归问题
+- 如需更保守的生产环境推荐，请优先使用 `v0.8.0`
+
+### v0.8.0 - 当前推荐稳定版
+
 - Web 模式默认同源 CORS
 - 支持通过 `ALLOW_LAN_CORS=1` / `CC_SWITCH_LAN_CORS=1` 放行私有局域网来源
 - 云端部署默认策略更安全
@@ -47,34 +52,36 @@
 ## 界面展示
 
 ![主界面](pic/界面展示.png)
-*主界面*
+_主界面_
 
 ![提示词管理](pic/提示词管理展示.png)
-*提示词管理*
+_提示词管理_
 
 ![MCP服务器管理](pic/MCP服务器管理展示.png)
-*MCP服务器管理*
+_MCP服务器管理_
 
 ![技能商店](pic/skills商店管理展示.png)
-*技能商店*
+_技能商店_
 
 ![扩展供应商列表](pic/扩展的中转服务商列表.png)
-*扩展供应商列表*
+_扩展供应商列表_
 
 ![配置供应商](pic/配置中转服务商展示.png)
-*配置供应商*
+_配置供应商_
 
 ---
 
 ## 功能特性
 
 ### 核心功能
+
 - **多供应商管理**：一键切换不同 AI 供应商（OpenAI 兼容端点）
 - **统一 MCP 管理**：跨 Claude/Codex/Gemini 配置 Model Context Protocol 服务器
 - **技能市场**：从 GitHub 仓库浏览并安装 Claude 技能
 - **提示词管理**：内置 CodeMirror 编辑器创建和管理系统提示词
 
 ### 扩展功能
+
 - **备用供应商自动切换**：主供应商失败时自动切换到备用
 - **导入/导出**：备份和恢复所有配置，支持版本历史
 - **跨平台**：支持 Windows、macOS、Linux（桌面版）和 Web/Docker（服务器版）
@@ -93,26 +100,29 @@
 
 下载预编译的服务器二进制，无需编译：
 
-| 架构 | 下载链接 |
-|------|----------|
-| **Linux x86_64 (glibc)** | [cc-switch-server-linux-x86_64](https://github.com/Laliet/CC-Switch-Web/releases/latest/download/cc-switch-server-linux-x86_64) |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/CC-Switch-Web/releases/latest/download/cc-switch-server-linux-aarch64) |
+| 架构                      | 下载链接                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/cc-switch-server-linux-aarch64) |
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
 > 可用 `ldd --version` 查看 glibc 版本。
 
 **一键部署**：
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
 ```
 
 **常见问题速查**：
+
 - 报 `GLIBC_2.xx not found`：建议使用 Docker（`ghcr.io/laliet/cc-switch-web:latest`）或源码构建。
 - 想直接容器化运行：使用 `docker run -p 3000:3000 ghcr.io/laliet/cc-switch-web:latest`。
 - Windows + WSL 共用配置：设置页支持一键填充 WSL 模板路径（高级设置页中的“填充 WSL 模板路径”）。
 
 **高级选项**：
+
 ```bash
 # 自定义安装目录和端口
 INSTALL_DIR=/opt/cc-switch PORT=8080 curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
@@ -132,6 +142,7 @@ docker run -p 3000:3000 ghcr.io/laliet/cc-switch-web:latest
 > ⚠️ **注意**：Docker 镜像名必须**全小写**（`laliet`，不是 `Laliet`）
 
 **Docker 高级选项**：
+
 ```bash
 # 使用部署脚本（自定义端口/版本/数据目录、可后台运行）
 ./scripts/docker-deploy.sh -p 8080 --data-dir /opt/cc-switch-data -d
@@ -170,17 +181,20 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 ### 安全
 
 **认证**：
+
 - 所有 API 请求都需要 Basic Auth
 - 浏览器会弹出用户名/密码提示
 - 对非 GET 请求会自动注入并校验 CSRF Token
 
 **安全响应头**：
+
 - 默认启用 HSTS（HTTP Strict Transport Security）
 - X-Frame-Options: DENY（防止点击劫持）
 - X-Content-Type-Options: nosniff
 - Referrer-Policy: no-referrer
 
 **最佳实践**：
+
 - 生产环境建议在反向代理后部署，并启用 TLS
 - 仅在充分理解风险的情况下设置 `ALLOW_HTTP_BASIC_OVER_HTTP=1` 以抑制 HTTP 警告
 - 请妥善保护 `~/.cc-switch/web_password` 文件（权限建议 0600）
@@ -202,13 +216,13 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 功能完整的桌面应用，带图形界面，基于 Tauri 构建。
 
-| 平台 | 下载链接 | 说明 |
-|------|----------|------|
-| **Windows** | [CC-Switch-v0.9.0-Windows.msi](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Windows.msi) | 安装版（推荐） |
-| | [CC-Switch-v0.9.0-Windows-Portable.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Windows-Portable.zip) | 绿色版（免安装） |
-| **macOS** | [CC-Switch-v0.9.0-macOS.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-macOS.zip) | 通用二进制（Intel + Apple Silicon） |
-| **Linux** | [CC-Switch-v0.9.0-Linux.AppImage](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Linux.AppImage) | AppImage（通用） |
-| | [CC-Switch-v0.9.0-Linux.deb](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Linux.deb) | Debian/Ubuntu 包 |
+| 平台        | 下载链接                                                                                                                                        | 说明                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| **Windows** | [CC-Switch-v0.8.0-Windows.msi](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Windows.msi)                   | 安装版（推荐稳定版）                |
+|             | [CC-Switch-v0.8.0-Windows-Portable.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.8.0-macOS.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.8.0-Linux.AppImage](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Linux.AppImage)             | AppImage（通用）                    |
+|             | [CC-Switch-v0.8.0-Linux.deb](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -221,6 +235,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/i
 ```
 
 该脚本会：
+
 - 自动检测系统架构（x86_64/aarch64）
 - 下载最新版 AppImage
 - 校验 SHA256（如有校验文件）
@@ -228,9 +243,10 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/i
 - 创建桌面快捷方式和应用图标
 
 **高级选项**：
+
 ```bash
-# 安装指定版本
-VERSION=v0.9.0 curl -fsSL https://...install.sh | bash
+# 安装推荐稳定版本
+VERSION=v0.8.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -288,11 +304,11 @@ NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
 
 CC-Switch 管理以下配置文件：
 
-| 应用 | 配置文件 |
-|------|----------|
+| 应用            | 配置文件                                           |
+| --------------- | -------------------------------------------------- |
 | **Claude Code** | `~/.claude.json`（MCP）、`~/.claude/settings.json` |
-| **Codex** | `~/.codex/auth.json`、`~/.codex/config.toml` |
-| **Gemini** | `~/.gemini/.env`、`~/.gemini/settings.json` |
+| **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`       |
+| **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`        |
 
 CC-Switch 自身配置：`~/.cc-switch/config.json`
 
@@ -332,7 +348,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) — 当前版本：**v0.9.0**
+参见 [CHANGELOG.md](CHANGELOG.md) — 当前推荐稳定版本：**v0.8.0**（`v0.9.x` 正在持续修复回归问题）
 
 ---
 

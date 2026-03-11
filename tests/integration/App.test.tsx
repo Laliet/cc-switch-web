@@ -12,6 +12,7 @@ import { emitTauriEvent } from "../msw/tauriMocks";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
+const ACTIVE_APP_STORAGE_KEY = "cc-switch:active-app";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -34,11 +35,19 @@ vi.mock("@/components/providers/ProviderList", () => ({
     <div>
       <div data-testid="provider-list">{JSON.stringify(providers)}</div>
       <div data-testid="current-provider">{currentProviderId}</div>
-      <button onClick={() => onSwitch(providers[currentProviderId])}>switch</button>
+      <button onClick={() => onSwitch(providers[currentProviderId])}>
+        switch
+      </button>
       <button onClick={() => onEdit(providers[currentProviderId])}>edit</button>
-      <button onClick={() => onDuplicate(providers[currentProviderId])}>duplicate</button>
-      <button onClick={() => onConfigureUsage(providers[currentProviderId])}>usage</button>
-      <button onClick={() => onOpenWebsite("https://example.com")}>open-website</button>
+      <button onClick={() => onDuplicate(providers[currentProviderId])}>
+        duplicate
+      </button>
+      <button onClick={() => onConfigureUsage(providers[currentProviderId])}>
+        usage
+      </button>
+      <button onClick={() => onOpenWebsite("https://example.com")}>
+        open-website
+      </button>
       <button onClick={() => onCreate?.()}>create</button>
     </div>
   ),
@@ -109,7 +118,9 @@ vi.mock("@/components/settings/SettingsDialog", () => ({
   SettingsDialog: ({ open, onOpenChange, onImportSuccess }: any) =>
     open ? (
       <div data-testid="settings-dialog">
-        <button onClick={() => onImportSuccess?.()}>trigger-import-success</button>
+        <button onClick={() => onImportSuccess?.()}>
+          trigger-import-success
+        </button>
         <button onClick={() => onOpenChange(false)}>close-settings</button>
       </div>
     ) : (
@@ -161,13 +172,16 @@ describe("App integration with MSW", () => {
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
+    window.localStorage.removeItem(ACTIVE_APP_STORAGE_KEY);
   });
 
   it("covers basic provider flows via real hooks", async () => {
     renderApp();
 
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain("claude-1"),
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
     );
 
     fireEvent.click(screen.getByText("update-badge"));
@@ -177,7 +191,9 @@ describe("App integration with MSW", () => {
 
     fireEvent.click(screen.getByText("switch-codex"));
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain("codex-1"),
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "codex-1",
+      ),
     );
 
     fireEvent.click(screen.getByText("usage"));
@@ -189,14 +205,18 @@ describe("App integration with MSW", () => {
     expect(screen.getByTestId("add-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-add"));
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toMatch(/New codex Provider/),
+      expect(screen.getByTestId("provider-list").textContent).toMatch(
+        /New codex Provider/,
+      ),
     );
 
     fireEvent.click(screen.getByText("edit"));
     expect(screen.getByTestId("edit-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-edit"));
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toMatch(/-edited/),
+      expect(screen.getByTestId("provider-list").textContent).toMatch(
+        /-edited/,
+      ),
     );
 
     fireEvent.click(screen.getByText("switch"));
@@ -207,10 +227,29 @@ describe("App integration with MSW", () => {
 
     fireEvent.click(screen.getByText("open-website"));
 
-    emitTauriEvent("provider-switched", { appType: "codex", providerId: "codex-2" });
+    emitTauriEvent("provider-switched", {
+      appType: "codex",
+      providerId: "codex-2",
+    });
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(toastSuccessMock).toHaveBeenCalled();
+  });
+
+  it("persists the selected management app locally", async () => {
+    renderApp();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("switch-codex"));
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem(ACTIVE_APP_STORAGE_KEY)).toBe("codex"),
+    );
   });
 
   it("validates web credentials via buildWebApiUrl", async () => {
@@ -222,26 +261,28 @@ describe("App integration with MSW", () => {
     window.localStorage.removeItem(WEB_API_BASE_STORAGE_KEY);
     window.sessionStorage.setItem(WEB_AUTH_STORAGE_KEY, "encoded");
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
 
-      if (url.includes("/api/settings")) {
-        return new Response(null, { status: 401 }) as Response;
-      }
-      if (url.includes("/api/providers/codex/current")) {
-        return Response.json(null) as Response;
-      }
-      if (url.includes("/api/providers/codex")) {
+        if (url.includes("/api/settings")) {
+          return new Response(null, { status: 401 }) as Response;
+        }
+        if (url.includes("/api/providers/codex/current")) {
+          return Response.json(null) as Response;
+        }
+        if (url.includes("/api/providers/codex")) {
+          return Response.json({}) as Response;
+        }
+
         return Response.json({}) as Response;
-      }
-
-      return Response.json({}) as Response;
-    });
+      });
 
     try {
       renderApp();

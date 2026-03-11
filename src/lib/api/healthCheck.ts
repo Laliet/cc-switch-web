@@ -30,7 +30,8 @@ export interface ProviderHealth {
 /** Relay-Pulse API 响应结构 */
 interface RelayPulseResponse {
   meta: { period: string; count: number };
-  data: RelayPulseMonitor[];
+  data?: RelayPulseMonitor[];
+  groups?: RelayPulseGroup[];
 }
 
 interface RelayPulseMonitor {
@@ -46,6 +47,27 @@ interface RelayPulseMonitor {
   timeline: Array<{
     availability: number;
   }>;
+}
+
+interface RelayPulseLayer {
+  current_status?: {
+    status?: number;
+    latency?: number;
+    timestamp?: number;
+  };
+  timeline?: Array<{
+    availability: number;
+  }>;
+}
+
+interface RelayPulseGroup {
+  provider: string;
+  service: string;
+  current_status?: number;
+  timeline?: Array<{
+    availability: number;
+  }>;
+  layers?: RelayPulseLayer[];
 }
 
 // 健康状态缓存
@@ -97,13 +119,82 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       reject(createTimeoutError(timeoutMs));
     }, timeoutMs);
 
-    promise
-      .then(resolve, reject)
-      .finally(() => clearTimeout(timer));
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
   });
 }
 
 export { statusToHealth, calculateAvailability, mergeHealth };
+
+function toProviderHealth(
+  status: { status?: number; latency?: number; timestamp?: number } | undefined,
+  timeline?: Array<{ availability: number }>,
+): ProviderHealth | null {
+  if (!status || typeof status.status !== "number") {
+    return null;
+  }
+
+  const healthStatus = statusToHealth(status.status);
+  return {
+    isHealthy: healthStatus === "available" || healthStatus === "degraded",
+    status: healthStatus,
+    latency:
+      typeof status.latency === "number" && Number.isFinite(status.latency)
+        ? status.latency
+        : 0,
+    lastChecked:
+      typeof status.timestamp === "number" && Number.isFinite(status.timestamp)
+        ? status.timestamp * 1000
+        : Date.now(),
+    availability: calculateAvailability(timeline ?? []),
+  };
+}
+
+function normalizeRelayPulseResponse(
+  payload: RelayPulseResponse,
+): Map<string, ProviderHealth> {
+  const nextCache = new Map<string, ProviderHealth>();
+
+  const mergeEntry = (key: string, health: ProviderHealth | null) => {
+    if (!health) return;
+    nextCache.set(key, mergeHealth(nextCache.get(key), health));
+  };
+
+  if (Array.isArray(payload.groups) && payload.groups.length > 0) {
+    for (const group of payload.groups) {
+      const key = `${group.provider.toLowerCase()}/${group.service}`;
+      const layers = Array.isArray(group.layers) ? group.layers : [];
+
+      if (layers.length > 0) {
+        for (const layer of layers) {
+          mergeEntry(
+            key,
+            toProviderHealth(layer.current_status, layer.timeline),
+          );
+        }
+        continue;
+      }
+
+      mergeEntry(
+        key,
+        toProviderHealth(
+          typeof group.current_status === "number"
+            ? { status: group.current_status }
+            : undefined,
+          group.timeline,
+        ),
+      );
+    }
+
+    return nextCache;
+  }
+
+  for (const monitor of payload.data ?? []) {
+    const key = `${monitor.provider.toLowerCase()}/${monitor.service}`;
+    mergeEntry(key, toProviderHealth(monitor.current_status, monitor.timeline));
+  }
+
+  return nextCache;
+}
 
 function mergeHealth(
   existing: ProviderHealth | undefined,
@@ -159,7 +250,10 @@ export async function fetchAllHealthStatus(): Promise<
     } else {
       // Web 模式：通过内置 web-server 代理路由访问（支持 Basic Auth）
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), HEALTHCHECK_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => controller.abort(),
+        HEALTHCHECK_TIMEOUT_MS,
+      );
 
       try {
         const headers: Record<string, string> = {
@@ -184,25 +278,7 @@ export async function fetchAllHealthStatus(): Promise<
 
     lastFetchTime = now;
 
-    // 更新缓存
-    const newCache = new Map<string, ProviderHealth>();
-    for (const monitor of data.data) {
-      const key = `${monitor.provider.toLowerCase()}/${monitor.service}`;
-      const status = monitor.current_status;
-      const healthStatus = statusToHealth(status.status);
-
-      const healthData: ProviderHealth = {
-        isHealthy: healthStatus === "available" || healthStatus === "degraded",
-        status: healthStatus,
-        latency: status.latency,
-        lastChecked: status.timestamp * 1000,
-        availability: calculateAvailability(monitor.timeline),
-      };
-
-      newCache.set(key, mergeHealth(newCache.get(key), healthData));
-    }
-
-    healthCache = newCache;
+    healthCache = normalizeRelayPulseResponse(data);
     return healthCache;
   } catch (error) {
     if ((error as any)?.name === "AbortError") {

@@ -5,6 +5,19 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-03-11
+
+### Fixes / 修复
+
+- Fix current-provider update flow so saving/applying immediately rewrites live config for the active provider
+- Preserve Codex MCP entries such as `relay-pulse` when updating the current provider, and refresh the saved snapshot from live files
+- Support the current relay-pulse health response shape based on `groups[].layers[]` in addition to the legacy payload
+
+### UX / 体验
+
+- Keep the top app switcher scoped to management-view selection and persist that selection locally
+- Lazy-mount secondary dialogs and panels to reduce startup noise while debugging the `0.9.x` line
+
 ## [0.8.0] - 2026-01-11
 
 ### Migration Notes / 迁移说明

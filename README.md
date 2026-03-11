@@ -13,6 +13,9 @@
 
 English | [中文](README_ZH.md) | [Changelog](CHANGELOG.md)
 
+> Recommended stable release: [v0.8.0](https://github.com/Laliet/CC-Switch-Web/releases/tag/v0.8.0)  
+> The `v0.9.x` line remains available for regression fixes and ongoing debugging.
+
 ## About / 项目简介
 
 **CC-Switch-Web** is a unified configuration management tool for **Claude Code**, **Codex**, and **Gemini CLI**. It provides both a desktop application and a web server mode for managing AI CLI providers, MCP servers, skills, and system prompts.
@@ -21,26 +24,29 @@ This project is a free and open-source project shared for informational and comm
 
 Whether you're working locally or in a headless cloud environment, CC-Switch-Web offers a seamless experience for:
 
--  **One-click provider switching** between OpenAI-compatible API endpoints
--  **Unified MCP server management** across all three CLI tools
--  **Skills marketplace** to browse and install Claude skills from GitHub
--  **System prompt editor** with syntax highlighting
--  **Configuration backup/restore** with version history
--  **Web server mode** for cloud/headless deployment with Basic Auth
+- **One-click provider switching** between OpenAI-compatible API endpoints
+- **Unified MCP server management** across all three CLI tools
+- **Skills marketplace** to browse and install Claude skills from GitHub
+- **System prompt editor** with syntax highlighting
+- **Configuration backup/restore** with version history
+- **Web server mode** for cloud/headless deployment with Basic Auth
 
 ---
+
 ## Contact /联系
 
-If you have any questions, you can contact me here https://linux.do/t/topic/1217545 
+If you have any questions, you can contact me here https://linux.do/t/topic/1217545
 
 ## What's New
 
-### v0.9.0 - Stable Release
-- Official stable release for unified Claude Code / Codex / Gemini management
-- Release workflow now auto-detects stable vs prerelease and publishes complete artifacts
-- Improved reliability across CI, tests, and release packaging
+### v0.9.1 - Preview / Bugfix Track
 
-### v0.8.0 - Web Security Baseline
+- Unified Claude Code / Codex / Gemini management remains available for validation
+- This line is currently being debugged for regressions reported after release
+- Use `v0.8.0` if you need the most conservative production recommendation today
+
+### v0.8.0 - Recommended Stable Release
+
 - Web mode defaults to same-origin CORS
 - `ALLOW_LAN_CORS=1` / `CC_SWITCH_LAN_CORS=1` for private LAN auto-allow
 - Safer default behavior for remote deployments
@@ -48,34 +54,36 @@ If you have any questions, you can contact me here https://linux.do/t/topic/1217
 ## Screenshots
 
 ![Main Interface](pic/界面展示.png)
-*Main Interface*
+_Main Interface_
 
 ![Prompt Management](pic/提示词管理展示.png)
-*Prompt Management*
+_Prompt Management_
 
 ![MCP Server Management](pic/MCP服务器管理展示.png)
-*MCP Server Management*
+_MCP Server Management_
 
 ![Skills Marketplace](pic/skills商店管理展示.png)
-*Skills Marketplace*
+_Skills Marketplace_
 
 ![Extended Provider List](pic/扩展的中转服务商列表.png)
-*Extended Provider List*
+_Extended Provider List_
 
 ![Configure Provider](pic/配置中转服务商展示.png)
-*Configure Provider*
+_Configure Provider_
 
 ---
 
 ## Features
 
 ### Core Features
+
 - **Multi-Provider Management**: Switch between different AI providers (OpenAI-compatible endpoints) with one click
 - **Unified MCP Management**: Configure Model Context Protocol servers across Claude/Codex/Gemini
 - **Skills Marketplace**: Browse and install Claude skills from GitHub repositories
 - **Prompt Management**: Create and manage system prompts with a built-in CodeMirror editor
 
 ### Extended Features
+
 - **Backup Auto-failover**: Automatically switch to backup providers when primary fails
 - **Import/Export**: Backup and restore all configurations with version history
 - **Cross-platform**: Available for Windows, macOS, Linux (desktop) and Web/Docker (server)
@@ -94,26 +102,29 @@ Lightweight web server for headless environments. Access via browser, no GUI dep
 
 Download precompiled server binary—no compilation required:
 
-| Architecture | Download |
-|--------------|----------|
-| **Linux x86_64 (glibc)** | [cc-switch-server-linux-x86_64](https://github.com/Laliet/CC-Switch-Web/releases/latest/download/cc-switch-server-linux-x86_64) |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/CC-Switch-Web/releases/latest/download/cc-switch-server-linux-aarch64) |
+| Architecture              | Download                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/cc-switch-server-linux-aarch64) |
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
 > Check your glibc with `ldd --version`.
 
 **One-Line Deploy**:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
 ```
 
 **Quick fixes**:
+
 - `GLIBC_2.xx not found`: use Docker (`ghcr.io/laliet/cc-switch-web:latest`) or build from source.
 - Need container-first deployment: run `docker run -p 3000:3000 ghcr.io/laliet/cc-switch-web:latest`.
 - Windows + WSL shared configs: Settings now provides a one-click WSL template path filler in Advanced tab.
 
 **Advanced options**:
+
 ```bash
 # Custom install directory and port
 INSTALL_DIR=/opt/cc-switch PORT=8080 curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
@@ -133,6 +144,7 @@ docker run -p 3000:3000 ghcr.io/laliet/cc-switch-web:latest
 > ⚠️ **Note**: Docker image name must be **lowercase** (`laliet`, not `Laliet`)
 
 **Advanced Docker options**:
+
 ```bash
 # Use the deploy script (custom port/version/data dir/background)
 ./scripts/docker-deploy.sh -p 8080 --data-dir /opt/cc-switch-data -d
@@ -171,17 +183,20 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 ### Security
 
 **Authentication**:
+
 - Basic Auth is required for all API requests
 - Browser will prompt for credentials (username/password)
 - CSRF token is automatically injected and validated for non-GET requests
 
 **Security Headers**:
+
 - HSTS (HTTP Strict Transport Security) enabled by default
 - X-Frame-Options: DENY (prevents clickjacking)
 - X-Content-Type-Options: nosniff
 - Referrer-Policy: no-referrer
 
 **Best Practices**:
+
 - Deploy behind a reverse proxy with TLS in production
 - Set `ALLOW_HTTP_BASIC_OVER_HTTP=1` only if you understand the risks
 - Keep `~/.cc-switch/web_password` file secure (mode 0600)
@@ -203,13 +218,13 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 Full-featured desktop app with graphical interface, built with Tauri.
 
-| Platform | Download | Description |
-|----------|----------|-------------|
-| **Windows** | [CC-Switch-v0.9.0-Windows.msi](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Windows.msi) | Installer (recommended) |
-| | [CC-Switch-v0.9.0-Windows-Portable.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Windows-Portable.zip) | Portable (no install) |
-| **macOS** | [CC-Switch-v0.9.0-macOS.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-macOS.zip) | Universal binary (Intel + Apple Silicon) |
-| **Linux** | [CC-Switch-v0.9.0-Linux.AppImage](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Linux.AppImage) | AppImage (universal) |
-| | [CC-Switch-v0.9.0-Linux.deb](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.9.0/CC-Switch-v0.9.0-Linux.deb) | Debian/Ubuntu package |
+| Platform    | Download                                                                                                                                        | Description                              |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Windows** | [CC-Switch-v0.8.0-Windows.msi](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Windows.msi)                   | Installer (recommended stable)           |
+|             | [CC-Switch-v0.8.0-Windows-Portable.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.8.0-macOS.zip](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.8.0-Linux.AppImage](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Linux.AppImage)             | AppImage (universal)                     |
+|             | [CC-Switch-v0.8.0-Linux.deb](https://github.com/Laliet/CC-Switch-Web/releases/download/v0.8.0/CC-Switch-v0.8.0-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -222,6 +237,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/CC-Switch-Web/main/scripts/i
 ```
 
 This script will:
+
 - Auto-detect your architecture (x86_64/aarch64)
 - Download the latest AppImage release
 - Verify SHA256 checksum (if available)
@@ -229,9 +245,10 @@ This script will:
 - Create desktop entry and application icon
 
 **Advanced options**:
+
 ```bash
-# Install specific version
-VERSION=v0.9.0 curl -fsSL https://...install.sh | bash
+# Install recommended stable version
+VERSION=v0.8.0 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -289,11 +306,11 @@ NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
 
 CC-Switch manages these configuration files:
 
-| App | Config Files |
-|-----|--------------|
+| App             | Config Files                                      |
+| --------------- | ------------------------------------------------- |
 | **Claude Code** | `~/.claude.json` (MCP), `~/.claude/settings.json` |
-| **Codex** | `~/.codex/auth.json`, `~/.codex/config.toml` |
-| **Gemini** | `~/.gemini/.env`, `~/.gemini/settings.json` |
+| **Codex**       | `~/.codex/auth.json`, `~/.codex/config.toml`      |
+| **Gemini**      | `~/.gemini/.env`, `~/.gemini/settings.json`       |
 
 CC-Switch's own config: `~/.cc-switch/config.json`
 
@@ -333,7 +350,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) — Current version: **v0.9.0**
+See [CHANGELOG.md](CHANGELOG.md) — Recommended stable version: **v0.8.0** (`v0.9.x` is under active regression fixes)
 
 ---
 

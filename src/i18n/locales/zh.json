@@ -228,7 +228,8 @@
     "gemini": "Gemini",
     "opencode": "OpenCode",
     "omo": "OMO",
-    "comingSoon": "即将支持"
+    "comingSoon": "即将支持",
+    "scopeHint": "这里只切换当前管理视图；真正写入实际配置发生在切换供应商时。"
   },
   "console": {
     "providerSwitchReceived": "收到供应商切换事件:",

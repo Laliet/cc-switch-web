@@ -866,16 +866,17 @@ impl ProviderService {
                 provider_clone.clone()
             };
 
+            let live_provider = merged.clone();
             manager.providers.insert(provider_id.clone(), merged);
 
             let action = if is_current {
                 let backup = Self::capture_live_snapshot(&app_type_clone)?;
                 Some(PostCommitAction {
                     app_type: app_type_clone.clone(),
-                    provider: provider_clone.clone(),
+                    provider: live_provider,
                     backup,
-                    sync_mcp: false,
-                    refresh_snapshot: false,
+                    sync_mcp: true,
+                    refresh_snapshot: true,
                 })
             } else {
                 None
