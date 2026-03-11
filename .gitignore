@@ -22,3 +22,9 @@ GEMINI.md
 /.idea
 /.vscode
 vitest-report.json
+
+# Local temporary artifacts
+.ignore
+coverage/
+cc-switch-server-linux-*
+屏幕截图 *.png
