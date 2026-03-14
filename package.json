@@ -1,7 +1,7 @@
 {
   "name": "cc-switch-web",
   "version": "0.10.0",
-  "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI",
+  "description": "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI",
   "scripts": {
     "dev": "pnpm tauri dev",
     "build": "pnpm tauri build",
@@ -16,7 +16,15 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest watch"
   },
-  "keywords": [],
+  "keywords": [
+    "cc-switch",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "rust",
+    "typescript",
+    "web"
+  ],
   "author": "Laliet",
   "license": "MIT",
   "devDependencies": {

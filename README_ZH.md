@@ -9,7 +9,7 @@
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/Laliet/cc-switch-web/pkgs/container/cc-switch-web)
 
-**Claude Code / Codex / Gemini CLI / OpenCode / OMO 一站式配置管理助手**
+**面向 Claude Code / Codex / Gemini CLI / OpenCode / OMO 的跨平台 Web 版一站式助手**
 
 [English](README.md) | 中文 | [更新日志](CHANGELOG.md)
 
@@ -20,7 +20,7 @@
 
 ## 项目简介
 
-**cc-switch-web** 是一个统一的 AI CLI 配置管理工具，支持 **Claude Code**、**Codex**、**Gemini CLI**、**OpenCode** 和 **oh-my-opencode（OMO）**。提供桌面应用和 Web 服务器两种运行模式，用于管理 AI 供应商、MCP 服务器、技能和系统提示词。
+**cc-switch-web** 是一个基于 **CC Switch** 的跨平台 Web 版一站式 AI CLI 助手，支持 **Claude Code**、**Codex**、**Gemini CLI**、**OpenCode** 和 **oh-my-opencode（OMO）**。提供桌面应用和 Web 服务器两种运行模式，用于管理 AI 供应商、MCP 服务器、技能和系统提示词。
 
 本项目是仅供分享使用的免费开源项目，使用本项目的时候出现任何法律问题与本项目开发者无关。
 

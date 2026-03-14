@@ -9,7 +9,7 @@
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/Laliet/cc-switch-web/pkgs/container/cc-switch-web)
 
-**All-in-One Assistant for Claude Code, Codex, Gemini CLI, OpenCode & OMO**
+**Cross-platform web-based All-in-One assistant for Claude Code, Codex, Gemini CLI, OpenCode & OMO**
 
 English | [中文](README_ZH.md) | [Changelog](CHANGELOG.md)
 
@@ -18,7 +18,7 @@ English | [中文](README_ZH.md) | [Changelog](CHANGELOG.md)
 
 ## About / 项目简介
 
-**cc-switch-web** is a unified configuration management tool for **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**, and **oh-my-opencode (OMO)**. It provides both a desktop application and a web server mode for managing AI CLI providers, MCP servers, skills, and system prompts.
+**cc-switch-web** is a cross-platform web-based All-in-One assistant for **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**, and **oh-my-opencode (OMO)**, based on **CC Switch**. It provides both a desktop application and a web server mode for managing AI CLI providers, MCP servers, skills, and system prompts.
 
 This project is a free and open-source project shared for informational and community use only. Any legal issues arising from the use of this project are not related to the project developer.
 
