@@ -257,21 +257,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: CC Switch ${{ github.ref_name }}
+          name: cc-switch-web ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
-            ## CC Switch ${{ github.ref_name }}
+            ## cc-switch-web ${{ github.ref_name }}
 
-            Claude Code 供应商切换工具
+            Web-based CC Switch for Claude Code, Codex, Gemini CLI, OpenCode & OMO.
 
-            ### 下载
+            A cross-platform web-based edition of CC Switch for desktop and cloud/headless environments.
+
+            ### Downloads
 
             - **macOS**: `CC-Switch-${{ github.ref_name }}-macOS.zip`（解压即用）或 `CC-Switch-${{ github.ref_name }}-macOS.tar.gz`（Homebrew）
             - **Windows**: `CC-Switch-${{ github.ref_name }}-Windows.msi`（安装版）或 `CC-Switch-${{ github.ref_name }}-Windows-Portable.zip`（绿色版）
             - **Linux**: `CC-Switch-${{ github.ref_name }}-Linux.AppImage`（AppImage）或 `CC-Switch-${{ github.ref_name }}-Linux.deb`（Debian/Ubuntu）
+            - **Web Server**: `cc-switch-server-linux-x86_64` or `cc-switch-server-linux-aarch64`
 
             ---
-            提示：macOS 如遇"已损坏"提示，可在终端执行：`xattr -cr "/Applications/CC Switch.app"`
+            Note: if macOS reports that the app is damaged, run `xattr -cr "/Applications/CC Switch.app"` in Terminal.
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
