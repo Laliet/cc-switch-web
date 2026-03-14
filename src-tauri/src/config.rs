@@ -259,6 +259,10 @@ fn get_gemini_config_dir_for_permissions() -> Option<PathBuf> {
     get_client_config_dir_path(crate::settings::get_gemini_override_dir(), ".gemini").ok()
 }
 
+fn get_opencode_config_dir_for_permissions() -> PathBuf {
+    crate::opencode_config::get_opencode_dir()
+}
+
 fn should_enforce_private_permissions(path: &Path) -> bool {
     let mut dirs = Vec::new();
     if let Ok(dir) = get_app_config_dir() {
@@ -273,6 +277,7 @@ fn should_enforce_private_permissions(path: &Path) -> bool {
     if let Some(dir) = get_gemini_config_dir_for_permissions() {
         dirs.push(dir);
     }
+    dirs.push(get_opencode_config_dir_for_permissions());
 
     if dirs.iter().any(|dir| path.starts_with(dir)) {
         return true;
