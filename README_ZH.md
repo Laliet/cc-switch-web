@@ -15,8 +15,8 @@
 
 [English](README.md) | 中文 | [更新日志](CHANGELOG.md)
 
-> 当前推荐稳定版本：[v0.9.2](https://github.com/Laliet/cc-switch-web/releases/tag/v0.9.2)  
-> `v0.10.0` 当前为预发布版本，仅供测试使用
+> 当前推荐稳定版本：[v0.10.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.10.1)  
+> `v0.10.1` 当前为正式稳定版本
 
 ---
 
@@ -39,18 +39,18 @@
 
 ## 更新内容
 
-### v0.9.2 - 当前稳定版
+### v0.10.1 - 当前稳定版
 
 - 适合日常使用与生产环境
-- 稳定版下载地址：[v0.9.2](https://github.com/Laliet/cc-switch-web/releases/tag/v0.9.2)
+- 稳定版下载地址：[v0.10.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.10.1)
 
-### v0.10.0 - 当前预发布版
+### v0.10.0 - 预发布里程碑
 
 - 新增 OpenCode 供应商管理与自动写入 OpenCode 配置
 - 新增 oh-my-opencode（OMO）配置管理与插件联动支持
 - 支持在设置页直接修改 Web 模式登录用户名和密码
 - 改进 OMO / OpenCode 联动写入与当前供应商编辑时的回滚安全性
-- `v0.10.0` 当前仍为预发布版本，还需要更多跨机器验证
+- `v0.10.0` 是本发布线在正式稳定前使用的验证预发布版本
 
 ### v0.8.0 - 之前的稳定基线
 
@@ -111,8 +111,8 @@ _配置供应商_
 
 | 架构                      | 下载链接                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/cc-switch-server-linux-aarch64) |
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -227,11 +227,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                        | 说明                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.9.2-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/CC-Switch-v0.9.2-Windows.msi)                   | 安装版（当前稳定版）                |
-|             | [CC-Switch-v0.9.2-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/CC-Switch-v0.9.2-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.9.2-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/CC-Switch-v0.9.2-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.9.2-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/CC-Switch-v0.9.2-Linux.AppImage)             | AppImage（当前稳定版）              |
-|             | [CC-Switch-v0.9.2-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.9.2/CC-Switch-v0.9.2-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.10.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/CC-Switch-v0.10.1-Windows.msi)                   | 安装版（当前稳定版）                |
+|             | [CC-Switch-v0.10.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/CC-Switch-v0.10.1-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.10.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/CC-Switch-v0.10.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.10.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/CC-Switch-v0.10.1-Linux.AppImage)             | AppImage（当前稳定版）              |
+|             | [CC-Switch-v0.10.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.10.1/CC-Switch-v0.10.1-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -255,7 +255,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装当前稳定版本
-VERSION=v0.9.2 curl -fsSL https://...install.sh | bash
+VERSION=v0.10.1 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -357,7 +357,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) — 当前推荐稳定版本：**v0.9.2**
+参见 [CHANGELOG.md](CHANGELOG.md) — 当前推荐稳定版本：**v0.10.1**
 
 ---
 

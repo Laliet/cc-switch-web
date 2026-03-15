@@ -5,6 +5,18 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-03-15
+
+### Fixes / 修复
+
+- Preserve stored Web credentials until a new API base login succeeds, and stop cross-origin username fallback from binding to the wrong account
+- Harden malformed OpenCode provider sync by skipping invalid entries deterministically during live additive sync
+- Persist provider snapshots after desktop `sync_current_providers_live` so sync results survive restart
+
+### Tests / 测试
+
+- Add targeted coverage for Web auth validation paths and OpenCode live-sync edge cases
+
 ## [0.10.0] - 2026-03-14
 
 ### Features / 新特性
