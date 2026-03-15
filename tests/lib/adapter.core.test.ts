@@ -268,6 +268,29 @@ describe("adapter helpers", () => {
     expect(getStoredWebUsername()).toBe("alice");
   });
 
+  it("getStoredWebUsername infers stored remote api base when no target is provided", async () => {
+    const { WEB_AUTH_STORAGE_KEY, getStoredWebUsername } = await importAdapter();
+
+    vi.stubGlobal("location", {
+      origin: "https://api.example.com",
+      protocol: "https:",
+    });
+    try {
+      window.sessionStorage.setItem(
+        WEB_AUTH_STORAGE_KEY,
+        JSON.stringify({
+          token: Buffer.from("remote-user:secret").toString("base64"),
+          apiBase: "https://api.example.com/api",
+          username: "remote-user",
+        }),
+      );
+
+      expect(getStoredWebUsername()).toBe("remote-user");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("getStoredWebUsername falls back to admin for legacy tokens", async () => {
     const { WEB_AUTH_STORAGE_KEY, getStoredWebUsername } =
       await importAdapter();

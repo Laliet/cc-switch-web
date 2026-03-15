@@ -449,17 +449,21 @@ const resolveStoredWebCredentialsPayload = (
     if (!value) return undefined;
     const parsed = parseStoredWebCredentialsValue(value);
     if (!parsed) return undefined;
-    const targetOrigin =
+    const normalizedApiBase = normalizeWebApiBase(parsed.apiBase);
+    const inferredTargetOrigin =
       typeof targetUrl === "string" && targetUrl.trim()
         ? resolveWebOrigin(targetUrl)
-        : window.location?.origin;
-    if (!targetOrigin) return undefined;
-    if (!isAllowedWebApiOrigin(targetOrigin)) return undefined;
-    const sameOrigin = isSameWebOrigin(targetOrigin);
+        : normalizedApiBase
+          ? isRelativeWebApiBase(normalizedApiBase)
+            ? window.location?.origin
+            : resolveWebOrigin(normalizedApiBase)
+          : window.location?.origin;
+    if (!inferredTargetOrigin) return undefined;
+    if (!isAllowedWebApiOrigin(inferredTargetOrigin)) return undefined;
+    const sameOrigin = isSameWebOrigin(inferredTargetOrigin);
     if (parsed.legacy) {
       return sameOrigin ? parsed : undefined;
     }
-    const normalizedApiBase = normalizeWebApiBase(parsed.apiBase);
     if (normalizedApiBase && !isValidWebApiBase(normalizedApiBase)) {
       return undefined;
     }
@@ -468,7 +472,7 @@ const resolveStoredWebCredentialsPayload = (
     }
     const storedOrigin = resolveWebOrigin(normalizedApiBase);
     if (!storedOrigin) return undefined;
-    return storedOrigin === targetOrigin ? parsed : undefined;
+    return storedOrigin === inferredTargetOrigin ? parsed : undefined;
   } catch {
     return undefined;
   }

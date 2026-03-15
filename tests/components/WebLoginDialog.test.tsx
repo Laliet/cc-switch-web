@@ -264,6 +264,39 @@ describe("WebLoginDialog", () => {
     );
   });
 
+  it("keeps existing credentials when API base changes but login fails", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+    });
+    adapterMocks.getStoredWebApiBase.mockReturnValueOnce(
+      "https://old.example.com/api",
+    );
+
+    render(<WebLoginDialog open onLoginSuccess={vi.fn()} />);
+
+    const apiBaseInput = screen.getByLabelText(
+      "API 地址 (可选)",
+    ) as HTMLInputElement;
+
+    await waitFor(() =>
+      expect(apiBaseInput.value).toBe("https://old.example.com/api"),
+    );
+
+    await user.clear(apiBaseInput);
+    await user.type(apiBaseInput, "https://new.example.com/api");
+    await user.type(screen.getByLabelText("密码"), "wrong-secret");
+    await user.click(screen.getByRole("button", { name: "登录" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(adapterMocks.clearWebCredentials).not.toHaveBeenCalled();
+    expect(adapterMocks.setWebApiBaseOverride).not.toHaveBeenCalled();
+    expect(adapterMocks.setWebCredentials).not.toHaveBeenCalled();
+  });
+
   it("shows validation error when API base is invalid", async () => {
     const user = userEvent.setup();
     adapterMocks.getWebApiBaseValidationError.mockReturnValueOnce(

@@ -88,9 +88,6 @@ export function WebLoginDialog({ open, onLoginSuccess }: WebLoginDialogProps) {
       const normalizedApiBase = normalizeWebApiBase(apiBase);
       const previousApiBase = getStoredWebApiBase();
       const nextApiBase = normalizedApiBase ?? null;
-      if ((previousApiBase ?? null) !== nextApiBase) {
-        clearWebCredentials();
-      }
       const effectiveApiBase = normalizedApiBase ?? getWebApiBase();
       const response = await fetch(
         buildWebApiUrlWithBase(effectiveApiBase, "/settings"),
@@ -105,6 +102,9 @@ export function WebLoginDialog({ open, onLoginSuccess }: WebLoginDialogProps) {
       );
 
       if (response.ok) {
+        if ((previousApiBase ?? null) !== nextApiBase) {
+          clearWebCredentials();
+        }
         if (normalizedApiBase) {
           setWebApiBaseOverride(normalizedApiBase);
         } else {
