@@ -408,3 +408,84 @@ async fn test_update_credentials_rejects_short_password() {
     let res = dispatch(app, req).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+#[serial]
+async fn test_update_credentials_rejects_empty_username() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+
+    let app = make_app("password", "csrf-token");
+
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/system/credentials")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .header("x-csrf-token", HeaderValue::from_static("csrf-token"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "username": "   ",
+                "password": "secret123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let res = dispatch(app, req).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_update_credentials_rejects_invalid_username() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+
+    let app = make_app("password", "csrf-token");
+
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/system/credentials")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .header("x-csrf-token", HeaderValue::from_static("csrf-token"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "username": "bad:user",
+                "password": "secret123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let res = dispatch(app, req).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_update_credentials_rejects_empty_password() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+
+    let app = make_app("password", "csrf-token");
+
+    let req = Request::builder()
+        .method(Method::PUT)
+        .uri("/api/system/credentials")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .header("x-csrf-token", HeaderValue::from_static("csrf-token"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "username": "new-user",
+                "password": "   "
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let res = dispatch(app, req).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}

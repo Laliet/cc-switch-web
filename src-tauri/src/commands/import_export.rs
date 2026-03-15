@@ -63,6 +63,7 @@ pub async fn sync_current_providers_live(state: State<'_, AppState>) -> Result<V
         ConfigService::sync_current_providers_to_live(&mut config_state)
             .map_err(|e| e.to_string())?;
     }
+    state.save().map_err(|e| e.to_string())?;
 
     Ok(json!({
         "success": true,

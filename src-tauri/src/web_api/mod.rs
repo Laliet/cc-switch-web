@@ -1,5 +1,3 @@
-#![cfg(feature = "web-server")]
-
 use std::{
     env, fs,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -564,9 +562,8 @@ pub fn create_router_with_auth_state(state: SharedState, auth_state: SharedWebAu
     let mut root = Router::new()
         .nest(api_prefix.as_str(), router)
         .merge(static_router)
-        .layer(middleware::from_fn({
-            let hsts_enabled = hsts_enabled;
-            move |req, next| add_hsts_header(hsts_enabled, req, next)
+        .layer(middleware::from_fn(move |req, next| {
+            add_hsts_header(hsts_enabled, req, next)
         }));
 
     if global_concurrency > 0 {

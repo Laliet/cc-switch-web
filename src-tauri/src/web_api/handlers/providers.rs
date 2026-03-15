@@ -10,7 +10,6 @@ use serde::Deserialize;
 
 use super::{parse_known_app_type, ApiError, ApiResult};
 use crate::{
-    app_config::AppType,
     error::AppError,
     provider::{Provider, UsageResult},
     services::provider::ProviderSortUpdate,
