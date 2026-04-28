@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/laliet-cc-switch-web-badge.png)](https://mseep.ai/app/laliet-cc-switch-web)
+
 # cc-switch-web
 
 > Web-based CC Switch for Claude Code, Codex, Gemini CLI, OpenCode & OMO.
