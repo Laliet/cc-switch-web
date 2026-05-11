@@ -4,10 +4,6 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Provider, UsageScript } from "@/types";
 import { usageApi, type AppId } from "@/lib/api";
-import JsonEditor from "./JsonEditor";
-import * as prettier from "prettier/standalone";
-import * as parserBabel from "prettier/parser-babel";
-import * as pluginEstree from "prettier/plugins/estree";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+
+const JsonEditor = React.lazy(() => import("./JsonEditor"));
 
 interface UsageScriptModalProps {
   provider: Provider;
@@ -397,9 +395,14 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
   const handleFormat = async () => {
     try {
+      const [prettier, parserBabel, pluginEstree] = await Promise.all([
+        import("prettier/standalone"),
+        import("prettier/parser-babel"),
+        import("prettier/plugins/estree"),
+      ]);
       const formatted = await prettier.format(script.code, {
         parser: "babel",
-        plugins: [parserBabel as any, pluginEstree as any],
+        plugins: [parserBabel.default, pluginEstree.default],
         semi: true,
         singleQuote: false,
         tabWidth: 2,
@@ -656,12 +659,24 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
               {/* 脚本编辑器 */}
               <div>
                 <Label className="mb-2">{t("usageScript.queryScript")}</Label>
-                <JsonEditor
-                  value={script.code}
-                  onChange={(code) => setScript({ ...script, code })}
-                  height="300px"
-                  language="javascript"
-                />
+                <React.Suspense
+                  fallback={
+                    <textarea
+                      className="h-[300px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                      value={script.code}
+                      onChange={(event) =>
+                        setScript({ ...script, code: event.target.value })
+                      }
+                    />
+                  }
+                >
+                  <JsonEditor
+                    value={script.code}
+                    onChange={(code) => setScript({ ...script, code })}
+                    height="300px"
+                    language="javascript"
+                  />
+                </React.Suspense>
                 <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   {t("usageScript.variablesHint", {
                     apiKey: "{{apiKey}}",

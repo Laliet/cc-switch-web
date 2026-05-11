@@ -495,6 +495,57 @@ async fn proxy_takeover_restore_and_recover_routes_update_flags() {
 
 #[tokio::test]
 #[serial]
+async fn proxy_restore_updates_running_status_takeover_flags() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let proxy_port = free_tcp_port();
+    let app = make_app("password", "csrf-token");
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "apps": {
+                        "claude": { "enabled": true }
+                    }
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    assert_eq!(status["running"], json!(true));
+    assert_eq!(status["takeover"]["claude"], json!(true));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::POST, "/api/proxy/restore", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    assert_eq!(status["running"], json!(true));
+    assert_eq!(status["takeover"]["claude"], json!(false));
+    assert_eq!(status["activeTargets"], json!([]));
+
+    let res = dispatch(app.clone(), request(Method::GET, "/api/proxy/status", None)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    assert_eq!(status["takeover"]["claude"], json!(false));
+    assert_eq!(status["activeTargets"], json!([]));
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+}
+
+#[tokio::test]
+#[serial]
 async fn proxy_routes_validate_test_payload_and_reject_unsupported_takeover_app() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     let _account_guard = setup();
@@ -681,7 +732,7 @@ async fn proxy_start_reports_clear_error_when_port_is_owned_by_another_process()
     let app = make_app("password", "csrf-token");
 
     let res = dispatch(
-        app,
+        app.clone(),
         request(
             Method::POST,
             "/api/proxy/start",
@@ -700,6 +751,12 @@ async fn proxy_start_reports_clear_error_when_port_is_owned_by_another_process()
     let error = body["error"].as_str().unwrap_or_default();
     assert!(error.contains("已被占用") || error.contains("already in use"));
     assert!(!error.contains("Failed to bind proxy listener"));
+
+    let res = dispatch(app, request(Method::GET, "/api/proxy/config", None)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let config: Value = json_body(res).await;
+    assert_eq!(config["enabled"], json!(false));
+    assert_eq!(config["liveTakeoverActive"], json!(false));
 }
 
 #[tokio::test]
@@ -803,6 +860,69 @@ async fn proxy_recent_logs_capture_request_summary_with_sanitized_query() {
 
     let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
     upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_recent_logs_sanitize_upstream_error_query_values() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let upstream_port = free_tcp_port();
+    let upstream_base = format!("http://127.0.0.1:{upstream_port}");
+    let proxy_port = free_tcp_port();
+    let app = make_app_with_claude_provider(
+        "password",
+        "csrf-token",
+        claude_provider_with_base_url(&upstream_base),
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "enableLogging": true
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+
+    let proxy_response = reqwest::Client::new()
+        .post(format!(
+            "{listen_url}/v1/messages?key=secret-token&safe=visible"
+        ))
+        .json(&json!({ "messages": [] }))
+        .send()
+        .await
+        .expect("proxy request");
+    assert_eq!(proxy_response.status(), reqwest::StatusCode::BAD_GATEWAY);
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/proxy/logs/recent", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let logs: Value = json_body(res).await;
+    let logs = logs.as_array().expect("logs array");
+    assert_eq!(logs.len(), 1);
+    let log = &logs[0];
+    assert_eq!(log["path"], json!("/v1/messages?key=***&safe=visible"));
+    let error = log["error"].as_str().expect("error string");
+    assert!(error.contains("Proxy upstream request failed"));
+    assert!(!error.contains("secret-token"));
+    assert!(!error.contains("key=secret-token"));
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
 }
 
 #[tokio::test]

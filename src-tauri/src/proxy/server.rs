@@ -358,7 +358,10 @@ async fn proxy_handler(
         .as_ref()
         .map(|status| status.is_success())
         .unwrap_or(false);
-    let error = result.as_ref().err().map(ToString::to_string);
+    let error = result
+        .as_ref()
+        .err()
+        .map(|err| sanitize_error_for_log(&err.to_string()));
     {
         let mut stats = state.stats.write().await;
         stats.active_connections = stats.active_connections.saturating_sub(1);
@@ -823,11 +826,7 @@ async fn send_upstream_provider(
     )
     .await
     .map_err(UpstreamAttemptError::Send)?
-    .map_err(|e| {
-        UpstreamAttemptError::Send(AppError::Config(format!(
-            "Proxy upstream request failed: {e}"
-        )))
-    })
+    .map_err(|e| UpstreamAttemptError::Send(upstream_request_error(e)))
 }
 
 fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettings {
@@ -1069,13 +1068,23 @@ pub async fn start_proxy(
         .map_err(|e| AppError::Config(format!("Failed to read proxy listener address: {e}")))?;
     let listen_url = format!("http://{actual_addr}");
 
+    let mut applied_takeovers = Vec::new();
     for app in takeover_apps(&settings) {
-        live::sync_current_provider_from_live(&state, &app)?;
-        let provider = current_provider(&state, &app)?;
-        if matches!(app, AppType::Gemini) {
-            ensure_gemini_takeover_supported(&provider)?;
+        let result = (|| {
+            live::sync_current_provider_from_live(&state, &app)?;
+            let provider = current_provider(&state, &app)?;
+            if matches!(app, AppType::Gemini) {
+                ensure_gemini_takeover_supported(&provider)?;
+            }
+            live::apply_takeover(&app, &provider, &listen_url)
+        })();
+        if let Err(err) = result {
+            for applied_app in applied_takeovers.iter().rev() {
+                let _ = live::restore_takeover(applied_app);
+            }
+            return Err(err);
         }
-        live::apply_takeover(&app, &provider, &listen_url)?;
+        applied_takeovers.push(app);
     }
 
     let handler_state = ProxyHandlerState {
@@ -1141,6 +1150,16 @@ pub async fn recent_logs() -> Vec<ProxyRecentLog> {
 
 pub async fn clear_recent_logs() {
     runtime().recent_logs.write().await.clear();
+}
+
+pub async fn update_runtime_settings(settings: ProxySettings) {
+    let rt = runtime();
+    let mut guard = rt.handle.lock().await;
+    if let Some(handle) = guard.as_mut() {
+        if !handle.join.is_finished() {
+            handle.settings = settings;
+        }
+    }
 }
 
 pub async fn status() -> ProxyStatus {
@@ -1299,6 +1318,66 @@ fn sanitize_uri_for_log(uri: &Uri) -> String {
     path.push('?');
     path.push_str(&truncate_for_log(&sanitized, PROXY_LOG_PATH_LIMIT));
     truncate_for_log(&path, PROXY_LOG_PATH_LIMIT)
+}
+
+fn sanitize_error_for_log(error: &str) -> String {
+    let mut sanitized = String::with_capacity(error.len());
+    let mut remainder = error;
+
+    while let Some((prefix, scheme)) = find_next_url(remainder) {
+        sanitized.push_str(prefix);
+        let url_start = prefix.len();
+        let tail = &remainder[url_start..];
+        let url_end = tail
+            .find(|ch: char| ch.is_whitespace() || matches!(ch, ')' | '"' | '\'' | '<' | '>'))
+            .unwrap_or(tail.len());
+        let (url, rest) = tail.split_at(url_end);
+        sanitized.push_str(&sanitize_url_for_log(url, scheme));
+        remainder = rest;
+    }
+
+    sanitized.push_str(remainder);
+    truncate_for_log(&sanitized, PROXY_LOG_PATH_LIMIT)
+}
+
+fn find_next_url(value: &str) -> Option<(&str, &str)> {
+    let http = value.find("http://");
+    let https = value.find("https://");
+    match (http, https) {
+        (Some(http), Some(https)) if http < https => Some((&value[..http], "http://")),
+        (Some(_), Some(https)) => Some((&value[..https], "https://")),
+        (Some(http), None) => Some((&value[..http], "http://")),
+        (None, Some(https)) => Some((&value[..https], "https://")),
+        (None, None) => None,
+    }
+}
+
+fn sanitize_url_for_log(url: &str, scheme: &str) -> String {
+    let without_scheme = url.strip_prefix(scheme).unwrap_or(url);
+    let (authority, path_and_query) = without_scheme
+        .split_once('/')
+        .map(|(authority, path)| (authority, format!("/{path}")))
+        .unwrap_or((without_scheme, "/".to_string()));
+
+    match path_and_query.parse::<Uri>() {
+        Ok(uri) => format!("{scheme}{authority}{}", sanitize_uri_for_log(&uri)),
+        Err(_) => format!("{scheme}{authority}/***"),
+    }
+}
+
+fn upstream_request_error(error: reqwest::Error) -> AppError {
+    let reason = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connection failed"
+    } else if error.is_request() {
+        "request build failed"
+    } else if error.is_body() {
+        "request body failed"
+    } else {
+        "request failed"
+    };
+    AppError::Config(format!("Proxy upstream request failed: {reason}"))
 }
 
 fn is_sensitive_query_key(key: &str) -> bool {

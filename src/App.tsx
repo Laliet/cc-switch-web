@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Plus, Settings, Edit3 } from "lucide-react";
@@ -30,16 +38,9 @@ import {
   isUsageApp,
 } from "@/config/apps";
 import { ProviderList } from "@/components/providers/ProviderList";
-import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
-import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
-import UsageScriptModal from "@/components/UsageScriptModal";
-import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
-import PromptPanel from "@/components/prompts/PromptPanel";
-import { SkillsPage } from "@/components/skills/SkillsPage";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import WebLoginDialog from "@/components/WebLoginDialog";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+
+const AddProviderDialog = lazy(() =>
+  import("@/components/providers/AddProviderDialog").then((module) => ({
+    default: module.AddProviderDialog,
+  })),
+);
+const EditProviderDialog = lazy(() =>
+  import("@/components/providers/EditProviderDialog").then((module) => ({
+    default: module.EditProviderDialog,
+  })),
+);
+const SettingsDialog = lazy(() =>
+  import("@/components/settings/SettingsDialog").then((module) => ({
+    default: module.SettingsDialog,
+  })),
+);
+const UsageScriptModal = lazy(() => import("@/components/UsageScriptModal"));
+const UnifiedMcpPanel = lazy(
+  () => import("@/components/mcp/UnifiedMcpPanel"),
+);
+const PromptPanel = lazy(() => import("@/components/prompts/PromptPanel"));
+const SkillsPage = lazy(() =>
+  import("@/components/skills/SkillsPage").then((module) => ({
+    default: module.SkillsPage,
+  })),
+);
 
 async function validateWebCredentials(url: string): Promise<boolean> {
   const headers = buildWebAuthHeadersForUrl(url);
@@ -709,35 +736,43 @@ function AppContent() {
         </div>
       </main>
 
-      <AddProviderDialog
-        open={isAddOpen}
-        onOpenChange={setIsAddOpen}
-        appId={activeApp}
-        onSubmit={addProvider}
-      />
+      <Suspense fallback={null}>
+        {isAddOpen ? (
+          <AddProviderDialog
+            open={isAddOpen}
+            onOpenChange={setIsAddOpen}
+            appId={activeApp}
+            onSubmit={addProvider}
+          />
+        ) : null}
 
-      <EditProviderDialog
-        open={Boolean(editingProvider)}
-        provider={editingProvider}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingProvider(null);
-          }
-        }}
-        onSubmit={handleEditProvider}
-        appId={activeApp}
-      />
+        {editingProvider ? (
+          <EditProviderDialog
+            open={Boolean(editingProvider)}
+            provider={editingProvider}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingProvider(null);
+              }
+            }}
+            onSubmit={handleEditProvider}
+            appId={activeApp}
+          />
+        ) : null}
+      </Suspense>
 
       {usageProvider && usageSupported ? (
-        <UsageScriptModal
-          provider={usageProvider}
-          appId={activeApp}
-          isOpen={Boolean(usageProvider)}
-          onClose={() => setUsageProvider(null)}
-          onSave={(script) => {
-            void saveUsageScript(usageProvider, script);
-          }}
-        />
+        <Suspense fallback={null}>
+          <UsageScriptModal
+            provider={usageProvider}
+            appId={activeApp}
+            isOpen={Boolean(usageProvider)}
+            onClose={() => setUsageProvider(null)}
+            onSave={(script) => {
+              void saveUsageScript(usageProvider, script);
+            }}
+          />
+        </Suspense>
       ) : null}
 
       <ConfirmDialog
@@ -755,23 +790,29 @@ function AppContent() {
       />
 
       {isSettingsOpen ? (
-        <SettingsDialog
-          open={isSettingsOpen}
-          onOpenChange={setIsSettingsOpen}
-          onImportSuccess={handleImportSuccess}
-        />
+        <Suspense fallback={null}>
+          <SettingsDialog
+            open={isSettingsOpen}
+            onOpenChange={setIsSettingsOpen}
+            onImportSuccess={handleImportSuccess}
+          />
+        </Suspense>
       ) : null}
 
       {isPromptOpen && promptSupported ? (
-        <PromptPanel
-          open={isPromptOpen}
-          onOpenChange={setIsPromptOpen}
-          appId={activeApp}
-        />
+        <Suspense fallback={null}>
+          <PromptPanel
+            open={isPromptOpen}
+            onOpenChange={setIsPromptOpen}
+            appId={activeApp}
+          />
+        </Suspense>
       ) : null}
 
       {isMcpOpen && mcpSupported ? (
-        <UnifiedMcpPanel open={isMcpOpen} onOpenChange={setIsMcpOpen} />
+        <Suspense fallback={null}>
+          <UnifiedMcpPanel open={isMcpOpen} onOpenChange={setIsMcpOpen} />
+        </Suspense>
       ) : null}
 
       {isSkillsOpen && skillsSupported ? (
@@ -787,10 +828,12 @@ function AppContent() {
                 </DialogDescription>
               </VisuallyHidden>
             </DialogHeader>
-            <SkillsPage
-              onClose={() => setIsSkillsOpen(false)}
-              appId={activeApp}
-            />
+            <Suspense fallback={null}>
+              <SkillsPage
+                onClose={() => setIsSkillsOpen(false)}
+                appId={activeApp}
+              />
+            </Suspense>
           </DialogContent>
         </Dialog>
       ) : null}

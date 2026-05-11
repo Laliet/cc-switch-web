@@ -34,9 +34,14 @@ impl ProxyService {
     ) -> Result<ProxyStatus, AppError> {
         config.enabled = true;
         config.live_takeover_active = has_takeover_apps(&config);
+        config = normalize_config(config);
         ensure_takeover_config_supported(&state, &config)?;
-        Self::save_config(config.clone())?;
-        server::start_proxy(state.clone(), config).await?;
+        server::start_proxy(state.clone(), config.clone()).await?;
+        if let Err(err) = Self::save_config(config) {
+            let _ = server::stop_proxy().await;
+            let _ = live::restore_all();
+            return Err(err);
+        }
         Ok(server::status_for_state(&state).await)
     }
 
@@ -68,10 +73,10 @@ impl ProxyService {
             ensure_gemini_takeover_supported(&provider)?;
         }
 
-        let mut app_settings = settings::get_settings();
+        let original_settings = settings::get_settings();
+        let mut app_settings = original_settings.clone();
         set_app_enabled(&mut app_settings.proxy, &app, enabled);
         app_settings.proxy.live_takeover_active = has_takeover_apps(&app_settings.proxy);
-        settings::update_settings(app_settings.clone())?;
 
         let status = server::status_for_state(&state).await;
         if status.running {
@@ -86,6 +91,23 @@ impl ProxyService {
             }
         }
 
+        if let Err(err) = settings::update_settings(app_settings.clone()) {
+            if status.running {
+                if enabled {
+                    let _ = live::restore_takeover(&app);
+                } else if is_app_enabled(&original_settings.proxy, &app) {
+                    if let (Ok(provider), Some(listen_url)) = (
+                        server::current_provider(&state, &app),
+                        status.listen_url.as_deref(),
+                    ) {
+                        let _ = live::apply_takeover(&app, &provider, listen_url);
+                    }
+                }
+            }
+            return Err(err);
+        }
+        server::update_runtime_settings(app_settings.proxy.clone()).await;
+
         Ok(ProxyTakeoverResult {
             app: app.as_str().to_string(),
             enabled,
@@ -95,12 +117,14 @@ impl ProxyService {
 
     pub async fn restore(state: Arc<AppState>) -> Result<ProxyStatus, AppError> {
         live::restore_all()?;
+        server::update_runtime_settings(settings::get_settings().proxy).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }
 
     pub async fn recover_stale_takeover(state: Arc<AppState>) -> Result<ProxyStatus, AppError> {
         live::restore_all()?;
+        server::update_runtime_settings(settings::get_settings().proxy).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }
@@ -133,6 +157,16 @@ fn set_app_enabled(config: &mut ProxySettings, app: &AppType, enabled: bool) {
         AppType::Gemini => config.apps.gemini.enabled = enabled,
         AppType::Opencode => config.apps.opencode.enabled = enabled,
         AppType::Omo => {}
+    }
+}
+
+fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
+    match app {
+        AppType::Claude => config.apps.claude.enabled,
+        AppType::Codex => config.apps.codex.enabled,
+        AppType::Gemini => config.apps.gemini.enabled,
+        AppType::Opencode => config.apps.opencode.enabled,
+        AppType::Omo => false,
     }
 }
 
