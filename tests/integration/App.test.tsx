@@ -185,7 +185,7 @@ describe("App integration with MSW", () => {
     );
 
     fireEvent.click(screen.getByText("update-badge"));
-    expect(screen.getByTestId("settings-dialog")).toBeInTheDocument();
+    expect(await screen.findByTestId("settings-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("trigger-import-success"));
     fireEvent.click(screen.getByText("close-settings"));
 
@@ -197,12 +197,12 @@ describe("App integration with MSW", () => {
     );
 
     fireEvent.click(screen.getByText("usage"));
-    expect(screen.getByTestId("usage-modal")).toBeInTheDocument();
+    expect(await screen.findByTestId("usage-modal")).toBeInTheDocument();
     fireEvent.click(screen.getByText("save-script"));
     fireEvent.click(screen.getByText("close-usage"));
 
     fireEvent.click(screen.getByText("create"));
-    expect(screen.getByTestId("add-provider-dialog")).toBeInTheDocument();
+    expect(await screen.findByTestId("add-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-add"));
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toMatch(
@@ -211,7 +211,7 @@ describe("App integration with MSW", () => {
     );
 
     fireEvent.click(screen.getByText("edit"));
-    expect(screen.getByTestId("edit-provider-dialog")).toBeInTheDocument();
+    expect(await screen.findByTestId("edit-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-edit"));
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toMatch(

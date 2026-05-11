@@ -5,6 +5,44 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-05-11
+
+### Features / 新特性
+
+- Promote the Web/headless local HTTP proxy workflow from release-candidate validation to the stable `0.11.0` line
+- Provide one local proxy port for Claude Code, Codex/OpenAI-compatible, Gemini, and OpenCode clients, with provider-aware routing and provider switching through cc-switch-web
+- Add Settings controls for proxy start, stop, status, test, auto-start, timeout knobs, recent logs, and per-client takeover/restore
+- Add live takeover and restore support for Claude, Codex, Gemini, and experimental OpenCode client configuration
+- Add adapter normalization for Claude, Codex/OpenAI-compatible, Gemini, and OpenCode provider endpoints
+- Add Web/headless proxy API coverage for status, config, settings, test, logs, takeover, restore, and stale takeover recovery
+
+### Fixes / 修复
+
+- Harden proxy startup and takeover UX after RC validation, including occupied-port errors, repeated start handling, duplicate takeover prevention, and stable toast behavior
+- Preserve Claude provider `env` objects and normalize root-level `ANTHROPIC_*` fragments during provider formatting
+- Fix default Anthropic Skills repository scan paths and migrate existing empty scan-path entries
+- Restore MCP and Skills management entry points for OMO while clarifying that OMO Skills use OpenCode storage
+- Redact sensitive query values from proxy logs and avoid leaking secrets through recent-log output
+- Fix restore-status synchronization while proxy takeover is running
+- Fix the release workflow so generated release metadata no longer overwrites hand-written GitHub release notes
+- Stabilize the App integration test by waiting for lazy-loaded dialogs before asserting their presence
+
+### Tests / 测试
+
+- Validate the stable release preparation with targeted `tests/integration/App.test.tsx` and the full `pnpm vitest run` suite
+- Add proxy, takeover, provider formatting, OMO mapping, and Skills install-path regression coverage across the `0.11.0` RC cycle
+
+## [0.11.0-rc.3] - 2026-05-11
+
+### Fixes / 修复
+
+- Fix proxy startup failure handling when startup fails before runtime status is fully updated
+- Fix client takeover failure handling so failed takeover attempts do not leave misleading running state
+- Keep running restore status synchronized after takeover restoration
+- Redact sensitive values in proxy logs more aggressively
+- Fix the Release workflow so it no longer overwrites manually written GitHub Release notes with a fixed body template
+- Use MSI-compatible prerelease application version metadata for RC3 Windows builds
+
 ## [0.11.0-rc.2] - 2026-05-09
 
 ### Fixes / 修复
