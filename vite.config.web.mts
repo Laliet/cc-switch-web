@@ -18,7 +18,9 @@ export default defineConfig({
           if (
             id.includes("/react/") ||
             id.includes("/react-dom/") ||
-            id.includes("/scheduler/")
+            id.includes("/scheduler/") ||
+            id.includes("i18next") ||
+            id.includes("react-i18next")
           ) {
             return "vendor-react";
           }
@@ -27,9 +29,6 @@ export default defineConfig({
           }
           if (id.includes("@tanstack")) {
             return "vendor-query";
-          }
-          if (id.includes("i18next") || id.includes("react-i18next")) {
-            return "vendor-i18n";
           }
           if (id.includes("lucide-react")) {
             return "vendor-icons";
