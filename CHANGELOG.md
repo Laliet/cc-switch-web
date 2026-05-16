@@ -5,6 +5,18 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-05-16
+
+### Fixes / 修复
+
+- Fix Docker/Web deployments that could render a blank page after login with `vendor-i18n-*.js: Cannot read properties of undefined (reading 'createContext')`
+- Keep `i18next` and `react-i18next` in the `vendor-react` chunk to avoid runtime initialization ordering issues
+- Add regression coverage for the Web Vite chunking configuration so `vendor-i18n` is not reintroduced
+
+### Tests / 测试
+
+- Validate the hotfix with targeted Web chunking tests, TypeScript checking, Web production build, full Dockerfile build, and a Playwright + Chrome browser smoke test against the built container image
+
 ## [0.11.0] - 2026-05-11
 
 ### Features / 新特性
