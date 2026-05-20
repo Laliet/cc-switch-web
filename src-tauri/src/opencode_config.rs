@@ -122,6 +122,19 @@ pub fn remove_plugin_by_prefix(prefix: &str) -> Result<(), AppError> {
     write_opencode_config(&config)
 }
 
+pub fn has_plugin(plugin_name: &str) -> Result<bool, AppError> {
+    let config = read_opencode_config()?;
+    Ok(config
+        .get("plugin")
+        .and_then(|value| value.as_array())
+        .map(|plugins| {
+            plugins
+                .iter()
+                .any(|value| value.as_str() == Some(plugin_name))
+        })
+        .unwrap_or(false))
+}
+
 pub fn get_mcp_servers() -> Result<Map<String, Value>, AppError> {
     let config = read_opencode_config()?;
     Ok(config

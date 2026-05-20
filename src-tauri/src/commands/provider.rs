@@ -180,7 +180,10 @@ pub async fn testUsageScript(
 
 /// 读取当前生效的配置内容
 #[tauri::command]
-pub fn read_live_provider_settings(app: String) -> Result<serde_json::Value, String> {
+pub fn read_live_provider_settings(
+    _state: State<'_, AppState>,
+    app: String,
+) -> Result<serde_json::Value, String> {
     let app_type = parse_provider_app_type(&app)?;
     ProviderService::read_live_settings(app_type).map_err(|e| e.to_string())
 }
@@ -256,4 +259,10 @@ pub fn update_providers_sort_order(
 ) -> Result<bool, String> {
     let app_type = parse_provider_app_type(&app)?;
     ProviderService::update_sort_order(state.inner(), app_type, updates).map_err(|e| e.to_string())
+}
+
+/// 查询 opencode.json 是否已启用 oh-my-opencode 插件。
+#[tauri::command]
+pub fn get_omo_plugin_status() -> Result<bool, String> {
+    crate::opencode_config::has_plugin("oh-my-opencode@latest").map_err(|e| e.to_string())
 }

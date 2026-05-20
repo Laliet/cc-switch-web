@@ -1325,11 +1325,10 @@ impl ProviderService {
             AppType::Opencode => {
                 let path = crate::opencode_config::get_opencode_config_path();
                 if !path.exists() {
-                    return Err(AppError::localized(
-                        "opencode.live.missing",
-                        "OpenCode 配置文件不存在",
-                        "OpenCode config file is missing",
-                    ));
+                    log::warn!("OpenCode config file not found when reading live settings; returning empty config");
+                    return Ok(json!({
+                        "$schema": "https://opencode.ai/config.json"
+                    }));
                 }
                 crate::opencode_config::read_opencode_config()
             }

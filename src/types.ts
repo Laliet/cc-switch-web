@@ -87,6 +87,30 @@ export interface ProviderMeta {
   partnerPromotionKey?: string;
 }
 
+export interface OpenCodeModel {
+  name?: string;
+  limit?: {
+    context?: number;
+    output?: number;
+    [key: string]: unknown;
+  };
+  options?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface OpenCodeProviderConfig {
+  npm?: string;
+  name?: string;
+  options: {
+    baseURL?: string;
+    apiKey?: string;
+    headers?: Record<string, string>;
+    [key: string]: unknown;
+  };
+  models: Record<string, OpenCodeModel>;
+  [key: string]: unknown;
+}
+
 // 应用设置类型（用于设置对话框与 Tauri API）
 export interface Settings {
   // 是否在系统托盘（macOS 菜单栏）显示图标

@@ -75,6 +75,10 @@ export const providersApi = {
     return await invoke("update_providers_sort_order", { updates, app: appId });
   },
 
+  async getOmoPluginStatus(): Promise<boolean> {
+    return await invoke("get_omo_plugin_status");
+  },
+
   async onSwitched(
     handler: (event: ProviderSwitchEvent) => void,
   ): Promise<UnlistenFn> {

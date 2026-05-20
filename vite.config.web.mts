@@ -1,7 +1,12 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+
+const packageJson = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+) as { version?: string };
 
 function webManualChunks(id: string): string | undefined {
   if (!id.includes("node_modules")) return undefined;
@@ -84,6 +89,9 @@ export default defineConfig({
   },
   define: {
     "import.meta.env.VITE_MODE": JSON.stringify("web"),
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(
+      packageJson.version ?? "",
+    ),
   },
   clearScreen: false,
   envPrefix: ["VITE_"],

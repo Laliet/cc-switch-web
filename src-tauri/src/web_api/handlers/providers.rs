@@ -133,14 +133,11 @@ pub async fn import_default_config(
 }
 
 pub async fn read_live_provider_settings(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Path(app): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let app_type = parse_known_app_type(&app)?;
-    let live_settings =
-        ProviderService::read_live_settings(app_type.clone()).map_err(ApiError::from)?;
-    ProviderService::sync_default_provider_from_live(&state, app_type, live_settings.clone())
-        .map_err(ApiError::from)?;
+    let live_settings = ProviderService::read_live_settings(app_type).map_err(ApiError::from)?;
     Ok(Json(live_settings))
 }
 
@@ -157,6 +154,12 @@ pub async fn update_sort_order(
 
     ProviderService::update_sort_order(&state, app_type, updates).map_err(ApiError::from)?;
     Ok(Json(true))
+}
+
+pub async fn omo_plugin_status(State(_state): State<Arc<AppState>>) -> ApiResult<bool> {
+    let applied =
+        crate::opencode_config::has_plugin("oh-my-opencode@latest").map_err(ApiError::from)?;
+    Ok(Json(applied))
 }
 
 pub async fn query_provider_usage(

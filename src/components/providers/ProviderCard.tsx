@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ProviderActions } from "@/components/providers/ProviderActions";
 import UsageFooter from "@/components/UsageFooter";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
@@ -223,6 +224,12 @@ export function ProviderCard({
               <Copy className="h-4 w-4" />
             </Button>
           </div>
+
+          <ProviderIcon
+            name={provider.name}
+            websiteUrl={provider.websiteUrl}
+            size={32}
+          />
 
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 min-h-[20px]">

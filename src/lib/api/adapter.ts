@@ -705,6 +705,8 @@ export function commandToEndpoint(
         body: { updates },
       };
     }
+    case "get_omo_plugin_status":
+      return { method: "GET", url: `${apiBase}/providers/omo/plugin-status` };
     case "queryProviderUsage": {
       const app = requireArg(args, "app", cmd);
       const providerId = requireArg(args, "providerId", cmd);

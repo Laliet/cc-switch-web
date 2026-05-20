@@ -6,6 +6,7 @@ import { ProviderList } from "@/components/providers/ProviderList";
 const useDragSortMock = vi.fn();
 const useSortableMock = vi.fn();
 const providerCardRenderSpy = vi.fn();
+const getOmoPluginStatusMock = vi.fn();
 
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
@@ -69,6 +70,12 @@ vi.mock("@/components/providers/ProviderCard", () => ({
   },
 }));
 
+vi.mock("@/lib/api", () => ({
+  providersApi: {
+    getOmoPluginStatus: (...args: unknown[]) => getOmoPluginStatusMock(...args),
+  },
+}));
+
 vi.mock("@/components/UsageFooter", () => ({
   default: () => <div data-testid="usage-footer" />,
 }));
@@ -99,6 +106,8 @@ beforeEach(() => {
   useDragSortMock.mockReset();
   useSortableMock.mockReset();
   providerCardRenderSpy.mockClear();
+  getOmoPluginStatusMock.mockReset();
+  getOmoPluginStatusMock.mockResolvedValue(false);
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -206,9 +215,7 @@ describe("ProviderList Component", () => {
     expect(providerCardRenderSpy.mock.calls[1][0].provider.id).toBe("a");
 
     // Verify current provider marker and edit mode pass-through
-    expect(
-      providerCardRenderSpy.mock.calls[0][0].isCurrent,
-    ).toBe(true);
+    expect(providerCardRenderSpy.mock.calls[0][0].isCurrent).toBe(true);
     expect(providerCardRenderSpy.mock.calls[0][0].isEditMode).toBe(true);
 
     // Drag attributes from useSortable
@@ -241,5 +248,33 @@ describe("ProviderList Component", () => {
       { a: providerA, b: providerB },
       "claude",
     );
+  });
+
+  it("shows OMO plugin status from opencode.json", async () => {
+    const provider = createProvider({ id: "omo-1", name: "OMO" });
+    getOmoPluginStatusMock.mockResolvedValueOnce(true);
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "omo-1": provider }}
+        currentProviderId="omo-1"
+        appId="omo"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    expect(getOmoPluginStatusMock).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText("已在 opencode.json plugin 中启用"),
+    ).toBeInTheDocument();
   });
 });

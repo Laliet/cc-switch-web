@@ -5,9 +5,9 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { Provider } from "@/types";
-import type { AppId, ProviderHealth } from "@/lib/api";
+import { providersApi, type AppId, type ProviderHealth } from "@/lib/api";
 import { useDragSort } from "@/hooks/useDragSort";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderEmptyState } from "@/components/providers/ProviderEmptyState";
@@ -51,6 +51,30 @@ export function ProviderList({
     providers,
     appId,
   );
+  const [omoPluginEnabled, setOmoPluginEnabled] = useState<boolean | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (appId !== "omo") {
+      setOmoPluginEnabled(null);
+      return;
+    }
+
+    providersApi
+      .getOmoPluginStatus()
+      .then((enabled) => {
+        if (!cancelled) setOmoPluginEnabled(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setOmoPluginEnabled(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appId]);
 
   if (isLoading) {
     return (
@@ -80,6 +104,18 @@ export function ProviderList({
         strategy={verticalListSortingStrategy}
       >
         <div className="space-y-3">
+          {appId === "omo" && (
+            <div className="rounded-lg border border-border-default bg-muted/40 px-4 py-3 text-sm">
+              <span className="font-medium">oh-my-opencode@latest</span>
+              <span className="ml-2 text-muted-foreground">
+                {omoPluginEnabled === null
+                  ? "正在读取 opencode.json plugin 状态..."
+                  : omoPluginEnabled
+                    ? "已在 opencode.json plugin 中启用"
+                    : "未在 opencode.json plugin 中启用"}
+              </span>
+            </div>
+          )}
           {sortedProviders.map((provider) => (
             <SortableProviderCard
               key={provider.id}

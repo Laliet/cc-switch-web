@@ -30,6 +30,8 @@ import { BasicFormFields } from "./BasicFormFields";
 import { ClaudeFormFields } from "./ClaudeFormFields";
 import { CodexFormFields } from "./CodexFormFields";
 import { GeminiFormFields } from "./GeminiFormFields";
+import { OpenCodeFormFields } from "./OpenCodeFormFields";
+import { OPENCODE_DEFAULT_CONFIG } from "./helpers/opencodeFormUtils";
 import {
   useProviderCategory,
   useApiKeyState,
@@ -45,6 +47,7 @@ import {
   useGeminiConfigState,
   useGeminiCommonConfig,
 } from "./hooks";
+import { useOpencodeConfigState } from "./hooks/useOpencodeConfigState";
 
 const CLAUDE_DEFAULT_CONFIG = JSON.stringify({ env: {} }, null, 2);
 const CODEX_DEFAULT_CONFIG = JSON.stringify({ auth: {}, config: "" }, null, 2);
@@ -55,18 +58,6 @@ const GEMINI_DEFAULT_CONFIG = JSON.stringify(
       GEMINI_API_KEY: "",
       GEMINI_MODEL: "gemini-3-pro-preview",
     },
-  },
-  null,
-  2,
-);
-const OPENCODE_DEFAULT_CONFIG = JSON.stringify(
-  {
-    npm: "@ai-sdk/openai-compatible",
-    options: {
-      baseURL: "https://api.example.com/v1",
-      apiKey: "sk-xxxx",
-    },
-    models: {},
   },
   null,
   2,
@@ -415,6 +406,12 @@ export function ProviderForm({
 
   const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
 
+  const opencodeState = useOpencodeConfigState({
+    initialData: appId === "opencode" ? initialData : undefined,
+    onSettingsConfigChange: (value) => form.setValue("settingsConfig", value),
+    getSettingsConfig: () => form.watch("settingsConfig"),
+  });
+
   const handleSubmit = (values: ProviderFormData) => {
     // 验证模板变量（仅 Claude 模式）
     if (appId === "claude" && templateValueEntries.length > 0) {
@@ -460,6 +457,8 @@ export function ProviderForm({
         // 如果解析失败，使用表单中的配置
         settingsConfig = values.settingsConfig.trim();
       }
+    } else if (appId === "opencode") {
+      settingsConfig = values.settingsConfig.trim();
     } else {
       // Claude: 使用表单配置
       settingsConfig = values.settingsConfig.trim();
@@ -619,6 +618,9 @@ export function ProviderForm({
       // Gemini 自定义模式：重置为空配置
       if (appId === "gemini") {
         resetGeminiConfig({}, {});
+      }
+      if (appId === "opencode") {
+        opencodeState.reset();
       }
       return;
     }
@@ -798,6 +800,22 @@ export function ProviderForm({
               handleGeminiEnvChange(newEnv);
             }}
             speedTestEndpoints={speedTestEndpoints}
+          />
+        )}
+
+        {/* OpenCode 专属字段 */}
+        {appId === "opencode" && (
+          <OpenCodeFormFields
+            npm={opencodeState.npm}
+            apiKey={opencodeState.apiKey}
+            baseUrl={opencodeState.baseUrl}
+            models={opencodeState.models}
+            extraOptions={opencodeState.extraOptions}
+            onNpmChange={opencodeState.handleNpmChange}
+            onApiKeyChange={opencodeState.handleApiKeyChange}
+            onBaseUrlChange={opencodeState.handleBaseUrlChange}
+            onModelsChange={opencodeState.handleModelsChange}
+            onExtraOptionsChange={opencodeState.handleExtraOptionsChange}
           />
         )}
 

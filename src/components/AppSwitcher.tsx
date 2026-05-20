@@ -1,8 +1,9 @@
 import type { AppId } from "@/lib/api";
 import { useTranslation } from "react-i18next";
-import { Blocks, Code2 } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { SWITCHER_APPS } from "@/config/apps";
 import { ClaudeIcon, CodexIcon, GeminiIcon } from "./BrandIcons";
+import { ProviderIcon } from "./ProviderIcon";
 
 interface AppSwitcherProps {
   activeApp: AppId;
@@ -47,12 +48,14 @@ export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
     }
     if (appId === "opencode") {
       return (
-        <Code2
+        <ProviderIcon
+          name="opencode"
           size={16}
+          showFallback={false}
           className={
             isActive
-              ? "text-[#0F766E] dark:text-[#14B8A6] transition-colors duration-200"
-              : "text-gray-500 dark:text-gray-400 group-hover:text-[#0F766E] dark:group-hover:text-[#14B8A6] transition-colors duration-200"
+              ? "opacity-100 transition-opacity duration-200"
+              : "opacity-60 transition-opacity duration-200 group-hover:opacity-100"
           }
         />
       );

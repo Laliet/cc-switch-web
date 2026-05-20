@@ -26,7 +26,7 @@ describe("providers API module", () => {
 
   it("getAll returns providers map", async () => {
     const providers = {
-      "p1": { id: "p1", name: "Primary", settingsConfig: {} },
+      p1: { id: "p1", name: "Primary", settingsConfig: {} },
     };
     adapterMocks.invoke.mockResolvedValueOnce(providers);
 
@@ -146,6 +146,15 @@ describe("providers API module", () => {
     );
   });
 
+  it("getOmoPluginStatus invokes status command", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce(true);
+
+    const result = await providersApi.getOmoPluginStatus();
+
+    expect(result).toBe(true);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith("get_omo_plugin_status");
+  });
+
   it("switch triggers web sync when in web mode", async () => {
     adapterMocks.isWeb.mockReturnValue(true);
     adapterMocks.invoke.mockResolvedValueOnce(true);
@@ -154,11 +163,10 @@ describe("providers API module", () => {
     const result = await providersApi.switch("p9", "claude");
 
     expect(result).toBe(true);
-    expect(adapterMocks.invoke).toHaveBeenNthCalledWith(
-      1,
-      "switch_provider",
-      { id: "p9", app: "claude" },
-    );
+    expect(adapterMocks.invoke).toHaveBeenNthCalledWith(1, "switch_provider", {
+      id: "p9",
+      app: "claude",
+    });
     expect(adapterMocks.invoke).toHaveBeenNthCalledWith(
       2,
       "sync_current_providers_live",

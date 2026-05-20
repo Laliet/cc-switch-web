@@ -87,7 +87,7 @@ export async function getCurrentVersion(): Promise<string> {
       import.meta.env.VITE_APP_VERSION ??
       import.meta.env.npm_package_version ??
       ""
-    );
+    ).trim();
   }
 
   try {

@@ -120,7 +120,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     }
   }, [checkUpdate, hasUpdate, isPortable, resetDismiss, t, updateHandle]);
 
-  const displayVersion = version ?? t("common.unknown");
+  const displayVersion = version || t("common.unknown");
 
   return (
     <section className="space-y-4">

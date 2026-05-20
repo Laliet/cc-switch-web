@@ -53,6 +53,7 @@ fn provider_routes() -> Router<SharedState> {
             post(providers::import_default_config),
         )
         .route("/:app/sort-order", put(providers::update_sort_order))
+        .route("/omo/plugin-status", get(providers::omo_plugin_status))
         .route(
             "/:app/backup",
             get(providers::backup_provider).put(providers::set_backup_provider),
