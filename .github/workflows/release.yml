@@ -92,16 +92,24 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
+          TAURI_VERSION="$VERSION"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+            TAURI_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+          fi
           echo "Setting package metadata version to $VERSION"
-          node - "$VERSION" <<'NODE'
+          echo "Setting Tauri bundle version to $TAURI_VERSION"
+          node - "$VERSION" "$TAURI_VERSION" <<'NODE'
           const fs = require('fs');
           const version = process.argv[2];
+          const tauriVersion = process.argv[3];
 
-          for (const path of ['package.json', 'src-tauri/tauri.conf.json']) {
-            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-            data.version = version;
-            fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
-          }
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          packageJson.version = version;
+          fs.writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`);
+
+          const tauriConfig = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          tauriConfig.version = tauriVersion;
+          fs.writeFileSync('src-tauri/tauri.conf.json', `${JSON.stringify(tauriConfig, null, 2)}\n`);
           NODE
           sed -i.bak -E "0,/^version = \".*\"/s//version = \"$VERSION\"/" src-tauri/Cargo.toml
           rm -f src-tauri/Cargo.toml.bak
@@ -324,16 +332,24 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
+          TAURI_VERSION="$VERSION"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+            TAURI_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+          fi
           echo "Setting package metadata version to $VERSION"
-          node - "$VERSION" <<'NODE'
+          echo "Setting Tauri bundle version to $TAURI_VERSION"
+          node - "$VERSION" "$TAURI_VERSION" <<'NODE'
           const fs = require('fs');
           const version = process.argv[2];
+          const tauriVersion = process.argv[3];
 
-          for (const path of ['package.json', 'src-tauri/tauri.conf.json']) {
-            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-            data.version = version;
-            fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
-          }
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          packageJson.version = version;
+          fs.writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`);
+
+          const tauriConfig = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          tauriConfig.version = tauriVersion;
+          fs.writeFileSync('src-tauri/tauri.conf.json', `${JSON.stringify(tauriConfig, null, 2)}\n`);
           NODE
           sed -i.bak -E "0,/^version = \".*\"/s//version = \"$VERSION\"/" src-tauri/Cargo.toml
           rm -f src-tauri/Cargo.toml.bak
@@ -408,6 +424,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"
+          TAURI_VERSION="$VERSION"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+            TAURI_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+          fi
           PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           base_url="https://github.com/$REPO/releases/download/$TAG"
           # 初始化空平台映射
@@ -434,7 +454,7 @@ jobs:
           tmp_json=$(mktemp)
           {
             echo '{'
-            echo "  \"version\": \"$VERSION\",";
+            echo "  \"version\": \"$TAURI_VERSION\",";
             echo "  \"notes\": \"Release $TAG\",";
             echo "  \"pub_date\": \"$PUB_DATE\",";
             echo '  "platforms": {'
