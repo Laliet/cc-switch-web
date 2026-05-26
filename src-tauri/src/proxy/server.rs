@@ -166,8 +166,9 @@ pub(crate) fn validate_settings(settings: &ProxySettings) -> Result<(), AppError
     }
     if let Some(upstream) = settings.upstream_proxy.as_deref() {
         let upstream = upstream.trim();
-        if !upstream.is_empty()
-            && !(upstream.starts_with("http://") || upstream.starts_with("https://"))
+        if !(upstream.is_empty()
+            || upstream.starts_with("http://")
+            || upstream.starts_with("https://"))
         {
             return Err(AppError::InvalidInput(
                 "Upstream proxy must start with http:// or https://".into(),
@@ -429,17 +430,17 @@ async fn proxy_handler(
             },
         )
         .await;
-        persist_proxy_request_log(
-            &state,
-            app,
+        persist_proxy_request_log(ProxyRequestLogInput {
+            state: &state,
+            app_type: app,
             provider_id,
             model,
-            usage,
+            usage_capture: usage,
             request_id,
-            status.map(|status| status.as_u16()),
+            status: status.map(|status| status.as_u16()),
             duration_ms,
-            error.as_deref(),
-        );
+            error: error.as_deref(),
+        });
     }
 
     match result {
@@ -1266,7 +1267,7 @@ async fn build_streaming_response(
                         Some((Ok(bytes), (stream, events, usage_context, first_token_ms)))
                     }
                     Ok(Some(Err(err))) => Some((
-                        Err(std::io::Error::new(std::io::ErrorKind::Other, err)),
+                        Err(std::io::Error::other(err)),
                         (stream, events, usage_context, first_token_ms),
                     )),
                     Ok(None) => {
@@ -1648,8 +1649,8 @@ fn persist_stream_usage_update(
     }
 }
 
-fn persist_proxy_request_log(
-    state: &ProxyHandlerState,
+struct ProxyRequestLogInput<'a> {
+    state: &'a ProxyHandlerState,
     app_type: String,
     provider_id: String,
     model: String,
@@ -1657,8 +1658,21 @@ fn persist_proxy_request_log(
     request_id: String,
     status: Option<u16>,
     duration_ms: u64,
-    error: Option<&str>,
-) {
+    error: Option<&'a str>,
+}
+
+fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
+    let ProxyRequestLogInput {
+        state,
+        app_type,
+        provider_id,
+        model,
+        usage_capture,
+        request_id,
+        status,
+        duration_ms,
+        error,
+    } = input;
     let app_type_ref = app_type.as_str();
     let request_model = Some(model.clone()).filter(|value| !value.is_empty());
     let resolved_usage = usage_capture.usage;

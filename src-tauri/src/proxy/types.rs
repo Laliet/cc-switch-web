@@ -83,7 +83,7 @@ pub struct TargetProvider {
     pub provider: Provider,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ProxyStats {
     pub started_at: Option<Instant>,
     pub active_connections: u64,
@@ -96,24 +96,6 @@ pub struct ProxyStats {
     pub last_failover_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_failover_from: Option<String>,
     pub last_failover_to: Option<String>,
-}
-
-impl Default for ProxyStats {
-    fn default() -> Self {
-        Self {
-            started_at: None,
-            active_connections: 0,
-            total_requests: 0,
-            success_requests: 0,
-            failed_requests: 0,
-            last_request_at: None,
-            last_error: None,
-            failover_count: 0,
-            last_failover_at: None,
-            last_failover_from: None,
-            last_failover_to: None,
-        }
-    }
 }
 
 impl ProxyStats {

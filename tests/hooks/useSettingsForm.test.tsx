@@ -5,6 +5,13 @@ import { useSettingsForm } from "@/hooks/useSettingsForm";
 
 const useSettingsQueryMock = vi.fn();
 
+const proxyAppDefaults = {
+  autoFailoverEnabled: false,
+  defaultCostMultiplier: "1",
+  maxRetries: 0,
+  pricingModelSource: "response",
+};
+
 vi.mock("@/lib/query", () => ({
   useSettingsQuery: (...args: unknown[]) => useSettingsQueryMock(...args),
 }));
@@ -88,13 +95,12 @@ describe("useSettingsForm Hook", () => {
       streamingIdleTimeout: 120,
       nonStreamingTimeout: 180,
       apps: {
-        claude: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
-        codex: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
-        gemini: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
+        claude: { ...proxyAppDefaults, enabled: false },
+        codex: { ...proxyAppDefaults, enabled: false },
+        gemini: { ...proxyAppDefaults, enabled: false },
         opencode: {
+          ...proxyAppDefaults,
           enabled: false,
-          autoFailoverEnabled: false,
-          maxRetries: 0,
         },
       },
     });
@@ -137,24 +143,20 @@ describe("useSettingsForm Hook", () => {
       "http://proxy.local:8080",
     );
     expect(result.current.settings?.proxy?.apps.claude).toEqual({
+      ...proxyAppDefaults,
       enabled: true,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
     });
     expect(result.current.settings?.proxy?.apps.codex).toEqual({
+      ...proxyAppDefaults,
       enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
     });
     expect(result.current.settings?.proxy?.apps.gemini).toEqual({
+      ...proxyAppDefaults,
       enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
     });
     expect(result.current.settings?.proxy?.apps.opencode).toEqual({
+      ...proxyAppDefaults,
       enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
     });
   });
 

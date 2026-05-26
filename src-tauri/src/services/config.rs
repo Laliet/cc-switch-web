@@ -225,6 +225,9 @@ impl ConfigService {
         config: &MultiAppConfig,
         target_path: &Path,
     ) -> Result<(), AppError> {
+        if target_path.as_os_str().is_empty() {
+            return Err(AppError::InvalidInput("Invalid file path".into()));
+        }
         let target_path = Self::validate_transfer_path(target_path)?;
         let config_content =
             serde_json::to_vec_pretty(config).map_err(|e| AppError::Config(e.to_string()))?;

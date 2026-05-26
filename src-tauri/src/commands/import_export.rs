@@ -58,7 +58,7 @@ pub async fn import_config_from_file(
 #[tauri::command]
 pub async fn sync_current_providers_live(state: State<'_, AppState>) -> Result<Value, String> {
     state
-        .update_config(|config| ConfigService::sync_current_providers_to_live(config))
+        .update_config(ConfigService::sync_current_providers_to_live)
         .map_err(|e| e.to_string())?;
 
     Ok(json!({

@@ -133,6 +133,12 @@ vi.mock("@/lib/api", () => ({
     restart: vi.fn().mockResolvedValue(true),
     updateWebCredentials: vi.fn().mockResolvedValue(true),
   },
+  providersApi: {
+    getUniversalAll: vi.fn().mockResolvedValue({}),
+    upsertUniversal: vi.fn(),
+    deleteUniversal: vi.fn(),
+    syncUniversal: vi.fn(),
+  },
 }));
 
 const TabsContext = createContext<{
@@ -245,6 +251,10 @@ vi.mock("@/components/settings/DirectorySettings", () => ({
 
 vi.mock("@/components/settings/AboutSection", () => ({
   AboutSection: ({ isPortable }: any) => <div>about:{String(isPortable)}</div>,
+}));
+
+vi.mock("@/components/settings/UniversalProvidersSection", () => ({
+  UniversalProvidersSection: () => <div>universal-providers-section</div>,
 }));
 
 let settingsApi: any;
