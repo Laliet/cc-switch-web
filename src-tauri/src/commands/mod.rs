@@ -8,9 +8,9 @@ mod mcp;
 mod misc;
 mod plugin;
 mod prompt;
+mod provider;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 mod proxy;
-mod provider;
 mod settings;
 pub mod skill;
 
@@ -22,8 +22,8 @@ pub use mcp::*;
 pub use misc::*;
 pub use plugin::*;
 pub use prompt::*;
+pub use provider::*;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 pub use proxy::*;
-pub use provider::*;
 pub use settings::*;
 pub use skill::*;

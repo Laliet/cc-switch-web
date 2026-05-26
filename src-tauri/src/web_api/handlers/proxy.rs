@@ -114,9 +114,7 @@ pub async fn recent_logs(State(state): State<Arc<AppState>>) -> ApiResult<Vec<Pr
 pub async fn list_model_pricing(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<Vec<ModelPricingRecord>> {
-    Ok(Json(
-        state.db.list_model_pricing().map_err(ApiError::from)?,
-    ))
+    Ok(Json(state.db.list_model_pricing().map_err(ApiError::from)?))
 }
 
 pub async fn upsert_model_pricing(

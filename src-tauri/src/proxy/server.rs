@@ -39,15 +39,15 @@ use crate::{
 
 use super::{
     adapters::{adapter_for, insert_auth_headers},
-    usage::{
-        calculator::{CostBreakdown, CostCalculator},
-        parser::TokenUsage,
-    },
     live,
     service::ensure_gemini_takeover_supported,
     types::{
         ProxyActiveTarget, ProxyRecentLog, ProxyStats, ProxyStatus, ProxyTakeoverStatus,
         ProxyTestResult, PROXY_BODY_LIMIT_BYTES,
+    },
+    usage::{
+        calculator::{CostBreakdown, CostCalculator},
+        parser::TokenUsage,
     },
 };
 
@@ -364,7 +364,15 @@ async fn proxy_handler(
     }
 
     let request_id = next_proxy_request_id();
-    let result = proxy_request(state.clone(), method, uri, headers, body, request_id.clone()).await;
+    let result = proxy_request(
+        state.clone(),
+        method,
+        uri,
+        headers,
+        body,
+        request_id.clone(),
+    )
+    .await;
     let status = result.as_ref().ok().map(|result| result.response.status());
     let success = status
         .as_ref()
@@ -1676,7 +1684,12 @@ fn persist_proxy_request_log(
         &model_for_log
     };
     let costs = resolved_usage.as_ref().and_then(|usage| {
-        let pricing = state.app_state.db.get_model_pricing(pricing_model).ok().flatten();
+        let pricing = state
+            .app_state
+            .db
+            .get_model_pricing(pricing_model)
+            .ok()
+            .flatten();
         CostCalculator::try_calculate_for_app(
             app_type_ref,
             usage,
@@ -1728,7 +1741,12 @@ fn resolve_proxy_pricing_config(
     let (default_multiplier, default_source) = state
         .db
         .get_proxy_pricing_config(app_type)
-        .unwrap_or_else(|_| ("1".to_string(), crate::database::PRICING_SOURCE_RESPONSE.to_string()));
+        .unwrap_or_else(|_| {
+            (
+                "1".to_string(),
+                crate::database::PRICING_SOURCE_RESPONSE.to_string(),
+            )
+        });
     let mut multiplier = default_multiplier;
     let mut source = default_source;
     if let Ok(config) = state.load_config() {

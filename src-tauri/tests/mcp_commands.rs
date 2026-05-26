@@ -72,7 +72,7 @@ fn import_default_config_claude_persists_provider() {
 fn import_default_config_without_live_file_returns_error() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
@@ -90,10 +90,14 @@ fn import_default_config_without_live_file_returns_error() {
         other => panic!("unexpected error variant: {other:?}"),
     }
 
-    let config_path = home.join(".cc-switch").join("config.json");
+    let config = state
+        .load_config()
+        .expect("load config after failed import");
     assert!(
-        !config_path.exists(),
-        "failed import should not create config.json"
+        config
+            .get_manager(&AppType::Claude)
+            .is_none_or(|manager| manager.providers.is_empty()),
+        "failed import should not persist provider state"
     );
 }
 
@@ -157,7 +161,7 @@ fn import_mcp_from_claude_creates_config_and_enables_servers() {
 fn import_mcp_from_claude_invalid_json_preserves_state() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let mcp_path = unwrap_path(get_claude_mcp_path());
     fs::write(&mcp_path, "{\"mcpServers\":") // 不完整 JSON
@@ -175,10 +179,16 @@ fn import_mcp_from_claude_invalid_json_preserves_state() {
         other => panic!("unexpected error variant: {other:?}"),
     }
 
-    let config_path = home.join(".cc-switch").join("config.json");
+    let config = state
+        .load_config()
+        .expect("load config after failed mcp import");
     assert!(
-        !config_path.exists(),
-        "failed import should not persist config.json"
+        config
+            .mcp
+            .servers
+            .as_ref()
+            .is_none_or(|servers| servers.is_empty()),
+        "failed import should not persist MCP state"
     );
 }
 

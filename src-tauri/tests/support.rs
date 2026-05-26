@@ -13,6 +13,7 @@ pub fn ensure_test_home() -> &'static Path {
         }
         std::fs::create_dir_all(&base).expect("create test home");
         std::env::set_var("HOME", &base);
+        std::env::set_var("CC_SWITCH_ACCOUNT_HOME", &base);
         #[cfg(windows)]
         std::env::set_var("USERPROFILE", &base);
         base

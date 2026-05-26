@@ -16,6 +16,7 @@ struct TestHome {
     path: PathBuf,
     prev_home: Option<OsString>,
     prev_userprofile: Option<OsString>,
+    prev_account_home: Option<OsString>,
 }
 
 impl TestHome {
@@ -28,6 +29,7 @@ impl Drop for TestHome {
     fn drop(&mut self) {
         restore_env_var("HOME", &self.prev_home);
         restore_env_var("USERPROFILE", &self.prev_userprofile);
+        restore_env_var("CC_SWITCH_ACCOUNT_HOME", &self.prev_account_home);
     }
 }
 
@@ -41,12 +43,14 @@ fn restore_env_var(key: &str, value: &Option<OsString>) {
 fn setup_test_home(test_name: &str) -> TestHome {
     let prev_home = std::env::var_os("HOME");
     let prev_userprofile = std::env::var_os("USERPROFILE");
+    let prev_account_home = std::env::var_os("CC_SWITCH_ACCOUNT_HOME");
     let base = std::env::temp_dir().join(format!("cc-switch-prompt-service-{test_name}"));
     if base.exists() {
         let _ = fs::remove_dir_all(&base);
     }
     fs::create_dir_all(&base).expect("create test home");
     std::env::set_var("HOME", &base);
+    std::env::set_var("CC_SWITCH_ACCOUNT_HOME", &base);
     #[cfg(windows)]
     std::env::set_var("USERPROFILE", &base);
     update_settings(AppSettings::default()).expect("reset settings");
@@ -54,6 +58,7 @@ fn setup_test_home(test_name: &str) -> TestHome {
         path: base,
         prev_home,
         prev_userprofile,
+        prev_account_home,
     }
 }
 
@@ -216,7 +221,9 @@ fn upsert_prompt_id_conflict_overwrites_entry() {
 
     let prompts = PromptService::get_prompts(&state, AppType::Claude).expect("get prompts");
     assert_eq!(prompts.len(), 1);
-    assert_eq!(prompts.get("key-1").expect("prompt exists").id, "prompt-2");
+    let prompt = prompts.get("key-1").expect("prompt exists");
+    assert_eq!(prompt.id, "key-1");
+    assert_eq!(prompt.content, "second");
 }
 
 #[test]

@@ -398,7 +398,7 @@ export function UniversalProvidersSection({
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="cc-switch-universal-claude-model">
-                Claude model
+                Claude default model
               </Label>
               <Input
                 id="cc-switch-universal-claude-model"
@@ -407,6 +407,45 @@ export function UniversalProvidersSection({
                   updateModel("claude", "model", event.target.value)
                 }
                 placeholder="claude-sonnet-4-20250514"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cc-switch-universal-claude-haiku-model">
+                Claude Haiku
+              </Label>
+              <Input
+                id="cc-switch-universal-claude-haiku-model"
+                value={draft.models.claude?.haikuModel ?? ""}
+                onChange={(event) =>
+                  updateModel("claude", "haikuModel", event.target.value)
+                }
+                placeholder="claude-haiku-4-5-20251001"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cc-switch-universal-claude-sonnet-model">
+                Claude Sonnet
+              </Label>
+              <Input
+                id="cc-switch-universal-claude-sonnet-model"
+                value={draft.models.claude?.sonnetModel ?? ""}
+                onChange={(event) =>
+                  updateModel("claude", "sonnetModel", event.target.value)
+                }
+                placeholder="claude-sonnet-4-20250514"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cc-switch-universal-claude-opus-model">
+                Claude Opus
+              </Label>
+              <Input
+                id="cc-switch-universal-claude-opus-model"
+                value={draft.models.claude?.opusModel ?? ""}
+                onChange={(event) =>
+                  updateModel("claude", "opusModel", event.target.value)
+                }
+                placeholder="claude-opus-4-20250514"
               />
             </div>
             <div className="space-y-2">
@@ -420,6 +459,19 @@ export function UniversalProvidersSection({
                   updateModel("codex", "model", event.target.value)
                 }
                 placeholder="gpt-4o"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cc-switch-universal-codex-effort">
+                Codex effort
+              </Label>
+              <Input
+                id="cc-switch-universal-codex-effort"
+                value={draft.models.codex?.reasoningEffort ?? ""}
+                onChange={(event) =>
+                  updateModel("codex", "reasoningEffort", event.target.value)
+                }
+                placeholder="high"
               />
             </div>
             <div className="space-y-2">

@@ -1,8 +1,5 @@
 use super::super::{lock_conn, Database};
-use crate::{
-    error::AppError,
-    settings::ProxyAppSettings,
-};
+use crate::{error::AppError, settings::ProxyAppSettings};
 use rusqlite::{params, OptionalExtension};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -101,7 +98,10 @@ impl Database {
     pub fn delete_model_pricing(&self, model_id: &str) -> Result<bool, AppError> {
         let conn = lock_conn!(self.conn);
         let affected = conn
-            .execute("DELETE FROM model_pricing WHERE model_id = ?1", params![model_id])
+            .execute(
+                "DELETE FROM model_pricing WHERE model_id = ?1",
+                params![model_id],
+            )
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(affected > 0)
     }
@@ -129,16 +129,15 @@ impl Database {
             {
                 return ModelPricing::from_strings(&pricing.0, &pricing.1, &pricing.2, &pricing.3)
                     .map(Some)
-                    .map_err(|e| AppError::Database(format!("Failed to parse model pricing: {e}")));
+                    .map_err(|e| {
+                        AppError::Database(format!("Failed to parse model pricing: {e}"))
+                    });
             }
         }
         Ok(None)
     }
 
-    pub fn get_proxy_pricing_config(
-        &self,
-        app_type: &str,
-    ) -> Result<(String, String), AppError> {
+    pub fn get_proxy_pricing_config(&self, app_type: &str) -> Result<(String, String), AppError> {
         let config = self.get_proxy_config()?;
         let app_config: ProxyAppSettings = match app_type {
             "claude" => config.apps.claude,
@@ -159,7 +158,9 @@ fn validate_model_pricing_record(record: &ModelPricingRecord) -> Result<(), AppE
         return Err(AppError::InvalidInput("model_id is required".to_string()));
     }
     if record.display_name.trim().is_empty() {
-        return Err(AppError::InvalidInput("display_name is required".to_string()));
+        return Err(AppError::InvalidInput(
+            "display_name is required".to_string(),
+        ));
     }
     ModelPricing::from_strings(
         &record.input_cost_per_million,

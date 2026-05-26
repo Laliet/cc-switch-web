@@ -77,15 +77,18 @@ impl TokenUsage {
                             usage.input_tokens = msg_usage
                                 .get("input_tokens")
                                 .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as u32;
+                                .unwrap_or(0)
+                                as u32;
                             usage.cache_read_tokens = msg_usage
                                 .get("cache_read_input_tokens")
                                 .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as u32;
+                                .unwrap_or(0)
+                                as u32;
                             usage.cache_creation_tokens = msg_usage
                                 .get("cache_creation_input_tokens")
                                 .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as u32;
+                                .unwrap_or(0)
+                                as u32;
                         }
                     }
                 }
@@ -100,7 +103,8 @@ impl TokenUsage {
                             usage.input_tokens = delta_usage
                                 .get("input_tokens")
                                 .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as u32;
+                                .unwrap_or(0)
+                                as u32;
                         }
                     }
                 }

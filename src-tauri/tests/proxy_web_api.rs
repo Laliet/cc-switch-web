@@ -99,7 +99,10 @@ fn make_app_with_claude_provider_and_state(
     add_gemini_provider(&mut config, generic_gemini_provider());
 
     let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
-    (web_api::create_router(state.clone(), password.to_string()), state)
+    (
+        web_api::create_router(state.clone(), password.to_string()),
+        state,
+    )
 }
 
 fn make_app_with_claude_failover(
@@ -714,7 +717,11 @@ async fn proxy_failover_queue_routes_manage_ordered_provider_ids() {
 
     let res = dispatch(
         app.clone(),
-        request(Method::POST, "/api/proxy/failover/claude/claude-primary", None),
+        request(
+            Method::POST,
+            "/api/proxy/failover/claude/claude-primary",
+            None,
+        ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -729,7 +736,11 @@ async fn proxy_failover_queue_routes_manage_ordered_provider_ids() {
 
     let res = dispatch(
         app.clone(),
-        request(Method::DELETE, "/api/proxy/failover/claude/claude-second", None),
+        request(
+            Method::DELETE,
+            "/api/proxy/failover/claude/claude-second",
+            None,
+        ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -861,7 +872,11 @@ async fn proxy_model_pricing_routes_manage_custom_pricing() {
 
     let res = dispatch(
         app,
-        request(Method::DELETE, "/api/proxy/pricing/models/custom-model", None),
+        request(
+            Method::DELETE,
+            "/api/proxy/pricing/models/custom-model",
+            None,
+        ),
     )
     .await;
     assert_eq!(res.status(), StatusCode::OK);
@@ -917,18 +932,23 @@ async fn universal_provider_web_api_roundtrips_syncs_and_deletes_generated_app_p
     assert_eq!(res.status(), StatusCode::OK);
     let claude_providers: Value = json_body(res).await;
     assert_eq!(
-        claude_providers["universal-claude-newapi"]["settingsConfig"]["env"]
-            ["ANTHROPIC_MODEL"],
+        claude_providers["universal-claude-newapi"]["settingsConfig"]["env"]["ANTHROPIC_MODEL"],
         json!("claude-sonnet-test")
     );
 
-    let res = dispatch(app.clone(), request(Method::GET, "/api/providers/codex", None)).await;
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/providers/codex", None),
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let codex_providers: Value = json_body(res).await;
-    assert!(codex_providers["universal-codex-newapi"]["settingsConfig"]["config"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("gpt-test"));
+    assert!(
+        codex_providers["universal-codex-newapi"]["settingsConfig"]["config"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("gpt-test")
+    );
 
     let res = dispatch(
         app.clone(),
@@ -1270,7 +1290,10 @@ async fn proxy_request_logs_persist_response_usage_and_cost_to_database() {
     let log = &logs[0];
     assert_eq!(log.app_type, "claude");
     assert_eq!(log.model, "claude-sonnet-4-20250514");
-    assert_eq!(log.request_model.as_deref(), Some("claude-sonnet-4-20250514"));
+    assert_eq!(
+        log.request_model.as_deref(),
+        Some("claude-sonnet-4-20250514")
+    );
     assert_eq!(log.input_tokens, 1000);
     assert_eq!(log.output_tokens, 500);
     assert_eq!(log.cache_read_tokens, 100);

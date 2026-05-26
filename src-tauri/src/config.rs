@@ -85,6 +85,12 @@ fn parse_passwd_home_dir(passwd_content: &str, username: &str) -> Option<PathBuf
 
 #[cfg(unix)]
 pub fn get_account_home_dir() -> Option<PathBuf> {
+    if let Ok(home) = std::env::var("CC_SWITCH_ACCOUNT_HOME") {
+        if !home.trim().is_empty() {
+            return Some(PathBuf::from(home));
+        }
+    }
+
     let username = std::env::var("USER")
         .ok()
         .filter(|value| !value.trim().is_empty())

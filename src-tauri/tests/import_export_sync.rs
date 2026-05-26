@@ -66,7 +66,7 @@ fn sync_claude_provider_writes_live_settings() {
     let live_value: serde_json::Value = read_json_file(&settings_path).expect("read live file");
     assert_eq!(live_value, provider_config);
 
-    // 确认 SSOT 中的供应商也同步了最新内容
+    // 确认运行时快照中的供应商也同步了最新内容
     let updated = config
         .get_manager(&AppType::Claude)
         .and_then(|m| m.providers.get("prov-1"))
@@ -894,7 +894,7 @@ fn import_config_from_path_overwrites_state_and_creates_backup() {
             .and_then(|c| c.get("current"))
             .and_then(|c| c.as_str()),
         Some("p-new"),
-        "saved config should record new current provider"
+        "legacy snapshot should record new current provider"
     );
 
     let guard = app_state.load_config().expect("lock state after import");
@@ -903,11 +903,11 @@ fn import_config_from_path_overwrites_state_and_creates_backup() {
         .expect("claude manager in state");
     assert_eq!(
         claude_manager.current, "p-new",
-        "state should reflect new current provider"
+        "SQLite-backed state should reflect new current provider"
     );
     assert!(
         claude_manager.providers.contains_key("p-new"),
-        "new provider should exist in state"
+        "new provider should exist in SQLite-backed state"
     );
 }
 

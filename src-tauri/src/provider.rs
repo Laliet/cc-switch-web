@@ -25,7 +25,7 @@ pub struct Provider {
     /// 备注信息
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    /// 供应商元数据（不写入 live 配置，仅存于 ~/.cc-switch/config.json）
+    /// 供应商元数据（不写入 live 配置，仅存于 SQLite 运行时状态 / legacy 快照）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<ProviderMeta>,
 }

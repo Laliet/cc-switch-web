@@ -750,7 +750,7 @@ pub fn run() {
             // usage query
             commands::queryProviderUsage,
             commands::testUsageScript,
-            // New MCP via config.json (SSOT)
+            // New MCP via SQLite-backed runtime snapshot
             commands::get_mcp_config,
             commands::upsert_mcp_server_in_config,
             commands::delete_mcp_server_in_config,

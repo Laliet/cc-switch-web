@@ -619,7 +619,7 @@ mod tests {
         let account_home_dir = tempdir().expect("account home temp dir");
         let service_home = service_home_dir.path().to_string_lossy().to_string();
         let account_home = account_home_dir.path().to_string_lossy().to_string();
-        let legacy_codex_dir = PathBuf::from(&service_home).join(".codex");
+        let legacy_codex_dir = PathBuf::from(&account_home).join(".codex");
         let legacy_codex_dir_str = legacy_codex_dir.to_string_lossy().to_string();
 
         let _home_guard = EnvGuard::set("HOME", &service_home);

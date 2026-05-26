@@ -46,7 +46,7 @@ pub struct McpConfigResponse {
     pub servers: HashMap<String, serde_json::Value>,
 }
 
-/// 获取 MCP 配置（来自 ~/.cc-switch/config.json）
+/// 获取 MCP 配置（来自 SQLite 运行时快照）
 
 #[tauri::command]
 #[allow(deprecated)] // 兼容层命令，内部调用已废弃的 Service 方法
@@ -66,7 +66,7 @@ pub async fn get_mcp_config(
     })
 }
 
-/// 在 config.json 中新增或更新一个 MCP 服务器定义
+/// 在 SQLite 运行时快照中新增或更新一个 MCP 服务器定义
 /// [已废弃] 该命令仍然使用旧的分应用API，会转换为统一结构
 #[tauri::command]
 pub async fn upsert_mcp_server_in_config(
@@ -132,7 +132,7 @@ pub async fn upsert_mcp_server_in_config(
         .map_err(|e| e.to_string())
 }
 
-/// 在 config.json 中删除一个 MCP 服务器定义
+/// 在 SQLite 运行时快照中删除一个 MCP 服务器定义
 #[tauri::command]
 pub async fn delete_mcp_server_in_config(
     state: State<'_, AppState>,

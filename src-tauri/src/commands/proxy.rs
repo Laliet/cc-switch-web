@@ -3,7 +3,9 @@ use tauri::State;
 use crate::{
     app_config::AppType,
     database::ModelPricingRecord,
-    proxy::{self, ProxyRecentLog, ProxyService, ProxyStatus, ProxyTakeoverResult, ProxyTestResult},
+    proxy::{
+        self, ProxyRecentLog, ProxyService, ProxyStatus, ProxyTakeoverResult, ProxyTestResult,
+    },
     settings::ProxySettings,
     store::AppState,
 };
@@ -160,9 +162,7 @@ pub async fn proxy_recent_logs(state: State<'_, AppState>) -> Result<Vec<ProxyRe
 }
 
 #[tauri::command]
-pub fn list_model_pricing(
-    state: State<'_, AppState>,
-) -> Result<Vec<ModelPricingRecord>, String> {
+pub fn list_model_pricing(state: State<'_, AppState>) -> Result<Vec<ModelPricingRecord>, String> {
     state.db.list_model_pricing().map_err(|e| e.to_string())
 }
 
@@ -218,8 +218,12 @@ pub fn add_failover_provider(
     provider_id: String,
 ) -> Result<Vec<FailoverQueueResponseItem>, String> {
     let app_type = parse_proxy_app_type(&app)?;
-    validate_failover_provider_ids(state.inner(), app_type.as_str(), std::slice::from_ref(&provider_id))
-        .map_err(|e| e.to_string())?;
+    validate_failover_provider_ids(
+        state.inner(),
+        app_type.as_str(),
+        std::slice::from_ref(&provider_id),
+    )
+    .map_err(|e| e.to_string())?;
     state
         .db
         .add_failover_provider(app_type.as_str(), &provider_id)

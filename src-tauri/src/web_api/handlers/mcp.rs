@@ -138,7 +138,7 @@ pub async fn get_config(
     }))
 }
 
-/// 兼容旧版：在 config.json 中新增或更新服务器（按应用）
+/// 兼容旧版 API：在 SQLite 运行时快照中新增或更新服务器（按应用）
 pub async fn upsert_server_in_config(
     State(state): State<Arc<AppState>>,
     Path((app, id)): Path<(String, String)>,

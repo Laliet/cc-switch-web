@@ -10,9 +10,9 @@ mod migration;
 mod schema;
 
 pub use dao::{
-    FailoverQueueItem, ModelPricing, ModelPricingRecord, ProviderHealthRecord, ProxyRequestLogRecord,
-    ProxyRequestUsageUpdate,
-    PRICING_SOURCE_REQUEST, PRICING_SOURCE_RESPONSE,
+    FailoverQueueItem, ModelPricing, ModelPricingRecord, ProviderHealthRecord,
+    ProxyRequestLogRecord, ProxyRequestUsageUpdate, PRICING_SOURCE_REQUEST,
+    PRICING_SOURCE_RESPONSE,
 };
 
 use crate::{config::get_app_config_dir, error::AppError};

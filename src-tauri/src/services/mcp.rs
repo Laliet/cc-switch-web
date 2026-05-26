@@ -239,9 +239,71 @@ impl McpService {
     /// 手动同步所有启用的 MCP 服务器到对应的应用
     pub fn sync_all_enabled(state: &AppState) -> Result<(), AppError> {
         let servers = Self::get_all_servers(state)?;
+        let mut cfg = state.load_config()?;
+        let mut sync_claude = false;
+        let mut sync_codex = false;
+        let mut sync_gemini = false;
+        let mut sync_opencode = false;
 
-        for server in servers.values() {
-            Self::sync_server_to_apps(state, server)?;
+        cfg.mcp.claude.servers.clear();
+        cfg.mcp.codex.servers.clear();
+        cfg.mcp.gemini.servers.clear();
+        cfg.mcp.opencode.servers.clear();
+
+        for (id, server) in servers {
+            let entry = serde_json::json!({
+                "id": id,
+                "name": server.name,
+                "server": server.server,
+                "enabled": true,
+                "description": server.description,
+                "homepage": server.homepage,
+                "docs": server.docs,
+                "tags": server.tags,
+            });
+
+            if server.apps.claude {
+                sync_claude = true;
+                cfg.mcp
+                    .claude
+                    .servers
+                    .insert(server.id.clone(), entry.clone());
+            }
+            if server.apps.codex {
+                sync_codex = true;
+                cfg.mcp
+                    .codex
+                    .servers
+                    .insert(server.id.clone(), entry.clone());
+            }
+            if server.apps.gemini {
+                sync_gemini = true;
+                cfg.mcp
+                    .gemini
+                    .servers
+                    .insert(server.id.clone(), entry.clone());
+            }
+            if server.apps.opencode {
+                sync_opencode = true;
+                cfg.mcp.opencode.servers.insert(server.id, entry);
+            }
+        }
+
+        if sync_claude {
+            mcp::sync_enabled_to_claude(&cfg)?;
+        }
+        if sync_codex {
+            mcp::sync_enabled_to_codex(&cfg)?;
+        }
+        if sync_gemini {
+            mcp::sync_enabled_to_gemini(&cfg)?;
+        }
+        if sync_opencode {
+            for (id, entry) in &cfg.mcp.opencode.servers {
+                if let Some(server_spec) = entry.get("server") {
+                    mcp::sync_single_server_to_opencode(&cfg, id, server_spec)?;
+                }
+            }
         }
 
         Ok(())
