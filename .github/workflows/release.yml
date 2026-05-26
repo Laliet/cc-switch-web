@@ -87,6 +87,26 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      - name: Set package versions from tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting package metadata version to $VERSION"
+          node - "$VERSION" <<'NODE'
+          const fs = require('fs');
+          const version = process.argv[2];
+
+          for (const path of ['package.json', 'src-tauri/tauri.conf.json']) {
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            data.version = version;
+            fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+          }
+          NODE
+          sed -i.bak -E "0,/^version = \".*\"/s//version = \"$VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --no-deps >/dev/null
+
       - name: Set Tauri signing key
         shell: bash
         env:
@@ -298,6 +318,26 @@ jobs:
 
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
+
+      - name: Set package versions from tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting package metadata version to $VERSION"
+          node - "$VERSION" <<'NODE'
+          const fs = require('fs');
+          const version = process.argv[2];
+
+          for (const path of ['package.json', 'src-tauri/tauri.conf.json']) {
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            data.version = version;
+            fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+          }
+          NODE
+          sed -i.bak -E "0,/^version = \".*\"/s//version = \"$VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --no-deps >/dev/null
 
       - name: Build web assets
         run: pnpm build:web
