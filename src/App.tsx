@@ -795,6 +795,7 @@ function AppContent() {
             open={isSettingsOpen}
             onOpenChange={setIsSettingsOpen}
             onImportSuccess={handleImportSuccess}
+            onProvidersChanged={handleImportSuccess}
           />
         </Suspense>
       ) : null}

@@ -1,7 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 use cc_switch_lib::{
     get_claude_settings_path, get_codex_auth_path, update_settings, AppError, AppSettings,
@@ -59,9 +58,7 @@ fn setup_test_home(test_name: &str) -> TestHome {
 }
 
 fn build_state() -> AppState {
-    AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    }
+    AppState::new_for_tests(MultiAppConfig::default()).expect("test app state")
 }
 
 fn make_prompt(id: &str, content: &str, enabled: bool) -> Prompt {
@@ -129,21 +126,23 @@ fn get_prompts_returns_all_for_app() {
     let _home = setup_test_home("get-prompts-all");
     let state = build_state();
 
-    {
-        let mut cfg = state.config.write().expect("write config");
-        cfg.prompts.claude.prompts.insert(
-            "claude-1".to_string(),
-            make_prompt("claude-1", "Claude one", false),
-        );
-        cfg.prompts.claude.prompts.insert(
-            "claude-2".to_string(),
-            make_prompt("claude-2", "Claude two", true),
-        );
-        cfg.prompts.codex.prompts.insert(
-            "codex-1".to_string(),
-            make_prompt("codex-1", "Codex one", false),
-        );
-    }
+    state
+        .update_config(|cfg| {
+            cfg.prompts.claude.prompts.insert(
+                "claude-1".to_string(),
+                make_prompt("claude-1", "Claude one", false),
+            );
+            cfg.prompts.claude.prompts.insert(
+                "claude-2".to_string(),
+                make_prompt("claude-2", "Claude two", true),
+            );
+            cfg.prompts.codex.prompts.insert(
+                "codex-1".to_string(),
+                make_prompt("codex-1", "Codex one", false),
+            );
+            Ok(())
+        })
+        .expect("write config");
 
     let claude = PromptService::get_prompts(&state, AppType::Claude).expect("claude prompts");
     assert_eq!(claude.len(), 2);
@@ -301,17 +300,19 @@ fn enable_prompt_writes_file_and_disables_previous() {
     let home = setup_test_home("enable-switch");
     let state = build_state();
 
-    {
-        let mut cfg = state.config.write().expect("write config");
-        cfg.prompts
-            .codex
-            .prompts
-            .insert("old".to_string(), make_prompt("old", "old content", true));
-        cfg.prompts
-            .codex
-            .prompts
-            .insert("new".to_string(), make_prompt("new", "new content", false));
-    }
+    state
+        .update_config(|cfg| {
+            cfg.prompts
+                .codex
+                .prompts
+                .insert("old".to_string(), make_prompt("old", "old content", true));
+            cfg.prompts
+                .codex
+                .prompts
+                .insert("new".to_string(), make_prompt("new", "new content", false));
+            Ok(())
+        })
+        .expect("write config");
 
     PromptService::enable_prompt(&state, AppType::Codex, "new").expect("enable prompt");
 

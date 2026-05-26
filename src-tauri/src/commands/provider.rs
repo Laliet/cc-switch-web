@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::app_config::AppType;
 use crate::error::AppError;
-use crate::provider::Provider;
+use crate::provider::{Provider, UniversalProvider};
 use crate::services::{EndpointLatency, ProviderService, ProviderSortUpdate, SpeedtestService};
 use crate::store::AppState;
 use std::str::FromStr;
@@ -20,6 +20,42 @@ pub fn get_providers(
 ) -> Result<HashMap<String, Provider>, String> {
     let app_type = parse_provider_app_type(&app)?;
     ProviderService::list(state.inner(), app_type).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_universal_providers(
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, UniversalProvider>, String> {
+    ProviderService::list_universal(state.inner()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_universal_provider(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<UniversalProvider>, String> {
+    ProviderService::get_universal(state.inner(), &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn upsert_universal_provider(
+    state: State<'_, AppState>,
+    provider: UniversalProvider,
+) -> Result<bool, String> {
+    ProviderService::upsert_universal(state.inner(), provider).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_universal_provider(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    ProviderService::delete_universal(state.inner(), &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn sync_universal_provider_to_apps(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<bool, String> {
+    ProviderService::sync_universal_to_apps(state.inner(), &id).map_err(|e| e.to_string())
 }
 
 /// 获取当前供应商ID

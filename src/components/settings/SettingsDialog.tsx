@@ -27,6 +27,7 @@ import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
+import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -35,12 +36,14 @@ interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: () => void | Promise<void>;
+  onProvidersChanged?: () => void | Promise<void>;
 }
 
 export function SettingsDialog({
   open,
   onOpenChange,
   onImportSuccess,
+  onProvidersChanged,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
   const {
@@ -342,6 +345,11 @@ export function SettingsDialog({
                       onExport={exportConfig}
                       onClear={clearSelection}
                     />
+                    {showWebCredentials ? (
+                      <UniversalProvidersSection
+                        onProvidersChanged={onProvidersChanged}
+                      />
+                    ) : null}
                     {showWebCredentials && settings.proxy ? (
                       <ProxySettingsSection
                         value={settings.proxy}

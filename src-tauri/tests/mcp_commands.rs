@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::PathBuf, sync::RwLock};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use serde_json::json;
 
@@ -19,7 +19,7 @@ fn unwrap_path(result: Result<PathBuf, AppError>) -> PathBuf {
 fn import_default_config_claude_persists_provider() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let settings_path = unwrap_path(get_claude_settings_path());
     if let Some(parent) = settings_path.parent() {
@@ -39,15 +39,13 @@ fn import_default_config_claude_persists_provider() {
 
     let mut config = MultiAppConfig::default();
     config.ensure_app(&AppType::Claude);
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     import_default_config_test_hook(&state, AppType::Claude)
         .expect("import default config succeeds");
 
     // 验证内存状态
-    let guard = state.config.read().expect("lock config");
+    let guard = state.load_config().expect("lock config");
     let manager = guard
         .get_manager(&AppType::Claude)
         .expect("claude manager present");
@@ -59,11 +57,14 @@ fn import_default_config_claude_persists_provider() {
     );
     drop(guard);
 
-    // 验证配置已持久化
-    let config_path = home.join(".cc-switch").join("config.json");
+    let reloaded = state.load_config().expect("reload config from database");
     assert!(
-        config_path.exists(),
-        "importing default config should persist config.json"
+        reloaded
+            .get_manager(&AppType::Claude)
+            .expect("claude manager present")
+            .providers
+            .contains_key("default"),
+        "importing default config should persist provider in SQLite"
     );
 }
 
@@ -73,9 +74,7 @@ fn import_default_config_without_live_file_returns_error() {
     reset_test_fs();
     let home = ensure_test_home();
 
-    let state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let err = import_default_config_test_hook(&state, AppType::Claude)
         .expect_err("missing live file should error");
@@ -102,7 +101,7 @@ fn import_default_config_without_live_file_returns_error() {
 fn import_mcp_from_claude_creates_config_and_enables_servers() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let mcp_path = unwrap_path(get_claude_mcp_path());
     let claude_json = json!({
@@ -119,9 +118,7 @@ fn import_mcp_from_claude_creates_config_and_enables_servers() {
     )
     .expect("seed ~/.claude.json");
 
-    let state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let changed = McpService::import_from_claude(&state).expect("import mcp from claude succeeds");
     assert!(
@@ -129,7 +126,7 @@ fn import_mcp_from_claude_creates_config_and_enables_servers() {
         "import should report inserted or normalized entries"
     );
 
-    let guard = state.config.read().expect("lock config");
+    let guard = state.load_config().expect("lock config");
     // v3.7.0: 检查统一结构
     let servers = guard
         .mcp
@@ -145,10 +142,14 @@ fn import_mcp_from_claude_creates_config_and_enables_servers() {
     );
     drop(guard);
 
-    let config_path = home.join(".cc-switch").join("config.json");
+    let db_config = state.load_config().expect("reload config from database");
     assert!(
-        config_path.exists(),
-        "state.save should persist config.json when changes detected"
+        db_config
+            .mcp
+            .servers
+            .as_ref()
+            .is_some_and(|servers| servers.contains_key("echo")),
+        "import should persist MCP server in SQLite"
     );
 }
 
@@ -162,9 +163,7 @@ fn import_mcp_from_claude_invalid_json_preserves_state() {
     fs::write(&mcp_path, "{\"mcpServers\":") // 不完整 JSON
         .expect("seed invalid ~/.claude.json");
 
-    let state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let err =
         McpService::import_from_claude(&state).expect_err("invalid json should bubble up error");
@@ -226,15 +225,13 @@ fn set_mcp_enabled_for_codex_writes_live_config() {
         },
     );
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     // v3.7.0: 使用 toggle_app 替代 set_enabled
     McpService::toggle_app(&state, "codex-server", AppType::Codex, true)
         .expect("toggle_app should succeed");
 
-    let guard = state.config.read().expect("lock config");
+    let guard = state.load_config().expect("lock config");
     let entry = guard
         .mcp
         .servers

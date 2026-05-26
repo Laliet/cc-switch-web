@@ -1,6 +1,6 @@
 #![cfg(feature = "web-server")]
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use axum::{
     body::{to_bytes, Body},
@@ -23,9 +23,8 @@ fn basic_auth_header(user: &str, password: &str) -> HeaderValue {
 
 fn make_app(password: &str, csrf: &str) -> axum::Router {
     std::env::set_var("WEB_CSRF_TOKEN", csrf);
-    let state = Arc::new(AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    });
+    let state =
+        Arc::new(AppState::new_for_tests(MultiAppConfig::default()).expect("test app state"));
     web_api::create_router(state, password.to_string())
 }
 

@@ -1,14 +1,11 @@
+use cc_switch_lib::{
+    get_claude_settings_path, read_json_file, AppError, AppState, AppType, ConfigService,
+    MultiAppConfig, Provider, ProviderMeta,
+};
 use serde_json::json;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::RwLock,
-};
-use tauri::async_runtime;
-
-use cc_switch_lib::{
-    get_claude_settings_path, read_json_file, AppError, AppState, AppType, ConfigService,
-    MultiAppConfig, Provider, ProviderMeta,
 };
 
 #[path = "support.rs"]
@@ -872,9 +869,7 @@ fn import_config_from_path_overwrites_state_and_creates_backup() {
     )
     .expect("write import file");
 
-    let app_state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let app_state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let backup_id = ConfigService::import_config_from_path(&import_path, &app_state)
         .expect("import should succeed");
@@ -902,7 +897,7 @@ fn import_config_from_path_overwrites_state_and_creates_backup() {
         "saved config should record new current provider"
     );
 
-    let guard = app_state.config.read().expect("lock state after import");
+    let guard = app_state.load_config().expect("lock state after import");
     let claude_manager = guard
         .get_manager(&AppType::Claude)
         .expect("claude manager in state");
@@ -928,9 +923,7 @@ fn import_config_from_path_invalid_json_returns_error() {
     let invalid_path = config_dir.join("broken.json");
     fs::write(&invalid_path, "{ not-json ").expect("write invalid json");
 
-    let app_state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let app_state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let err = ConfigService::import_config_from_path(&invalid_path, &app_state)
         .expect_err("import should fail");
@@ -955,9 +948,7 @@ fn import_config_from_path_missing_file_produces_io_error() {
     } else {
         PathBuf::from("/nonexistent/import.json")
     };
-    let app_state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let app_state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let err = ConfigService::import_config_from_path(missing_path.as_path(), &app_state)
         .expect_err("import should fail for missing file");
@@ -1189,47 +1180,36 @@ fn export_config_to_file_writes_target_path() {
     reset_test_fs();
     let home = ensure_test_home();
 
-    let config_dir = home.join(".cc-switch");
-    fs::create_dir_all(&config_dir).expect("create config dir");
-    let config_path = config_dir.join("config.json");
-    fs::write(&config_path, r#"{"version":42,"flag":true}"#).expect("write config");
-
+    let mut config = MultiAppConfig::default();
+    config.version = 42;
+    let app_state = AppState::new_for_tests(config).expect("test app state");
     let export_path = export_path(&home, "exported-config.json");
     if export_path.exists() {
         fs::remove_file(&export_path).expect("cleanup export target");
     }
 
-    let result = async_runtime::block_on(cc_switch_lib::export_config_to_file(
-        export_path.to_string_lossy().to_string(),
-    ))
-    .expect("export should succeed");
-    assert_eq!(result.get("success").and_then(|v| v.as_bool()), Some(true));
+    let snapshot = app_state.load_config().expect("load DB snapshot");
+    ConfigService::export_config_to_path(&snapshot, &export_path).expect("export should succeed");
 
     let exported = fs::read_to_string(&export_path).expect("read exported file");
     assert!(
-        exported.contains(r#""version":42"#) && exported.contains(r#""flag":true"#),
-        "exported file should mirror source config content"
+        exported.contains(r#""version": 42"#),
+        "exported file should mirror DB config snapshot"
     );
 }
 
 #[test]
-fn export_config_to_file_returns_error_when_source_missing() {
+fn export_config_to_path_returns_error_for_invalid_target() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    let app_state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
+    let snapshot = app_state.load_config().expect("load DB snapshot");
 
-    let export_path = export_path(&home, "export-missing.json");
-    if export_path.exists() {
-        fs::remove_file(&export_path).expect("cleanup export target");
-    }
-
-    let err = async_runtime::block_on(cc_switch_lib::export_config_to_file(
-        export_path.to_string_lossy().to_string(),
-    ))
-    .expect_err("export should fail when config.json missing");
+    let err = ConfigService::export_config_to_path(&snapshot, Path::new(""))
+        .expect_err("export should fail for invalid target path");
     assert!(
-        err.contains("IO 错误"),
-        "expected IO error message, got {err}"
+        matches!(err, AppError::InvalidInput(_)),
+        "expected invalid path error, got {err:?}"
     );
 }
 

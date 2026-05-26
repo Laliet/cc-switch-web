@@ -7,13 +7,14 @@ mod codex_config;
 #[cfg(feature = "desktop")]
 mod commands;
 mod config;
+pub mod database;
 mod deeplink;
 mod error;
 mod gemini_config; // 新增
 mod gemini_mcp;
 #[cfg(feature = "desktop")]
 mod init_status;
-#[cfg(feature = "web-server")]
+#[cfg(any(feature = "web-server", feature = "desktop"))]
 pub mod local_proxy;
 mod mcp;
 mod omo_config;
@@ -21,7 +22,7 @@ mod opencode_config;
 mod prompt;
 mod prompt_files;
 mod provider;
-#[cfg(feature = "web-server")]
+#[cfg(any(feature = "web-server", feature = "desktop"))]
 pub mod proxy;
 mod services;
 mod settings;
@@ -45,7 +46,7 @@ pub use mcp::{
     sync_single_server_to_gemini, sync_single_server_to_opencode,
 };
 pub use prompt::Prompt;
-pub use provider::{Provider, ProviderMeta};
+pub use provider::{Provider, ProviderMeta, UniversalProvider};
 pub use services::{
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, SkillService,
     SpeedtestService,
@@ -233,7 +234,7 @@ fn create_tray_menu(
     let app_settings = crate::settings::get_settings();
     let tray_texts = TrayTexts::from_language(app_settings.language.as_deref().unwrap_or("zh"));
 
-    let config = app_state.config.read().map_err(AppError::from)?;
+    let config = app_state.load_config()?;
 
     let mut menu_builder = MenuBuilder::new(app);
 
@@ -595,14 +596,15 @@ pub fn run() {
             }
 
             // 确保配置结构就绪（已移除旧版本的副本迁移逻辑）
-            if let Ok(mut config_guard) = app_state.config.write() {
-                config_guard.ensure_app(&app_config::AppType::Claude);
-                config_guard.ensure_app(&app_config::AppType::Codex);
-                config_guard.ensure_app(&app_config::AppType::Gemini);
-                config_guard.ensure_app(&app_config::AppType::Opencode);
-                config_guard.ensure_app(&app_config::AppType::Omo);
-            } else {
-                log::error!("初始化配置锁失败，跳过 ensure_app");
+            if let Err(e) = app_state.update_config(|config| {
+                config.ensure_app(&app_config::AppType::Claude);
+                config.ensure_app(&app_config::AppType::Codex);
+                config.ensure_app(&app_config::AppType::Gemini);
+                config.ensure_app(&app_config::AppType::Opencode);
+                config.ensure_app(&app_config::AppType::Omo);
+                Ok(())
+            }) {
+                log::error!("初始化配置失败，跳过 ensure_app: {e}");
             }
 
             // 启动阶段不再无条件保存,避免意外覆盖用户配置。
@@ -681,6 +683,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_providers,
+            commands::get_universal_providers,
+            commands::get_universal_provider,
+            commands::upsert_universal_provider,
+            commands::delete_universal_provider,
+            commands::sync_universal_provider_to_apps,
             commands::get_current_provider,
             commands::get_backup_provider,
             commands::set_backup_provider,
@@ -707,6 +714,25 @@ pub fn run() {
             commands::read_live_provider_settings,
             commands::get_settings,
             commands::save_settings,
+            commands::proxy_status,
+            commands::proxy_config,
+            commands::save_proxy_config,
+            commands::save_proxy_settings,
+            commands::start_proxy,
+            commands::stop_proxy,
+            commands::test_proxy,
+            commands::set_proxy_takeover,
+            commands::restore_proxy,
+            commands::recover_stale_proxy_takeover,
+            commands::proxy_recent_logs,
+            commands::get_failover_queue,
+            commands::replace_failover_queue,
+            commands::add_failover_provider,
+            commands::remove_failover_provider,
+            commands::clear_failover_queue,
+            commands::list_model_pricing,
+            commands::upsert_model_pricing,
+            commands::delete_model_pricing,
             commands::restart_app,
             commands::check_for_updates,
             commands::check_relay_pulse,

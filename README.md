@@ -336,7 +336,13 @@ CC-Switch manages these configuration files:
 | **Codex**       | `~/.codex/auth.json`, `~/.codex/config.toml`      |
 | **Gemini**      | `~/.gemini/.env`, `~/.gemini/settings.json`       |
 
-CC-Switch's own config: `~/.cc-switch/config.json`
+CC-Switch's runtime store: `~/.cc-switch/cc-switch.db`
+
+Legacy import/export snapshot: `~/.cc-switch/config.json`. On startup, an
+existing snapshot is imported into SQLite when the database is empty; after that
+SQLite is the authoritative store for providers, MCP servers, prompts, skills,
+proxy settings, provider health, request logs, failover queue entries, and
+compatible JSON snapshots used by import/export flows.
 
 ---
 

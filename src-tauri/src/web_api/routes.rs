@@ -32,6 +32,17 @@ pub fn create_router(state: SharedState) -> Router {
 
 fn provider_routes() -> Router<SharedState> {
     Router::new()
+        .route("/universal", get(providers::list_universal_providers))
+        .route(
+            "/universal/:id",
+            get(providers::get_universal_provider)
+                .put(providers::upsert_universal_provider)
+                .delete(providers::delete_universal_provider),
+        )
+        .route(
+            "/universal/:id/sync",
+            post(providers::sync_universal_provider),
+        )
         .route(
             "/:app",
             get(providers::list_providers).post(providers::add_provider),
@@ -124,6 +135,21 @@ fn proxy_routes() -> Router<SharedState> {
         .route("/stop", post(proxy::stop))
         .route("/test", post(proxy::test))
         .route("/logs/recent", get(proxy::recent_logs))
+        .route("/pricing/models", get(proxy::list_model_pricing))
+        .route(
+            "/pricing/models/:model_id",
+            put(proxy::upsert_model_pricing).delete(proxy::delete_model_pricing),
+        )
+        .route(
+            "/failover/:app",
+            get(proxy::get_failover_queue)
+                .put(proxy::replace_failover_queue)
+                .delete(proxy::clear_failover_queue),
+        )
+        .route(
+            "/failover/:app/:id",
+            post(proxy::add_failover_provider).delete(proxy::remove_failover_provider),
+        )
         .route("/takeover", get(proxy::get_takeover))
         .route("/takeover/:app", put(proxy::set_takeover))
         .route("/restore", post(proxy::restore))

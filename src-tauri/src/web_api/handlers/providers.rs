@@ -10,8 +10,7 @@ use serde::Deserialize;
 
 use super::{parse_known_app_type, ApiError, ApiResult};
 use crate::{
-    error::AppError,
-    provider::{Provider, UsageResult},
+    provider::{Provider, UniversalProvider, UsageResult},
     services::provider::ProviderSortUpdate,
     services::ConfigService,
     services::ProviderService,
@@ -38,6 +37,51 @@ pub async fn list_providers(
     let app_type = parse_known_app_type(&app)?;
     let providers = ProviderService::list(&state, app_type).map_err(ApiError::from)?;
     Ok(Json(providers))
+}
+
+pub async fn list_universal_providers(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<HashMap<String, UniversalProvider>> {
+    let providers = ProviderService::list_universal(&state).map_err(ApiError::from)?;
+    Ok(Json(providers))
+}
+
+pub async fn get_universal_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<Option<UniversalProvider>> {
+    let provider = ProviderService::get_universal(&state, &id).map_err(ApiError::from)?;
+    Ok(Json(provider))
+}
+
+pub async fn upsert_universal_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(mut provider): Json<UniversalProvider>,
+) -> ApiResult<bool> {
+    if provider.id.trim().is_empty() {
+        provider.id = id;
+    } else if provider.id != id {
+        return Err(ApiError::bad_request("universal provider id mismatch"));
+    }
+    ProviderService::upsert_universal(&state, provider).map_err(ApiError::from)?;
+    Ok(Json(true))
+}
+
+pub async fn delete_universal_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<bool> {
+    let deleted = ProviderService::delete_universal(&state, &id).map_err(ApiError::from)?;
+    Ok(Json(deleted))
+}
+
+pub async fn sync_universal_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResult<bool> {
+    let synced = ProviderService::sync_universal_to_apps(&state, &id).map_err(ApiError::from)?;
+    Ok(Json(synced))
 }
 
 pub async fn current_provider(
@@ -221,15 +265,9 @@ pub async fn test_usage_script(
 pub async fn sync_current_providers_live(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<serde_json::Value> {
-    {
-        let mut config_guard = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        ConfigService::sync_current_providers_to_live(&mut config_guard).map_err(ApiError::from)?;
-    }
-    state.save().map_err(ApiError::from)?;
+    state
+        .update_config(|config| ConfigService::sync_current_providers_to_live(config))
+        .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Live configuration synchronized"

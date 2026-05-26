@@ -15,7 +15,7 @@ impl PromptService {
         state: &AppState,
         app: AppType,
     ) -> Result<HashMap<String, Prompt>, AppError> {
-        let cfg = state.config.read()?;
+        let cfg = state.load_config()?;
         let prompts = match app {
             AppType::Claude => &cfg.prompts.claude.prompts,
             AppType::Codex => &cfg.prompts.codex.prompts,
@@ -38,25 +38,25 @@ impl PromptService {
         id: &str,
         prompt: Prompt,
     ) -> Result<(), AppError> {
-        let mut cfg = state.config.write()?;
-        let prompts = match app {
-            AppType::Claude => &mut cfg.prompts.claude.prompts,
-            AppType::Codex => &mut cfg.prompts.codex.prompts,
-            AppType::Gemini => &mut cfg.prompts.gemini.prompts,
-            AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-            AppType::Omo => {
-                return Err(AppError::localized(
-                    "app_not_supported_yet",
-                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                    format!("App '{}' is not supported yet.", app.as_str()),
-                ));
-            }
-        };
-        let was_enabled = prompts.get(id).map(|p| p.enabled).unwrap_or(false);
-        prompts.insert(id.to_string(), prompt.clone());
-        let has_enabled = prompts.values().any(|p| p.enabled);
-        drop(cfg);
-        state.save()?;
+        let (was_enabled, has_enabled) = state.update_config(|cfg| {
+            let prompts = match app {
+                AppType::Claude => &mut cfg.prompts.claude.prompts,
+                AppType::Codex => &mut cfg.prompts.codex.prompts,
+                AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+                AppType::Opencode => &mut cfg.prompts.opencode.prompts,
+                AppType::Omo => {
+                    return Err(AppError::localized(
+                        "app_not_supported_yet",
+                        format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                        format!("App '{}' is not supported yet.", app.as_str()),
+                    ));
+                }
+            };
+            let was_enabled = prompts.get(id).map(|p| p.enabled).unwrap_or(false);
+            prompts.insert(id.to_string(), prompt.clone());
+            let has_enabled = prompts.values().any(|p| p.enabled);
+            Ok((was_enabled, has_enabled))
+        })?;
 
         // 如果是已启用的提示词，同步更新到对应的文件
         if prompt.enabled {
@@ -71,30 +71,30 @@ impl PromptService {
     }
 
     pub fn delete_prompt(state: &AppState, app: AppType, id: &str) -> Result<(), AppError> {
-        let mut cfg = state.config.write()?;
-        let prompts = match app {
-            AppType::Claude => &mut cfg.prompts.claude.prompts,
-            AppType::Codex => &mut cfg.prompts.codex.prompts,
-            AppType::Gemini => &mut cfg.prompts.gemini.prompts,
-            AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-            AppType::Omo => {
-                return Err(AppError::localized(
-                    "app_not_supported_yet",
-                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                    format!("App '{}' is not supported yet.", app.as_str()),
-                ));
-            }
-        };
+        state.update_config(|cfg| {
+            let prompts = match app {
+                AppType::Claude => &mut cfg.prompts.claude.prompts,
+                AppType::Codex => &mut cfg.prompts.codex.prompts,
+                AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+                AppType::Opencode => &mut cfg.prompts.opencode.prompts,
+                AppType::Omo => {
+                    return Err(AppError::localized(
+                        "app_not_supported_yet",
+                        format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                        format!("App '{}' is not supported yet.", app.as_str()),
+                    ));
+                }
+            };
 
-        if let Some(prompt) = prompts.get(id) {
-            if prompt.enabled {
-                return Err(AppError::InvalidInput("无法删除已启用的提示词".to_string()));
+            if let Some(prompt) = prompts.get(id) {
+                if prompt.enabled {
+                    return Err(AppError::InvalidInput("无法删除已启用的提示词".to_string()));
+                }
             }
-        }
 
-        prompts.remove(id);
-        drop(cfg);
-        state.save()?;
+            prompts.remove(id);
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -105,92 +105,84 @@ impl PromptService {
             let live_content =
                 std::fs::read_to_string(&target_path).map_err(|e| AppError::io(&target_path, e))?;
             if !live_content.is_empty() {
-                let mut cfg = state.config.write()?;
-                let prompts = match app {
-                    AppType::Claude => &mut cfg.prompts.claude.prompts,
-                    AppType::Codex => &mut cfg.prompts.codex.prompts,
-                    AppType::Gemini => &mut cfg.prompts.gemini.prompts,
-                    AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-                    AppType::Omo => {
-                        return Err(AppError::localized(
-                            "app_not_supported_yet",
-                            format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                            format!("App '{}' is not supported yet.", app.as_str()),
-                        ));
-                    }
-                };
+                state.update_config(|cfg| {
+                    let prompts = match app {
+                        AppType::Claude => &mut cfg.prompts.claude.prompts,
+                        AppType::Codex => &mut cfg.prompts.codex.prompts,
+                        AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+                        AppType::Opencode => &mut cfg.prompts.opencode.prompts,
+                        AppType::Omo => {
+                            return Err(AppError::localized(
+                                "app_not_supported_yet",
+                                format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                                format!("App '{}' is not supported yet.", app.as_str()),
+                            ));
+                        }
+                    };
 
-                // 尝试回填到当前已启用的提示词
-                if let Some((enabled_id, enabled_prompt)) = prompts
-                    .iter_mut()
-                    .find(|(_, p)| p.enabled)
-                    .map(|(id, p)| (id.clone(), p))
-                {
-                    let timestamp = Self::unix_timestamp()?;
-                    enabled_prompt.content = live_content.clone();
-                    enabled_prompt.updated_at = Some(timestamp);
-                    log::info!("回填 live 提示词内容到已启用项: {enabled_id}");
-                    drop(cfg); // 释放锁后保存，避免死锁
-                    state.save()?; // 第一次保存：回填后立即持久化
-                } else {
-                    // 没有已启用的提示词，则创建一次备份（避免重复备份）
-                    let content_exists = prompts.values().any(|p| p.content == live_content);
-                    if !content_exists {
+                    if let Some((enabled_id, enabled_prompt)) = prompts
+                        .iter_mut()
+                        .find(|(_, p)| p.enabled)
+                        .map(|(id, p)| (id.clone(), p))
+                    {
                         let timestamp = Self::unix_timestamp()?;
-                        let backup_id = format!("backup-{timestamp}");
-                        let backup_prompt = Prompt {
-                            id: backup_id.clone(),
-                            name: format!(
-                                "原始提示词 {}",
-                                chrono::Local::now().format("%Y-%m-%d %H:%M")
-                            ),
-                            content: live_content,
-                            description: Some("自动备份的原始提示词".to_string()),
-                            enabled: false,
-                            created_at: Some(timestamp),
-                            updated_at: Some(timestamp),
-                        };
-                        prompts.insert(backup_id.clone(), backup_prompt);
-                        log::info!("回填 live 提示词内容，创建备份: {backup_id}");
-                        drop(cfg); // 释放锁后保存
-                        state.save()?; // 第一次保存：回填后立即持久化
+                        enabled_prompt.content = live_content.clone();
+                        enabled_prompt.updated_at = Some(timestamp);
+                        log::info!("回填 live 提示词内容到已启用项: {enabled_id}");
                     } else {
-                        // 即使内容已存在，也无需重复备份；但不需要保存任何更改
-                        drop(cfg);
+                        let content_exists = prompts.values().any(|p| p.content == live_content);
+                        if !content_exists {
+                            let timestamp = Self::unix_timestamp()?;
+                            let backup_id = format!("backup-{timestamp}");
+                            let backup_prompt = Prompt {
+                                id: backup_id.clone(),
+                                name: format!(
+                                    "原始提示词 {}",
+                                    chrono::Local::now().format("%Y-%m-%d %H:%M")
+                                ),
+                                content: live_content,
+                                description: Some("自动备份的原始提示词".to_string()),
+                                enabled: false,
+                                created_at: Some(timestamp),
+                                updated_at: Some(timestamp),
+                            };
+                            prompts.insert(backup_id.clone(), backup_prompt);
+                            log::info!("回填 live 提示词内容，创建备份: {backup_id}");
+                        }
                     }
-                }
+                    Ok(())
+                })?;
             }
         }
 
         // 启用目标提示词并写入文件
-        let mut cfg = state.config.write()?;
-        let prompts = match app {
-            AppType::Claude => &mut cfg.prompts.claude.prompts,
-            AppType::Codex => &mut cfg.prompts.codex.prompts,
-            AppType::Gemini => &mut cfg.prompts.gemini.prompts,
-            AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-            AppType::Omo => {
-                return Err(AppError::localized(
-                    "app_not_supported_yet",
-                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                    format!("App '{}' is not supported yet.", app.as_str()),
-                ));
+        let content = state.update_config(|cfg| {
+            let prompts = match app {
+                AppType::Claude => &mut cfg.prompts.claude.prompts,
+                AppType::Codex => &mut cfg.prompts.codex.prompts,
+                AppType::Gemini => &mut cfg.prompts.gemini.prompts,
+                AppType::Opencode => &mut cfg.prompts.opencode.prompts,
+                AppType::Omo => {
+                    return Err(AppError::localized(
+                        "app_not_supported_yet",
+                        format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
+                        format!("App '{}' is not supported yet.", app.as_str()),
+                    ));
+                }
+            };
+
+            for prompt in prompts.values_mut() {
+                prompt.enabled = false;
             }
-        };
 
-        for prompt in prompts.values_mut() {
-            prompt.enabled = false;
-        }
-
-        if let Some(prompt) = prompts.get_mut(id) {
-            prompt.enabled = true;
-            write_text_file(&target_path, &prompt.content)?; // 原子写入
-        } else {
-            return Err(AppError::InvalidInput(format!("提示词 {id} 不存在")));
-        }
-
-        drop(cfg);
-        state.save()?; // 第二次保存：启用目标提示词并写入文件后
+            if let Some(prompt) = prompts.get_mut(id) {
+                prompt.enabled = true;
+                Ok(prompt.content.clone())
+            } else {
+                Err(AppError::InvalidInput(format!("提示词 {id} 不存在")))
+            }
+        })?;
+        write_text_file(&target_path, &content)?;
         Ok(())
     }
 

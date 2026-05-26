@@ -11,12 +11,16 @@ const proxyAppSchema = z.object({
   enabled: z.boolean().default(false),
   autoFailoverEnabled: z.boolean().default(false),
   maxRetries: z.number().int().min(0).max(10).default(0),
+  defaultCostMultiplier: z.string().trim().default("1"),
+  pricingModelSource: z.enum(["request", "response"]).default("response"),
 });
 
 const defaultProxyApp = () => ({
   enabled: false,
   autoFailoverEnabled: false,
   maxRetries: 0,
+  defaultCostMultiplier: "1",
+  pricingModelSource: "response" as const,
 });
 
 const defaultProxyApps = () => ({

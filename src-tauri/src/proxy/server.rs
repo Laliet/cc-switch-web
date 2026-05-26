@@ -2,7 +2,10 @@ use std::{
     collections::{HashMap, VecDeque},
     io::ErrorKind,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, OnceLock,
+    },
     time::{Duration, Instant},
 };
 
@@ -16,6 +19,8 @@ use axum::{
 };
 use futures::{stream, StreamExt};
 use reqwest::Client;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 use tokio::{
     net::TcpListener,
     sync::{oneshot, Mutex, RwLock},
@@ -24,6 +29,7 @@ use tokio::{
 
 use crate::{
     app_config::AppType,
+    database::{ProxyRequestLogRecord, ProxyRequestUsageUpdate},
     error::AppError,
     provider::Provider,
     services::provider::ProviderService,
@@ -33,6 +39,10 @@ use crate::{
 
 use super::{
     adapters::{adapter_for, insert_auth_headers},
+    usage::{
+        calculator::{CostBreakdown, CostCalculator},
+        parser::TokenUsage,
+    },
     live,
     service::ensure_gemini_takeover_supported,
     types::{
@@ -99,6 +109,7 @@ impl Default for ProviderRuntimeHealth {
 }
 
 static RUNTIME: OnceLock<Arc<ProxyRuntime>> = OnceLock::new();
+static REQUEST_LOG_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn runtime() -> Arc<ProxyRuntime> {
     RUNTIME
@@ -205,7 +216,7 @@ fn build_client(settings: &ProxySettings) -> Result<Client, AppError> {
 }
 
 pub fn current_provider(state: &AppState, app: &AppType) -> Result<Provider, AppError> {
-    let guard = state.config.read().map_err(AppError::from)?;
+    let guard = state.load_config()?;
     let manager = guard.get_manager(app).ok_or_else(|| {
         AppError::localized(
             "proxy.provider_app_missing",
@@ -352,7 +363,8 @@ async fn proxy_handler(
         stats.last_request_at = Some(chrono::Utc::now());
     }
 
-    let result = proxy_request(state.clone(), method, uri, headers, body).await;
+    let request_id = next_proxy_request_id();
+    let result = proxy_request(state.clone(), method, uri, headers, body, request_id.clone()).await;
     let status = result.as_ref().ok().map(|result| result.response.status());
     let success = status
         .as_ref()
@@ -375,27 +387,51 @@ async fn proxy_handler(
         }
     }
     if state.settings.enable_logging {
+        let duration_ms = started_at
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
         let (app, path) = result
             .as_ref()
             .map(|result| (result.app.clone(), result.path.clone()))
             .unwrap_or_else(|_| ("unknown".to_string(), fallback_path));
+        let provider_id = result
+            .as_ref()
+            .map(|result| result.provider_id.clone())
+            .unwrap_or_default();
+        let model = result
+            .as_ref()
+            .map(|result| result.model.clone())
+            .unwrap_or_default();
+        let usage = result
+            .as_ref()
+            .map(|result| result.usage.clone())
+            .unwrap_or_default();
         push_recent_log(
             &state.recent_logs,
             ProxyRecentLog {
                 at: chrono::Utc::now().to_rfc3339(),
-                app,
+                app: app.clone(),
                 method: method_for_log,
                 path,
                 status: status.map(|status| status.as_u16()),
-                duration_ms: started_at
-                    .elapsed()
-                    .as_millis()
-                    .try_into()
-                    .unwrap_or(u64::MAX),
-                error,
+                duration_ms,
+                error: error.clone(),
             },
         )
         .await;
+        persist_proxy_request_log(
+            &state,
+            app,
+            provider_id,
+            model,
+            usage,
+            request_id,
+            status.map(|status| status.as_u16()),
+            duration_ms,
+            error.as_deref(),
+        );
     }
 
     match result {
@@ -414,6 +450,9 @@ struct ProxyRequestResult {
     response: Response,
     app: String,
     path: String,
+    provider_id: String,
+    model: String,
+    usage: ProxyUsageCapture,
 }
 
 enum UpstreamAttemptError {
@@ -424,6 +463,24 @@ enum UpstreamAttemptError {
 struct UpstreamResponse {
     provider: Provider,
     response: reqwest::Response,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ProxyUsageCapture {
+    usage: Option<TokenUsage>,
+    first_token_ms: Option<u64>,
+    is_streaming: bool,
+}
+
+#[derive(Clone)]
+struct StreamUsageContext {
+    app_state: Arc<AppState>,
+    app_type: String,
+    provider_id: String,
+    request_model: String,
+    request_id: String,
+    cost_multiplier: Decimal,
+    pricing_source: String,
 }
 
 enum StreamingResponseError {
@@ -453,6 +510,7 @@ async fn proxy_request(
     uri: Uri,
     headers: HeaderMap,
     body: Body,
+    request_id: String,
 ) -> Result<ProxyRequestResult, AppError> {
     let (app, routed_uri) = route_app(&state.settings, &uri)?;
     let log_app = app.as_str().to_string();
@@ -462,6 +520,7 @@ async fn proxy_request(
     let body_bytes = to_bytes(body, PROXY_BODY_LIMIT_BYTES)
         .await
         .map_err(|e| AppError::Config(format!("Failed to read proxy request body: {e}")))?;
+    let model = extract_request_model(&body_bytes);
 
     let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
         .map_err(|e| AppError::InvalidInput(format!("Unsupported method: {e}")))?;
@@ -491,9 +550,23 @@ async fn proxy_request(
     )
     .await?;
 
-    let response = if request_accepts_stream || is_streaming_response(&upstream.response) {
-        match build_streaming_response(upstream.response, &state.settings).await {
-            Ok(response) => response,
+    let (response, usage) = if request_accepts_stream || is_streaming_response(&upstream.response) {
+        match build_streaming_response(
+            upstream.response,
+            &state.settings,
+            app.as_str(),
+            request_started_at,
+            build_stream_usage_context(
+                &state.app_state,
+                app.as_str(),
+                &upstream.provider.id,
+                &model,
+                &request_id,
+            ),
+        )
+        .await
+        {
+            Ok((response, usage)) => (response, usage),
             Err(err @ StreamingResponseError::FirstByte(_)) => {
                 if upstream.provider.id != provider.id {
                     return Err(err.into_app_error());
@@ -509,6 +582,7 @@ async fn proxy_request(
                     total_timeout,
                     request_started_at,
                     request_accepts_stream,
+                    &request_id,
                 )
                 .await?
                 {
@@ -520,12 +594,21 @@ async fn proxy_request(
             Err(err) => return Err(err.into_app_error()),
         }
     } else {
-        build_buffered_response(upstream.response, total_timeout, request_started_at).await?
+        build_buffered_response(
+            upstream.response,
+            total_timeout,
+            request_started_at,
+            app.as_str(),
+        )
+        .await?
     };
     Ok(ProxyRequestResult {
         response,
         app: log_app,
         path: log_path,
+        provider_id: upstream.provider.id,
+        model,
+        usage,
     })
 }
 
@@ -566,7 +649,7 @@ async fn send_with_failover(
                 .await;
                 if let Ok(response) = backup_result {
                     if !is_failover_status(response.status()) {
-                        record_provider_success(&state.health, app, &backup.id).await;
+                        record_provider_success(state, &state.health, app, &backup.id).await;
                         switch_to_failover_provider(state, app, provider, backup).await?;
                         return Ok(UpstreamResponse {
                             provider: backup.clone(),
@@ -597,8 +680,15 @@ async fn send_with_failover(
     match current_result {
         Ok(response) => {
             if failover_enabled && is_failover_status(response.status()) {
-                record_provider_failure(&state.health, app, &provider.id, app_settings.max_retries)
-                    .await;
+                record_provider_failure(
+                    state,
+                    &state.health,
+                    app,
+                    &provider.id,
+                    app_settings.max_retries,
+                    Some(&format!("Upstream returned {}", response.status())),
+                )
+                .await;
                 if let Some(backup) = backup.as_ref() {
                     if provider_circuit_allows_request(&state.health, app, &backup.id).await {
                         let backup_result = send_upstream_provider(
@@ -612,11 +702,13 @@ async fn send_with_failover(
                             total_timeout,
                         )
                         .await;
+                        let original_response = response;
                         match backup_result {
                             Ok(backup_response)
                                 if !is_failover_status(backup_response.status()) =>
                             {
-                                record_provider_success(&state.health, app, &backup.id).await;
+                                record_provider_success(state, &state.health, app, &backup.id)
+                                    .await;
                                 switch_to_failover_provider(state, app, provider, backup).await?;
                                 return Ok(UpstreamResponse {
                                     provider: backup.clone(),
@@ -625,41 +717,49 @@ async fn send_with_failover(
                             }
                             Ok(_backup_response) => {
                                 record_provider_failure(
+                                    state,
                                     &state.health,
                                     app,
                                     &backup.id,
                                     app_settings.max_retries,
+                                    Some(&format!(
+                                        "Failover upstream returned {}",
+                                        _backup_response.status()
+                                    )),
                                 )
                                 .await;
                                 return Ok(UpstreamResponse {
                                     provider: provider.clone(),
-                                    response,
+                                    response: original_response,
                                 });
                             }
-                            Err(UpstreamAttemptError::Send(_)) => {
+                            Err(UpstreamAttemptError::Send(err)) => {
+                                let err = err.to_string();
                                 record_provider_failure(
+                                    state,
                                     &state.health,
                                     app,
                                     &backup.id,
                                     app_settings.max_retries,
+                                    Some(&err),
                                 )
                                 .await;
                                 return Ok(UpstreamResponse {
                                     provider: provider.clone(),
-                                    response,
+                                    response: original_response,
                                 });
                             }
                             Err(UpstreamAttemptError::Local(_)) => {
                                 return Ok(UpstreamResponse {
                                     provider: provider.clone(),
-                                    response,
+                                    response: original_response,
                                 });
                             }
                         }
                     }
                 }
             } else {
-                record_provider_success(&state.health, app, &provider.id).await;
+                record_provider_success(state, &state.health, app, &provider.id).await;
             }
             Ok(UpstreamResponse {
                 provider: provider.clone(),
@@ -668,8 +768,16 @@ async fn send_with_failover(
         }
         Err(UpstreamAttemptError::Send(err)) => {
             if failover_enabled {
-                record_provider_failure(&state.health, app, &provider.id, app_settings.max_retries)
-                    .await;
+                let error = err.to_string();
+                record_provider_failure(
+                    state,
+                    &state.health,
+                    app,
+                    &provider.id,
+                    app_settings.max_retries,
+                    Some(&error),
+                )
+                .await;
                 if let Some(backup) = backup.as_ref() {
                     if provider_circuit_allows_request(&state.health, app, &backup.id).await {
                         let backup_result = send_upstream_provider(
@@ -687,19 +795,37 @@ async fn send_with_failover(
                             Ok(backup_response)
                                 if !is_failover_status(backup_response.status()) =>
                             {
-                                record_provider_success(&state.health, app, &backup.id).await;
+                                record_provider_success(state, &state.health, app, &backup.id)
+                                    .await;
                                 switch_to_failover_provider(state, app, provider, backup).await?;
                                 return Ok(UpstreamResponse {
                                     provider: backup.clone(),
                                     response: backup_response,
                                 });
                             }
-                            Ok(_) | Err(UpstreamAttemptError::Send(_)) => {
+                            Ok(backup_response) => {
                                 record_provider_failure(
+                                    state,
                                     &state.health,
                                     app,
                                     &backup.id,
                                     app_settings.max_retries,
+                                    Some(&format!(
+                                        "Failover upstream returned {}",
+                                        backup_response.status()
+                                    )),
+                                )
+                                .await;
+                            }
+                            Err(UpstreamAttemptError::Send(err)) => {
+                                let err = err.to_string();
+                                record_provider_failure(
+                                    state,
+                                    &state.health,
+                                    app,
+                                    &backup.id,
+                                    app_settings.max_retries,
+                                    Some(&err),
                                 )
                                 .await;
                             }
@@ -726,17 +852,20 @@ async fn retry_streaming_first_byte_failover(
     total_timeout: Duration,
     request_started_at: Instant,
     request_accepts_stream: bool,
-) -> Result<Option<Response>, AppError> {
+    request_id: &str,
+) -> Result<Option<(Response, ProxyUsageCapture)>, AppError> {
     let app_settings = proxy_app_settings(&state.settings, app);
     if !app_settings.auto_failover_enabled || app_settings.max_retries == 0 {
         return Ok(None);
     }
 
     record_provider_failure(
+        state,
         &state.health,
         app,
         &failed_provider.id,
         app_settings.max_retries,
+        Some("Streaming response did not produce a first byte before timeout"),
     )
     .await;
 
@@ -761,8 +890,29 @@ async fn retry_streaming_first_byte_failover(
 
     let backup_response = match backup_result {
         Ok(response) if !is_failover_status(response.status()) => response,
-        Ok(_) | Err(UpstreamAttemptError::Send(_)) => {
-            record_provider_failure(&state.health, app, &backup.id, app_settings.max_retries).await;
+        Ok(response) => {
+            record_provider_failure(
+                state,
+                &state.health,
+                app,
+                &backup.id,
+                app_settings.max_retries,
+                Some(&format!("Failover upstream returned {}", response.status())),
+            )
+            .await;
+            return Ok(None);
+        }
+        Err(UpstreamAttemptError::Send(err)) => {
+            let err = err.to_string();
+            record_provider_failure(
+                state,
+                &state.health,
+                app,
+                &backup.id,
+                app_settings.max_retries,
+                Some(&err),
+            )
+            .await;
             return Ok(None);
         }
         Err(UpstreamAttemptError::Local(_)) => return Ok(None),
@@ -770,20 +920,47 @@ async fn retry_streaming_first_byte_failover(
 
     let should_stream = request_accepts_stream || is_streaming_response(&backup_response);
     let response = if should_stream {
-        match build_streaming_response(backup_response, &state.settings).await {
+        match build_streaming_response(
+            backup_response,
+            &state.settings,
+            app.as_str(),
+            request_started_at,
+            build_stream_usage_context(
+                &state.app_state,
+                app.as_str(),
+                &backup.id,
+                &extract_request_model(body_bytes),
+                request_id,
+            ),
+        )
+        .await
+        {
             Ok(response) => response,
             Err(StreamingResponseError::FirstByte(_)) => {
-                record_provider_failure(&state.health, app, &backup.id, app_settings.max_retries)
-                    .await;
+                record_provider_failure(
+                    state,
+                    &state.health,
+                    app,
+                    &backup.id,
+                    app_settings.max_retries,
+                    Some("Failover streaming response did not produce a first byte before timeout"),
+                )
+                .await;
                 return Ok(None);
             }
             Err(err) => return Err(err.into_app_error()),
         }
     } else {
-        build_buffered_response(backup_response, total_timeout, request_started_at).await?
+        build_buffered_response(
+            backup_response,
+            total_timeout,
+            request_started_at,
+            app.as_str(),
+        )
+        .await?
     };
 
-    record_provider_success(&state.health, app, &backup.id).await;
+    record_provider_success(state, &state.health, app, &backup.id).await;
     switch_to_failover_provider(state, app, failed_provider, &backup).await?;
     Ok(Some(response))
 }
@@ -844,10 +1021,20 @@ fn backup_provider(
     app: &AppType,
     current_provider_id: &str,
 ) -> Result<Option<Provider>, AppError> {
-    let guard = state.config.read().map_err(AppError::from)?;
+    let guard = state.load_config()?;
     let Some(manager) = guard.get_manager(app) else {
         return Ok(None);
     };
+    let queue = state.db.list_failover_queue(app.as_str())?;
+    for item in queue {
+        let provider_id = item.provider_id.trim();
+        if provider_id.is_empty() || provider_id == current_provider_id {
+            continue;
+        }
+        if let Some(provider) = manager.providers.get(provider_id) {
+            return Ok(Some(provider.clone()));
+        }
+    }
     let Some(backup_id) = manager.backup_current.as_deref() else {
         return Ok(None);
     };
@@ -893,6 +1080,7 @@ async fn provider_circuit_allows_request(
 }
 
 async fn record_provider_success(
+    state: &ProxyHandlerState,
     health: &Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
     app: &AppType,
     provider_id: &str,
@@ -902,13 +1090,22 @@ async fn record_provider_success(
         .write()
         .await
         .insert(key, ProviderRuntimeHealth::default());
+    if let Err(err) = state
+        .app_state
+        .db
+        .record_provider_success(app.as_str(), provider_id)
+    {
+        log::warn!("Failed to persist provider health success: {err}");
+    }
 }
 
 async fn record_provider_failure(
+    state: &ProxyHandlerState,
     health: &Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
     app: &AppType,
     provider_id: &str,
     max_retries: u8,
+    error: Option<&str>,
 ) {
     let key = provider_health_key(app, provider_id);
     let threshold = u64::from(max_retries).saturating_add(1).max(2);
@@ -919,6 +1116,15 @@ async fn record_provider_failure(
     if entry.failure_count >= threshold || entry.state == ProviderCircuitState::HalfOpen {
         entry.state = ProviderCircuitState::Open;
         entry.opened_at = Some(Instant::now());
+    }
+    let unhealthy = matches!(entry.state, ProviderCircuitState::Open);
+    if let Err(err) =
+        state
+            .app_state
+            .db
+            .record_provider_failure(app.as_str(), provider_id, error, unhealthy)
+    {
+        log::warn!("Failed to persist provider health failure: {err}");
     }
 }
 
@@ -941,7 +1147,8 @@ async fn build_buffered_response(
     upstream: reqwest::Response,
     total_timeout: Duration,
     request_started_at: Instant,
-) -> Result<Response, AppError> {
+    app_type: &str,
+) -> Result<(Response, ProxyUsageCapture), AppError> {
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut builder = Response::builder().status(status);
@@ -962,15 +1169,27 @@ async fn build_buffered_response(
     )
     .await?
     .map_err(|e| AppError::Config(format!("Failed to read upstream response: {e}")))?;
-    builder
+    let usage = parse_json_usage(app_type, &bytes);
+    let response = builder
         .body(Body::from(bytes))
-        .map_err(|e| AppError::Config(format!("Failed to build proxy response: {e}")))
+        .map_err(|e| AppError::Config(format!("Failed to build proxy response: {e}")))?;
+    Ok((
+        response,
+        ProxyUsageCapture {
+            usage,
+            first_token_ms: None,
+            is_streaming: false,
+        },
+    ))
 }
 
 async fn build_streaming_response(
     upstream: reqwest::Response,
     settings: &ProxySettings,
-) -> Result<Response, StreamingResponseError> {
+    app_type: &str,
+    request_started_at: Instant,
+    usage_context: StreamUsageContext,
+) -> Result<(Response, ProxyUsageCapture), StreamingResponseError> {
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut builder = Response::builder().status(status);
@@ -997,11 +1216,19 @@ async fn build_streaming_response(
     .map_err(StreamingResponseError::FirstByte)?;
 
     let Some(first) = first else {
-        return builder.body(Body::empty()).map_err(|e| {
+        let response = builder.body(Body::empty()).map_err(|e| {
             StreamingResponseError::Other(AppError::Config(format!(
                 "Failed to build proxy response: {e}"
             )))
-        });
+        })?;
+        return Ok((
+            response,
+            ProxyUsageCapture {
+                usage: None,
+                first_token_ms: None,
+                is_streaming: true,
+            },
+        ));
     };
     let first = first.map_err(|e| {
         StreamingResponseError::FirstByte(AppError::Config(format!(
@@ -1009,33 +1236,61 @@ async fn build_streaming_response(
         )))
     })?;
 
-    let rest = stream::unfold(upstream_stream, move |mut stream| {
-        let idle_timeout = idle_timeout;
-        async move {
-            match tokio::time::timeout(idle_timeout, stream.next()).await {
-                Ok(Some(Ok(bytes))) => Some((Ok(bytes), stream)),
-                Ok(Some(Err(err))) => Some((
-                    Err(std::io::Error::new(std::io::ErrorKind::Other, err)),
-                    stream,
-                )),
-                Ok(None) => None,
-                Err(_) => Some((
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "Proxy streaming idle timeout",
+    let first_token_ms = Some(
+        request_started_at
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    );
+    let first_events = parse_sse_events_from_bytes(&first);
+    let usage = TokenUsage::from_stream_events(app_type, &first_events);
+    let events = first_events;
+
+    let rest = stream::unfold(
+        (upstream_stream, events, usage_context, first_token_ms),
+        move |(mut stream, mut events, usage_context, first_token_ms)| {
+            let idle_timeout = idle_timeout;
+            async move {
+                match tokio::time::timeout(idle_timeout, stream.next()).await {
+                    Ok(Some(Ok(bytes))) => {
+                        events.extend(parse_sse_events_from_bytes(&bytes));
+                        Some((Ok(bytes), (stream, events, usage_context, first_token_ms)))
+                    }
+                    Ok(Some(Err(err))) => Some((
+                        Err(std::io::Error::new(std::io::ErrorKind::Other, err)),
+                        (stream, events, usage_context, first_token_ms),
                     )),
-                    stream,
-                )),
+                    Ok(None) => {
+                        persist_stream_usage_update(&usage_context, &events, first_token_ms);
+                        None
+                    }
+                    Err(_) => Some((
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "Proxy streaming idle timeout",
+                        )),
+                        (stream, events, usage_context, first_token_ms),
+                    )),
+                }
             }
-        }
-    });
+        },
+    );
     let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(first) }).chain(rest);
 
-    builder.body(Body::from_stream(body_stream)).map_err(|e| {
+    let response = builder.body(Body::from_stream(body_stream)).map_err(|e| {
         StreamingResponseError::Other(AppError::Config(format!(
             "Failed to build proxy response: {e}"
         )))
-    })
+    })?;
+    Ok((
+        response,
+        ProxyUsageCapture {
+            usage,
+            first_token_ms,
+            is_streaming: true,
+        },
+    ))
 }
 
 pub async fn start_proxy(
@@ -1141,6 +1396,21 @@ pub async fn stop_proxy() -> Result<ProxyStatus, AppError> {
     Ok(status().await)
 }
 
+pub async fn recent_logs_for_state(state: &AppState) -> Vec<ProxyRecentLog> {
+    let enable_logging = state
+        .db
+        .get_proxy_config()
+        .map(|config| config.enable_logging)
+        .unwrap_or_else(|err| {
+            log::warn!("Failed to read proxy config from database: {err}");
+            settings::get_settings().proxy.enable_logging
+        });
+    if !enable_logging {
+        return Vec::new();
+    }
+    runtime().recent_logs.read().await.iter().cloned().collect()
+}
+
 pub async fn recent_logs() -> Vec<ProxyRecentLog> {
     if !settings::get_settings().proxy.enable_logging {
         return Vec::new();
@@ -1170,7 +1440,9 @@ async fn status_with_state(state: Option<&Arc<AppState>>) -> ProxyStatus {
     let rt = runtime();
     let guard = rt.handle.lock().await;
     let stats = rt.stats.read().await.clone();
-    let settings = settings::get_settings().proxy;
+    let settings = state
+        .and_then(|state| state.db.get_proxy_config().ok())
+        .unwrap_or_else(|| settings::get_settings().proxy);
     match guard.as_ref() {
         Some(handle) if !handle.join.is_finished() => {
             let active_targets = state
@@ -1270,7 +1542,10 @@ pub async fn test_settings(
 }
 
 pub async fn start_from_saved_settings(state: Arc<AppState>) {
-    let settings = settings::get_settings().proxy;
+    let settings = state
+        .db
+        .get_proxy_config()
+        .unwrap_or_else(|_| settings::get_settings().proxy);
     if settings.enabled && settings.auto_start {
         if let Err(err) = start_proxy(state, settings).await {
             runtime().stats.write().await.last_error = Some(err.to_string());
@@ -1285,6 +1560,265 @@ async fn push_recent_log(logs: &Arc<RwLock<VecDeque<ProxyRecentLog>>>, log: Prox
         guard.pop_front();
     }
     guard.push_back(log);
+}
+
+fn build_stream_usage_context(
+    state: &Arc<AppState>,
+    app_type: &str,
+    provider_id: &str,
+    request_model: &str,
+    request_id: &str,
+) -> StreamUsageContext {
+    let (cost_multiplier, pricing_source) =
+        resolve_proxy_pricing_config(state, app_type, provider_id);
+    StreamUsageContext {
+        app_state: state.clone(),
+        app_type: app_type.to_string(),
+        provider_id: provider_id.to_string(),
+        request_model: request_model.to_string(),
+        request_id: request_id.to_string(),
+        cost_multiplier,
+        pricing_source,
+    }
+}
+
+fn persist_stream_usage_update(
+    context: &StreamUsageContext,
+    events: &[serde_json::Value],
+    first_token_ms: Option<u64>,
+) {
+    let Some(usage) = TokenUsage::from_stream_events(&context.app_type, events) else {
+        return;
+    };
+    let model_for_log = usage
+        .model
+        .clone()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| context.request_model.clone());
+    let pricing_model = if context.pricing_source == crate::database::PRICING_SOURCE_REQUEST {
+        context.request_model.as_str()
+    } else {
+        model_for_log.as_str()
+    };
+    let costs = context
+        .app_state
+        .db
+        .get_model_pricing(pricing_model)
+        .ok()
+        .flatten()
+        .and_then(|pricing| {
+            CostCalculator::try_calculate_for_app(
+                &context.app_type,
+                &usage,
+                Some(&pricing),
+                context.cost_multiplier,
+            )
+        });
+    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
+        cost_strings(costs.as_ref());
+    let update = ProxyRequestUsageUpdate {
+        request_id: context.request_id.clone(),
+        model: model_for_log,
+        input_tokens: i64::from(usage.input_tokens),
+        output_tokens: i64::from(usage.output_tokens),
+        cache_read_tokens: i64::from(usage.cache_read_tokens),
+        cache_creation_tokens: i64::from(usage.cache_creation_tokens),
+        input_cost_usd: input_cost,
+        output_cost_usd: output_cost,
+        cache_read_cost_usd: cache_read_cost,
+        cache_creation_cost_usd: cache_creation_cost,
+        total_cost_usd: total_cost,
+        first_token_ms: first_token_ms.map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+        duration_ms: None,
+    };
+    if let Err(err) = context.app_state.db.update_proxy_request_log_usage(&update) {
+        log::warn!(
+            "Failed to update streaming proxy usage log for {} provider {}: {err}",
+            context.app_type,
+            context.provider_id
+        );
+    }
+}
+
+fn persist_proxy_request_log(
+    state: &ProxyHandlerState,
+    app_type: String,
+    provider_id: String,
+    model: String,
+    usage_capture: ProxyUsageCapture,
+    request_id: String,
+    status: Option<u16>,
+    duration_ms: u64,
+    error: Option<&str>,
+) {
+    let app_type_ref = app_type.as_str();
+    let request_model = Some(model.clone()).filter(|value| !value.is_empty());
+    let resolved_usage = usage_capture.usage;
+    let response_model = resolved_usage
+        .as_ref()
+        .and_then(|usage| usage.model.clone())
+        .filter(|value| !value.is_empty());
+    let model_for_log = response_model.clone().unwrap_or_else(|| model.clone());
+    let (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) =
+        resolved_usage.as_ref().map_or((0, 0, 0, 0), |usage| {
+            (
+                i64::from(usage.input_tokens),
+                i64::from(usage.output_tokens),
+                i64::from(usage.cache_read_tokens),
+                i64::from(usage.cache_creation_tokens),
+            )
+        });
+    let (cost_multiplier, pricing_source) =
+        resolve_proxy_pricing_config(&state.app_state, app_type_ref, &provider_id);
+    let pricing_model = if pricing_source == crate::database::PRICING_SOURCE_REQUEST {
+        request_model.as_deref().unwrap_or(&model_for_log)
+    } else {
+        &model_for_log
+    };
+    let costs = resolved_usage.as_ref().and_then(|usage| {
+        let pricing = state.app_state.db.get_model_pricing(pricing_model).ok().flatten();
+        CostCalculator::try_calculate_for_app(
+            app_type_ref,
+            usage,
+            pricing.as_ref(),
+            cost_multiplier,
+        )
+    });
+    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
+        cost_strings(costs.as_ref());
+    let record = ProxyRequestLogRecord {
+        request_id,
+        provider_id,
+        app_type,
+        model: model_for_log,
+        request_model,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_creation_tokens,
+        input_cost_usd: input_cost,
+        output_cost_usd: output_cost,
+        cache_read_cost_usd: cache_read_cost,
+        cache_creation_cost_usd: cache_creation_cost,
+        total_cost_usd: total_cost,
+        latency_ms: i64::try_from(duration_ms).unwrap_or(i64::MAX),
+        first_token_ms: usage_capture
+            .first_token_ms
+            .map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+        duration_ms: Some(i64::try_from(duration_ms).unwrap_or(i64::MAX)),
+        status_code: status.map(i64::from).unwrap_or(0),
+        error_message: error.map(ToString::to_string),
+        session_id: None,
+        provider_type: None,
+        is_streaming: usage_capture.is_streaming,
+        cost_multiplier: cost_multiplier.to_string(),
+        created_at: chrono::Utc::now().timestamp_millis(),
+        data_source: "proxy".to_string(),
+    };
+    if let Err(err) = state.app_state.db.insert_proxy_request_log(&record) {
+        log::warn!("Failed to persist proxy request log: {err}");
+    }
+}
+
+fn resolve_proxy_pricing_config(
+    state: &AppState,
+    app_type: &str,
+    provider_id: &str,
+) -> (Decimal, String) {
+    let (default_multiplier, default_source) = state
+        .db
+        .get_proxy_pricing_config(app_type)
+        .unwrap_or_else(|_| ("1".to_string(), crate::database::PRICING_SOURCE_RESPONSE.to_string()));
+    let mut multiplier = default_multiplier;
+    let mut source = default_source;
+    if let Ok(config) = state.load_config() {
+        if let Ok(app) = AppType::parse_supported(app_type) {
+            if let Some(provider) = config
+                .get_manager(&app)
+                .and_then(|manager| manager.providers.get(provider_id))
+            {
+                if let Some(meta) = provider.meta.as_ref() {
+                    if let Some(value) = meta.cost_multiplier.as_ref() {
+                        multiplier = value.clone();
+                    }
+                    if let Some(value) = meta.pricing_model_source.as_ref() {
+                        source = value.clone();
+                    }
+                }
+            }
+        }
+    }
+    let multiplier = Decimal::from_str(&multiplier).unwrap_or_else(|_| Decimal::from(1));
+    if source != crate::database::PRICING_SOURCE_REQUEST
+        && source != crate::database::PRICING_SOURCE_RESPONSE
+    {
+        source = crate::database::PRICING_SOURCE_RESPONSE.to_string();
+    }
+    (multiplier, source)
+}
+
+fn cost_strings(cost: Option<&CostBreakdown>) -> (String, String, String, String, String) {
+    match cost {
+        Some(cost) => (
+            cost.input_cost.to_string(),
+            cost.output_cost.to_string(),
+            cost.cache_read_cost.to_string(),
+            cost.cache_creation_cost.to_string(),
+            cost.total_cost.to_string(),
+        ),
+        None => (
+            "0".to_string(),
+            "0".to_string(),
+            "0".to_string(),
+            "0".to_string(),
+            "0".to_string(),
+        ),
+    }
+}
+
+fn next_proxy_request_id() -> String {
+    let sequence = REQUEST_LOG_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("proxy-{}-{sequence}", chrono::Utc::now().timestamp_millis())
+}
+
+fn parse_json_usage(app_type: &str, bytes: &Bytes) -> Option<TokenUsage> {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| TokenUsage::from_response(app_type, &value))
+}
+
+fn parse_sse_events_from_bytes(bytes: &Bytes) -> Vec<serde_json::Value> {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
+    for block in text.split("\n\n") {
+        for line in block.lines() {
+            let Some(data) = line.strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                events.push(value);
+            }
+        }
+    }
+    events
+}
+
+fn extract_request_model(body: &Bytes) -> String {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("model")
+                .and_then(|model| model.as_str())
+                .map(ToString::to_string)
+        })
+        .unwrap_or_default()
 }
 
 fn sanitize_uri_for_log(uri: &Uri) -> String {

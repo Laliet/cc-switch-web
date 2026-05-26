@@ -11,88 +11,81 @@ pub struct McpService;
 impl McpService {
     /// 获取所有 MCP 服务器（统一结构）
     pub fn get_all_servers(state: &AppState) -> Result<HashMap<String, McpServer>, AppError> {
-        let (servers, need_save) = {
-            let mut cfg = state.config.write()?;
-
-            // 从各客户端配置导入 MCP，确保统一结构完整
-            let mut need_save = cfg.mcp.servers.is_none();
-            let imported_from_claude = mcp::import_from_claude(&mut cfg)?;
-            let imported_from_codex = mcp::import_from_codex(&mut cfg)?;
-            let imported_from_gemini = mcp::import_from_gemini(&mut cfg)?;
-            let imported_from_opencode = mcp::import_from_opencode(&mut cfg)?;
-            if imported_from_claude > 0
-                || imported_from_codex > 0
-                || imported_from_gemini > 0
-                || imported_from_opencode > 0
-            {
-                need_save = true;
-            }
-
-            // 新结构：空表示尚未配置任何 MCP 服务器，返回空 Map 而不是报错，避免初始加载失败。
-            let mut servers = cfg.mcp.servers.clone().unwrap_or_default();
-
-            // 兼容旧结构：如果旧的分应用配置仍有启用项，则合并到统一结构并标记对应 app。
-            let mut merge_legacy = |legacy: &crate::app_config::McpConfig, app: &AppType| {
-                for (id, entry) in legacy.servers.iter() {
-                    let enabled = entry
-                        .get("enabled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if !enabled {
-                        continue;
-                    }
-
-                    // 旧结构可能以 { enabled, server: {...} } 存储，也可能直接是 server 规范
-                    let spec = entry
-                        .get("server")
-                        .cloned()
-                        .unwrap_or_else(|| entry.clone());
-
-                    if let Some(existing) = servers.get_mut(id) {
-                        existing.apps.set_enabled_for(app, true);
-                    } else {
-                        servers.insert(
-                            id.clone(),
-                            McpServer {
-                                id: id.clone(),
-                                name: id.clone(),
-                                server: spec.clone(),
-                                apps: {
-                                    let mut apps = McpApps::default();
-                                    apps.set_enabled_for(app, true);
-                                    apps
-                                },
-                                description: None,
-                                homepage: None,
-                                docs: None,
-                                tags: Vec::new(),
-                            },
-                        );
-                    }
-                }
-            };
-
-            merge_legacy(&cfg.mcp.claude, &AppType::Claude);
-            merge_legacy(&cfg.mcp.codex, &AppType::Codex);
-            merge_legacy(&cfg.mcp.gemini, &AppType::Gemini);
-            merge_legacy(&cfg.mcp.opencode, &AppType::Opencode);
-
-            (servers, need_save)
-        };
-
-        if need_save {
-            // 释放写锁后再保存，避免与 save() 内部的读锁互斥导致死锁
-            state.save()?;
+        let mut cfg = state.load_config()?;
+        let mut need_save = cfg.mcp.servers.is_none();
+        let imported_from_claude = mcp::import_from_claude(&mut cfg)?;
+        let imported_from_codex = mcp::import_from_codex(&mut cfg)?;
+        let imported_from_gemini = mcp::import_from_gemini(&mut cfg)?;
+        let imported_from_opencode = mcp::import_from_opencode(&mut cfg)?;
+        if imported_from_claude > 0
+            || imported_from_codex > 0
+            || imported_from_gemini > 0
+            || imported_from_opencode > 0
+        {
+            need_save = true;
         }
 
+        // 新结构：空表示尚未配置任何 MCP 服务器，返回空 Map 而不是报错，避免初始加载失败。
+        let mut servers = cfg.mcp.servers.clone().unwrap_or_default();
+
+        // 兼容旧结构：如果旧的分应用配置仍有启用项，则合并到统一结构并标记对应 app。
+        let mut merge_legacy = |legacy: &crate::app_config::McpConfig, app: &AppType| {
+            for (id, entry) in legacy.servers.iter() {
+                let enabled = entry
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !enabled {
+                    continue;
+                }
+
+                let spec = entry
+                    .get("server")
+                    .cloned()
+                    .unwrap_or_else(|| entry.clone());
+
+                if let Some(existing) = servers.get_mut(id) {
+                    existing.apps.set_enabled_for(app, true);
+                } else {
+                    servers.insert(
+                        id.clone(),
+                        McpServer {
+                            id: id.clone(),
+                            name: id.clone(),
+                            server: spec.clone(),
+                            apps: {
+                                let mut apps = McpApps::default();
+                                apps.set_enabled_for(app, true);
+                                apps
+                            },
+                            description: None,
+                            homepage: None,
+                            docs: None,
+                            tags: Vec::new(),
+                        },
+                    );
+                }
+            }
+        };
+
+        merge_legacy(&cfg.mcp.claude, &AppType::Claude);
+        merge_legacy(&cfg.mcp.codex, &AppType::Codex);
+        merge_legacy(&cfg.mcp.gemini, &AppType::Gemini);
+        merge_legacy(&cfg.mcp.opencode, &AppType::Opencode);
+
+        if cfg.mcp.servers.is_none() {
+            need_save = true;
+        }
+        cfg.mcp.servers = Some(servers.clone());
+        if need_save {
+            state.replace_config(&cfg)?;
+        }
         Ok(servers)
     }
 
     /// 添加或更新 MCP 服务器
     pub fn upsert_server(state: &AppState, server: McpServer) -> Result<(), AppError> {
-        {
-            let mut cfg = state.config.write()?;
-
+        state.update_config(|cfg| {
             // 确保 servers 字段存在
             if cfg.mcp.servers.is_none() {
                 cfg.mcp.servers = Some(HashMap::new());
@@ -103,9 +96,8 @@ impl McpService {
 
             // 插入或更新
             servers.insert(id, server.clone());
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
 
         // 同步到各个启用的应用
         Self::sync_server_to_apps(state, &server)?;
@@ -115,19 +107,15 @@ impl McpService {
 
     /// 删除 MCP 服务器
     pub fn delete_server(state: &AppState, id: &str) -> Result<bool, AppError> {
-        let server = {
-            let mut cfg = state.config.write()?;
-
+        let server = state.update_config(|cfg| {
             if let Some(servers) = &mut cfg.mcp.servers {
-                servers.remove(id)
+                Ok(servers.remove(id))
             } else {
-                None
+                Ok(None)
             }
-        };
+        })?;
 
         if let Some(server) = server {
-            state.save()?;
-
             // 从所有应用的 live 配置中移除
             Self::remove_server_from_all_apps(state, id, &server)?;
             Ok(true)
@@ -143,24 +131,20 @@ impl McpService {
         app: AppType,
         enabled: bool,
     ) -> Result<(), AppError> {
-        let server = {
-            let mut cfg = state.config.write()?;
-
+        let server = state.update_config(|cfg| {
             if let Some(servers) = &mut cfg.mcp.servers {
                 if let Some(server) = servers.get_mut(server_id) {
                     server.apps.set_enabled_for(&app, enabled);
-                    Some(server.clone())
+                    Ok(Some(server.clone()))
                 } else {
-                    None
+                    Ok(None)
                 }
             } else {
-                None
+                Ok(None)
             }
-        };
+        })?;
 
         if let Some(server) = server {
-            state.save()?;
-
             // 同步到对应应用
             if enabled {
                 Self::sync_server_to_app(state, &server, &app)?;
@@ -174,7 +158,7 @@ impl McpService {
 
     /// 将 MCP 服务器同步到所有启用的应用
     fn sync_server_to_apps(state: &AppState, server: &McpServer) -> Result<(), AppError> {
-        let cfg = state.config.read()?;
+        let cfg = state.load_config()?;
 
         for app in server.apps.enabled_apps() {
             Self::sync_server_to_app_internal(&cfg, server, &app)?;
@@ -189,7 +173,7 @@ impl McpService {
         server: &McpServer,
         app: &AppType,
     ) -> Result<(), AppError> {
-        let cfg = state.config.read()?;
+        let cfg = state.load_config()?;
         Self::sync_server_to_app_internal(&cfg, server, app)
     }
 
@@ -313,36 +297,20 @@ impl McpService {
 
     /// 从 Claude 导入 MCP（v3.7.0 已更新为统一结构）
     pub fn import_from_claude(state: &AppState) -> Result<usize, AppError> {
-        let mut cfg = state.config.write()?;
-        let count = mcp::import_from_claude(&mut cfg)?;
-        drop(cfg);
-        state.save()?;
-        Ok(count)
+        state.update_config(mcp::import_from_claude)
     }
 
     /// 从 Codex 导入 MCP（v3.7.0 已更新为统一结构）
     pub fn import_from_codex(state: &AppState) -> Result<usize, AppError> {
-        let mut cfg = state.config.write()?;
-        let count = mcp::import_from_codex(&mut cfg)?;
-        drop(cfg);
-        state.save()?;
-        Ok(count)
+        state.update_config(mcp::import_from_codex)
     }
 
     /// 从 Gemini 导入 MCP（v3.7.0 已更新为统一结构）
     pub fn import_from_gemini(state: &AppState) -> Result<usize, AppError> {
-        let mut cfg = state.config.write()?;
-        let count = mcp::import_from_gemini(&mut cfg)?;
-        drop(cfg);
-        state.save()?;
-        Ok(count)
+        state.update_config(mcp::import_from_gemini)
     }
 
     pub fn import_from_opencode(state: &AppState) -> Result<usize, AppError> {
-        let mut cfg = state.config.write()?;
-        let count = mcp::import_from_opencode(&mut cfg)?;
-        drop(cfg);
-        state.save()?;
-        Ok(count)
+        state.update_config(mcp::import_from_opencode)
     }
 }

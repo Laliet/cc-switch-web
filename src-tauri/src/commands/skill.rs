@@ -1,5 +1,5 @@
 use crate::app_config::AppType;
-use crate::error::format_skill_error;
+use crate::error::{format_skill_error, AppError};
 use crate::services::skill::SkillState;
 use crate::services::{Skill, SkillRepo, SkillService};
 use crate::store::AppState;
@@ -30,7 +30,7 @@ pub async fn get_skills(
     let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
 
     let (repos, mut repo_cache) = {
-        let config = app_state.config.read().map_err(|e| e.to_string())?;
+        let config = app_state.load_config().map_err(|e| e.to_string())?;
         (
             config.skills.repos.clone(),
             config.skills.repo_cache.clone(),
@@ -46,11 +46,12 @@ pub async fn get_skills(
     let cache_hit = result.cache_hit;
     let refreshing = result.refreshing;
 
-    {
-        let mut config = app_state.config.write().map_err(|e| e.to_string())?;
-        config.skills.repo_cache = repo_cache;
-    }
-    app_state.save().map_err(|e| e.to_string())?;
+    app_state
+        .update_config(|config| {
+            config.skills.repo_cache = repo_cache;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(SkillsResponse {
         skills,
@@ -74,7 +75,7 @@ pub async fn install_skill(
 
     // 先在不持有写锁的情况下收集仓库与技能信息
     let (repos, mut repo_cache) = {
-        let config = app_state.config.read().map_err(|e| e.to_string())?;
+        let config = app_state.load_config().map_err(|e| e.to_string())?;
         (
             config.skills.repos.clone(),
             config.skills.repo_cache.clone(),
@@ -120,19 +121,19 @@ pub async fn install_skill(
             .map_err(|e| e.to_string())?;
     }
 
-    {
-        let mut config = app_state.config.write().map_err(|e| e.to_string())?;
-        config.skills.repo_cache = repo_cache;
-        config.skills.skills.insert(
-            SkillService::state_key(&app, &directory),
-            SkillState {
-                installed: true,
-                installed_at: Utc::now(),
-            },
-        );
-    }
-
-    app_state.save().map_err(|e| e.to_string())?;
+    app_state
+        .update_config(|config| {
+            config.skills.repo_cache = repo_cache;
+            config.skills.skills.insert(
+                SkillService::state_key(&app, &directory),
+                SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(true)
 }
@@ -151,16 +152,15 @@ pub fn uninstall_skill(
         .uninstall_skill(directory.clone())
         .map_err(|e| e.to_string())?;
 
-    {
-        let mut config = app_state.config.write().map_err(|e| e.to_string())?;
-
-        config
-            .skills
-            .skills
-            .remove(&SkillService::state_key(&app, &directory));
-    }
-
-    app_state.save().map_err(|e| e.to_string())?;
+    app_state
+        .update_config(|config| {
+            config
+                .skills
+                .skills
+                .remove(&SkillService::state_key(&app, &directory));
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(true)
 }
@@ -196,7 +196,7 @@ pub fn get_skill_repos(
     _service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<Vec<SkillRepo>, String> {
-    let config = app_state.config.read().map_err(|e| e.to_string())?;
+    let config = app_state.load_config().map_err(|e| e.to_string())?;
 
     Ok(config.skills.repos.clone())
 }
@@ -207,16 +207,14 @@ pub fn add_skill_repo(
     service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    {
-        let mut config = app_state.config.write().map_err(|e| e.to_string())?;
-
-        service
-            .0
-            .add_repo(&mut config.skills, repo)
-            .map_err(|e| e.to_string())?;
-    }
-
-    app_state.save().map_err(|e| e.to_string())?;
+    app_state
+        .update_config(|config| {
+            service
+                .0
+                .add_repo(&mut config.skills, repo)
+                .map_err(|e| AppError::Config(e.to_string()))
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(true)
 }
@@ -228,16 +226,14 @@ pub fn remove_skill_repo(
     service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<bool, String> {
-    {
-        let mut config = app_state.config.write().map_err(|e| e.to_string())?;
-
-        service
-            .0
-            .remove_repo(&mut config.skills, owner, name)
-            .map_err(|e| e.to_string())?;
-    }
-
-    app_state.save().map_err(|e| e.to_string())?;
+    app_state
+        .update_config(|config| {
+            service
+                .0
+                .remove_repo(&mut config.skills, owner, name)
+                .map_err(|e| AppError::Config(e.to_string()))
+        })
+        .map_err(|e| e.to_string())?;
 
     Ok(true)
 }

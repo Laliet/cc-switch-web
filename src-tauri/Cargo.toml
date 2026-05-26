@@ -39,6 +39,12 @@ desktop = [
     "winreg",
     "objc2",
     "objc2-app-kit",
+    "axum",
+    "tower-http",
+    "rust-embed",
+    "env_logger",
+    "mime_guess",
+    "rand",
 ]
 web-server = ["axum", "tower-http", "rust-embed", "env_logger", "mime_guess", "rand"]
 
@@ -67,6 +73,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signa
 futures = "0.3"
 regex = "1.10"
 rquickjs = { version = "0.8", features = ["array-buffer", "classes"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+rust_decimal = "1"
 thiserror = "1.0"
 anyhow = "1.0"
 zip = "2.2"

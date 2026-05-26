@@ -13,10 +13,12 @@ use crate::store::AppState;
 #[tauri::command]
 pub async fn export_config_to_file(
     #[allow(non_snake_case)] filePath: String,
+    state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    let config = state.load_config().map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         let target_path = PathBuf::from(&filePath);
-        ConfigService::export_config_to_path(&target_path)?;
+        ConfigService::export_config_to_path(&config, &target_path)?;
         Ok::<_, AppError>(json!({
             "success": true,
             "message": "Configuration exported successfully",
@@ -55,15 +57,9 @@ pub async fn import_config_from_file(
 /// 同步当前供应商配置到对应的 live 文件
 #[tauri::command]
 pub async fn sync_current_providers_live(state: State<'_, AppState>) -> Result<Value, String> {
-    {
-        let mut config_state = state
-            .config
-            .write()
-            .map_err(|e| AppError::from(e).to_string())?;
-        ConfigService::sync_current_providers_to_live(&mut config_state)
-            .map_err(|e| e.to_string())?;
-    }
-    state.save().map_err(|e| e.to_string())?;
+    state
+        .update_config(|config| ConfigService::sync_current_providers_to_live(config))
+        .map_err(|e| e.to_string())?;
 
     Ok(json!({
         "success": true,

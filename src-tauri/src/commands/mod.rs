@@ -8,6 +8,8 @@ mod mcp;
 mod misc;
 mod plugin;
 mod prompt;
+#[cfg(any(feature = "web-server", feature = "desktop"))]
+mod proxy;
 mod provider;
 mod settings;
 pub mod skill;
@@ -20,6 +22,8 @@ pub use mcp::*;
 pub use misc::*;
 pub use plugin::*;
 pub use prompt::*;
+#[cfg(any(feature = "web-server", feature = "desktop"))]
+pub use proxy::*;
 pub use provider::*;
 pub use settings::*;
 pub use skill::*;

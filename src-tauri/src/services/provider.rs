@@ -359,7 +359,6 @@ impl ProviderService {
         name_lower == "google" || name_lower.starts_with("google ")
     }
 
-    #[cfg(feature = "web-server")]
     pub(crate) fn is_google_official_gemini_provider(provider: &Provider) -> bool {
         Self::is_google_official_gemini(provider)
     }
@@ -540,27 +539,10 @@ impl ProviderService {
     where
         F: FnOnce(&mut MultiAppConfig) -> Result<(R, Option<PostCommitAction>), AppError>,
     {
-        let mut guard = state.config.write().map_err(AppError::from)?;
-        let original = guard.clone();
-        let (result, action) = match f(&mut guard) {
-            Ok(value) => value,
-            Err(err) => {
-                *guard = original;
-                return Err(err);
-            }
-        };
-        drop(guard);
-
-        if let Err(save_err) = state.save() {
-            if let Err(rollback_err) = Self::restore_config_only(state, original.clone()) {
-                return Err(AppError::localized(
-                    "config.save.rollback_failed",
-                    format!("保存配置失败: {save_err}；回滚失败: {rollback_err}"),
-                    format!("Failed to save config: {save_err}; rollback failed: {rollback_err}"),
-                ));
-            }
-            return Err(save_err);
-        }
+        let original = state.load_config()?;
+        let mut next = original.clone();
+        let (result, action) = f(&mut next)?;
+        state.replace_config(&next)?;
 
         if let Some(action) = action {
             if let Err(err) = Self::apply_post_commit(state, &action) {
@@ -581,11 +563,7 @@ impl ProviderService {
     }
 
     fn restore_config_only(state: &AppState, snapshot: MultiAppConfig) -> Result<(), AppError> {
-        {
-            let mut guard = state.config.write().map_err(AppError::from)?;
-            *guard = snapshot;
-        }
-        state.save()
+        state.replace_config(&snapshot)
     }
 
     fn rollback_after_failure(
@@ -650,15 +628,14 @@ impl ProviderService {
                 }
                 let mut live_after = read_json_file::<Value>(&settings_path)?;
                 let _ = Self::normalize_claude_models_in_value(&mut live_after);
-                {
-                    let mut guard = state.config.write().map_err(AppError::from)?;
-                    if let Some(manager) = guard.get_manager_mut(app_type) {
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
                             target.settings_config = live_after;
                         }
                     }
-                }
-                state.save()?;
+                    Ok(())
+                })?;
             }
             AppType::Codex => {
                 let auth_path = get_codex_auth_path()?;
@@ -672,9 +649,8 @@ impl ProviderService {
                 let auth: Value = read_json_file(&auth_path)?;
                 let cfg_text = crate::codex_config::read_and_validate_codex_config_text()?;
 
-                {
-                    let mut guard = state.config.write().map_err(AppError::from)?;
-                    if let Some(manager) = guard.get_manager_mut(app_type) {
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
                             let obj = target.settings_config.as_object_mut().ok_or_else(|| {
                                 AppError::Config(format!(
@@ -685,8 +661,8 @@ impl ProviderService {
                             obj.insert("config".to_string(), Value::String(cfg_text.clone()));
                         }
                     }
-                }
-                state.save()?;
+                    Ok(())
+                })?;
             }
             AppType::Gemini => {
                 use crate::gemini_config::{
@@ -715,15 +691,14 @@ impl ProviderService {
                     obj.insert("config".to_string(), config_value);
                 }
 
-                {
-                    let mut guard = state.config.write().map_err(AppError::from)?;
-                    if let Some(manager) = guard.get_manager_mut(app_type) {
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
                             target.settings_config = live_after;
                         }
                     }
-                }
-                state.save()?;
+                    Ok(())
+                })?;
             }
             AppType::Opencode => {
                 let config_path = crate::opencode_config::get_opencode_config_path();
@@ -742,15 +717,14 @@ impl ProviderService {
                     .cloned()
                     .unwrap_or_else(|| json!({}));
 
-                {
-                    let mut guard = state.config.write().map_err(AppError::from)?;
-                    if let Some(manager) = guard.get_manager_mut(app_type) {
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
                             target.settings_config = fragment;
                         }
                     }
-                }
-                state.save()?;
+                    Ok(())
+                })?;
             }
             AppType::Omo => {
                 let config_path = crate::omo_config::resolve_omo_config_path();
@@ -763,15 +737,14 @@ impl ProviderService {
                 }
 
                 let live_after = crate::omo_config::read_omo_config()?;
-                {
-                    let mut guard = state.config.write().map_err(AppError::from)?;
-                    if let Some(manager) = guard.get_manager_mut(app_type) {
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
                             target.settings_config = live_after;
                         }
                     }
-                }
-                state.save()?;
+                    Ok(())
+                })?;
             }
         }
         Ok(())
@@ -860,7 +833,7 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<HashMap<String, Provider>, AppError> {
-        let config = state.config.read().map_err(AppError::from)?;
+        let config = state.load_config()?;
         let manager = config
             .get_manager(&app_type)
             .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -869,7 +842,7 @@ impl ProviderService {
 
     /// 获取当前供应商 ID
     pub fn current(state: &AppState, app_type: AppType) -> Result<String, AppError> {
-        let config = state.config.read().map_err(AppError::from)?;
+        let config = state.load_config()?;
         let manager = config
             .get_manager(&app_type)
             .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -878,7 +851,7 @@ impl ProviderService {
 
     /// 获取备用供应商 ID
     pub fn backup(state: &AppState, app_type: AppType) -> Result<Option<String>, AppError> {
-        let config = state.config.read().map_err(AppError::from)?;
+        let config = state.load_config()?;
         let manager = config
             .get_manager(&app_type)
             .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1023,7 +996,7 @@ impl ProviderService {
     /// 导入当前 live 配置为默认供应商
     pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<(), AppError> {
         {
-            let config = state.config.read().map_err(AppError::from)?;
+            let config = state.load_config()?;
             if let Some(manager) = config.get_manager(&app_type) {
                 if !manager.get_all_providers().is_empty() {
                     return Ok(());
@@ -1100,30 +1073,30 @@ impl ProviderService {
                 let mut provider_entries: Vec<(String, Value)> = providers.into_iter().collect();
                 provider_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-                let mut guard = state.config.write().map_err(AppError::from)?;
-                let manager = guard
-                    .get_manager_mut(&app_type)
-                    .ok_or_else(|| Self::app_not_found(&app_type))?;
+                state.update_config(|cfg| {
+                    let manager = cfg
+                        .get_manager_mut(&app_type)
+                        .ok_or_else(|| Self::app_not_found(&app_type))?;
 
-                for (provider_id, settings_config) in provider_entries {
-                    let mut provider = Provider::with_id(
-                        provider_id.clone(),
-                        provider_id.clone(),
-                        settings_config,
-                        None,
-                    );
-                    provider.category = Some("custom".to_string());
-                    manager.providers.insert(provider.id.clone(), provider);
-                }
+                    for (provider_id, settings_config) in provider_entries {
+                        let mut provider = Provider::with_id(
+                            provider_id.clone(),
+                            provider_id.clone(),
+                            settings_config,
+                            None,
+                        );
+                        provider.category = Some("custom".to_string());
+                        manager.providers.insert(provider.id.clone(), provider);
+                    }
 
-                let preferred_current = if manager.providers.contains_key("default") {
-                    Some("default".to_string())
-                } else {
-                    manager.providers.keys().min().cloned()
-                };
-                manager.current = preferred_current.unwrap_or_default();
-                drop(guard);
-                state.save()?;
+                    let preferred_current = if manager.providers.contains_key("default") {
+                        Some("default".to_string())
+                    } else {
+                        manager.providers.keys().min().cloned()
+                    };
+                    manager.current = preferred_current.unwrap_or_default();
+                    Ok(())
+                })?;
                 return Ok(());
             }
             AppType::Omo => {
@@ -1147,8 +1120,7 @@ impl ProviderService {
         );
         provider.category = Some("custom".to_string());
 
-        {
-            let mut config = state.config.write().map_err(AppError::from)?;
+        state.update_config(|config| {
             let manager = config
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1156,9 +1128,8 @@ impl ProviderService {
                 .providers
                 .insert(provider.id.clone(), provider.clone());
             manager.current = provider.id.clone();
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1182,8 +1153,7 @@ impl ProviderService {
             AppType::Claude | AppType::Codex | AppType::Gemini => {}
         }
 
-        {
-            let mut config = state.config.write().map_err(AppError::from)?;
+        state.update_config(|config| {
             let manager = config
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1202,9 +1172,8 @@ impl ProviderService {
                 provider.category = Some("custom".to_string());
                 manager.providers.insert(provider.id.clone(), provider);
             }
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1213,8 +1182,7 @@ impl ProviderService {
         app_type: AppType,
         live_settings: Value,
     ) -> Result<(), AppError> {
-        {
-            let mut config = state.config.write().map_err(AppError::from)?;
+        state.update_config(|config| {
             let manager = config
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1235,9 +1203,8 @@ impl ProviderService {
                 provider.category = Some("custom".to_string());
                 manager.providers.insert(provider.id.clone(), provider);
             }
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1246,7 +1213,7 @@ impl ProviderService {
         live_settings: Value,
     ) -> Result<(), AppError> {
         let fragment = {
-            let config = state.config.read().map_err(AppError::from)?;
+            let config = state.load_config()?;
             let manager = config
                 .get_manager(&AppType::Opencode)
                 .ok_or_else(|| Self::app_not_found(&AppType::Opencode))?;
@@ -1352,7 +1319,7 @@ impl ProviderService {
         app_type: AppType,
         provider_id: &str,
     ) -> Result<Vec<CustomEndpoint>, AppError> {
-        let cfg = state.config.read().map_err(AppError::from)?;
+        let cfg = state.load_config()?;
         let manager = cfg
             .get_manager(&app_type)
             .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1388,8 +1355,7 @@ impl ProviderService {
             ));
         }
 
-        {
-            let mut cfg = state.config.write().map_err(AppError::from)?;
+        state.update_config(|cfg| {
             let manager = cfg
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1408,9 +1374,8 @@ impl ProviderService {
                 last_used: None,
             };
             meta.custom_endpoints.insert(normalized, endpoint);
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1423,8 +1388,7 @@ impl ProviderService {
     ) -> Result<(), AppError> {
         let normalized = url.trim().trim_end_matches('/').to_string();
 
-        {
-            let mut cfg = state.config.write().map_err(AppError::from)?;
+        state.update_config(|cfg| {
             if let Some(manager) = cfg.get_manager_mut(&app_type) {
                 if let Some(provider) = manager.providers.get_mut(provider_id) {
                     if let Some(meta) = provider.meta.as_mut() {
@@ -1432,9 +1396,8 @@ impl ProviderService {
                     }
                 }
             }
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1447,8 +1410,7 @@ impl ProviderService {
     ) -> Result<(), AppError> {
         let normalized = url.trim().trim_end_matches('/').to_string();
 
-        {
-            let mut cfg = state.config.write().map_err(AppError::from)?;
+        state.update_config(|cfg| {
             if let Some(manager) = cfg.get_manager_mut(&app_type) {
                 if let Some(provider) = manager.providers.get_mut(provider_id) {
                     if let Some(meta) = provider.meta.as_mut() {
@@ -1458,9 +1420,8 @@ impl ProviderService {
                     }
                 }
             }
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1470,8 +1431,7 @@ impl ProviderService {
         app_type: AppType,
         updates: Vec<ProviderSortUpdate>,
     ) -> Result<bool, AppError> {
-        {
-            let mut cfg = state.config.write().map_err(AppError::from)?;
+        state.update_config(|cfg| {
             let manager = cfg
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -1481,9 +1441,8 @@ impl ProviderService {
                     provider.sort_index = Some(update.sort_index);
                 }
             }
-        }
-
-        state.save()?;
+            Ok(())
+        })?;
         Ok(true)
     }
 
@@ -1564,7 +1523,7 @@ impl ProviderService {
         provider_id: &str,
     ) -> Result<UsageResult, AppError> {
         let (script_code, timeout, api_key, base_url, access_token, user_id) = {
-            let config = state.config.read().map_err(AppError::from)?;
+            let config = state.load_config()?;
             let manager = config
                 .get_manager(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -2445,7 +2404,7 @@ impl ProviderService {
 
     pub fn delete(state: &AppState, app_type: AppType, provider_id: &str) -> Result<(), AppError> {
         let provider_snapshot = {
-            let config = state.config.read().map_err(AppError::from)?;
+            let config = state.load_config()?;
             let manager = config
                 .get_manager(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -2491,8 +2450,7 @@ impl ProviderService {
             AppType::Omo => {}
         }
 
-        {
-            let mut config = state.config.write().map_err(AppError::from)?;
+        state.update_config(|config| {
             let manager = config
                 .get_manager_mut(&app_type)
                 .ok_or_else(|| Self::app_not_found(&app_type))?;
@@ -2506,9 +2464,8 @@ impl ProviderService {
             }
 
             manager.providers.remove(provider_id);
-        }
-
-        state.save()
+            Ok(())
+        })
     }
 }
 
@@ -2517,4 +2474,84 @@ pub struct ProviderSortUpdate {
     pub id: String,
     #[serde(rename = "sortIndex")]
     pub sort_index: usize,
+}
+
+impl ProviderService {
+    pub fn list_universal(
+        state: &AppState,
+    ) -> Result<std::collections::HashMap<String, crate::provider::UniversalProvider>, AppError>
+    {
+        state.db.get_all_universal_providers()
+    }
+
+    pub fn get_universal(
+        state: &AppState,
+        id: &str,
+    ) -> Result<Option<crate::provider::UniversalProvider>, AppError> {
+        state.db.get_universal_provider(id)
+    }
+
+    pub fn upsert_universal(
+        state: &AppState,
+        provider: crate::provider::UniversalProvider,
+    ) -> Result<bool, AppError> {
+        state.db.save_universal_provider(&provider)?;
+        Ok(true)
+    }
+
+    pub fn delete_universal(state: &AppState, id: &str) -> Result<bool, AppError> {
+        let existed = state.db.delete_universal_provider_typed(id)?;
+        if existed {
+            let generated = [
+                (AppType::Claude, format!("universal-claude-{id}")),
+                (AppType::Codex, format!("universal-codex-{id}")),
+                (AppType::Gemini, format!("universal-gemini-{id}")),
+            ];
+            state.update_config(|config| {
+                for (app, provider_id) in generated {
+                    if let Some(manager) = config.get_manager_mut(&app) {
+                        if manager.current != provider_id {
+                            manager.providers.remove(&provider_id);
+                        }
+                    }
+                }
+                Ok(())
+            })?;
+        }
+        Ok(existed)
+    }
+
+    pub fn sync_universal_to_apps(state: &AppState, id: &str) -> Result<bool, AppError> {
+        let Some(provider) = state.db.get_universal_provider(id)? else {
+            return Ok(false);
+        };
+        let generated = [
+            (AppType::Claude, provider.to_claude_provider()),
+            (AppType::Codex, provider.to_codex_provider()),
+            (AppType::Gemini, provider.to_gemini_provider()),
+        ];
+        state.update_config(|config| {
+            for (app, maybe_provider) in generated {
+                let provider_id = match &maybe_provider {
+                    Some(provider) => provider.id.clone(),
+                    None => match app {
+                        AppType::Claude => format!("universal-claude-{id}"),
+                        AppType::Codex => format!("universal-codex-{id}"),
+                        AppType::Gemini => format!("universal-gemini-{id}"),
+                        AppType::Opencode | AppType::Omo => continue,
+                    },
+                };
+                let manager = config
+                    .get_manager_mut(&app)
+                    .ok_or_else(|| Self::app_not_found(&app))?;
+                if let Some(provider) = maybe_provider {
+                    manager.providers.insert(provider.id.clone(), provider);
+                } else if manager.current != provider_id {
+                    manager.providers.remove(&provider_id);
+                }
+            }
+            Ok(())
+        })?;
+        Ok(true)
+    }
 }

@@ -1,5 +1,7 @@
 import type {
   ProxyAppId,
+  FailoverQueueItem,
+  ModelPricingRecord,
   ProxyRecentLog,
   ProxySettings,
   ProxyStatus,
@@ -204,5 +206,46 @@ export const settingsApi = {
 
   async getProxyRecentLogs(): Promise<ProxyRecentLog[]> {
     return await invoke("proxy_recent_logs");
+  },
+
+  async getFailoverQueue(app: ProxyAppId): Promise<FailoverQueueItem[]> {
+    return await invoke("get_failover_queue", { app });
+  },
+
+  async replaceFailoverQueue(
+    app: ProxyAppId,
+    providerIds: string[],
+  ): Promise<FailoverQueueItem[]> {
+    return await invoke("replace_failover_queue", { app, providerIds });
+  },
+
+  async addFailoverProvider(
+    app: ProxyAppId,
+    providerId: string,
+  ): Promise<FailoverQueueItem[]> {
+    return await invoke("add_failover_provider", { app, providerId });
+  },
+
+  async removeFailoverProvider(
+    app: ProxyAppId,
+    providerId: string,
+  ): Promise<FailoverQueueItem[]> {
+    return await invoke("remove_failover_provider", { app, providerId });
+  },
+
+  async clearFailoverQueue(app: ProxyAppId): Promise<FailoverQueueItem[]> {
+    return await invoke("clear_failover_queue", { app });
+  },
+
+  async listModelPricing(): Promise<ModelPricingRecord[]> {
+    return await invoke("list_model_pricing");
+  },
+
+  async upsertModelPricing(record: ModelPricingRecord): Promise<boolean> {
+    return await invoke("upsert_model_pricing", { record });
+  },
+
+  async deleteModelPricing(modelId: string): Promise<boolean> {
+    return await invoke("delete_model_pricing", { modelId });
   },
 };

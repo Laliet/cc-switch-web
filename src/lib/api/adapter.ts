@@ -707,6 +707,47 @@ export function commandToEndpoint(
     }
     case "get_omo_plugin_status":
       return { method: "GET", url: `${apiBase}/providers/omo/plugin-status` };
+    case "get_universal_providers":
+      return { method: "GET", url: `${apiBase}/providers/universal` };
+    case "get_universal_provider": {
+      const id = requireArg(args, "id", cmd);
+      return {
+        method: "GET",
+        url: `${apiBase}/providers/universal/${encode(id)}`,
+      };
+    }
+    case "upsert_universal_provider": {
+      const provider = requireArg<Record<string, unknown>>(
+        args,
+        "provider",
+        cmd,
+      );
+      const id = provider.id ?? args.id;
+      if (!id) {
+        throw new Error(
+          `Missing universal provider id for command "${cmd}" in web mode`,
+        );
+      }
+      return {
+        method: "PUT",
+        url: `${apiBase}/providers/universal/${encode(id)}`,
+        body: provider,
+      };
+    }
+    case "delete_universal_provider": {
+      const id = requireArg(args, "id", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/providers/universal/${encode(id)}`,
+      };
+    }
+    case "sync_universal_provider_to_apps": {
+      const id = requireArg(args, "id", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/providers/universal/${encode(id)}/sync`,
+      };
+    }
     case "queryProviderUsage": {
       const app = requireArg(args, "app", cmd);
       const providerId = requireArg(args, "providerId", cmd);
@@ -987,6 +1028,67 @@ export function commandToEndpoint(
       };
     case "proxy_recent_logs":
       return { method: "GET", url: `${apiBase}/proxy/logs/recent` };
+    case "get_failover_queue": {
+      const app = requireArg(args, "app", cmd);
+      return {
+        method: "GET",
+        url: `${apiBase}/proxy/failover/${encode(app)}`,
+      };
+    }
+    case "replace_failover_queue": {
+      const app = requireArg(args, "app", cmd);
+      return {
+        method: "PUT",
+        url: `${apiBase}/proxy/failover/${encode(app)}`,
+        body: { providerIds: requireArg(args, "providerIds", cmd) },
+      };
+    }
+    case "add_failover_provider": {
+      const app = requireArg(args, "app", cmd);
+      const providerId = requireArg(args, "providerId", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/proxy/failover/${encode(app)}/${encode(providerId)}`,
+      };
+    }
+    case "remove_failover_provider": {
+      const app = requireArg(args, "app", cmd);
+      const providerId = requireArg(args, "providerId", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/proxy/failover/${encode(app)}/${encode(providerId)}`,
+      };
+    }
+    case "clear_failover_queue": {
+      const app = requireArg(args, "app", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/proxy/failover/${encode(app)}`,
+      };
+    }
+    case "list_model_pricing":
+      return { method: "GET", url: `${apiBase}/proxy/pricing/models` };
+    case "upsert_model_pricing": {
+      const record = requireArg<Record<string, unknown>>(args, "record", cmd);
+      const modelId = record.modelId ?? args.modelId;
+      if (!modelId) {
+        throw new Error(
+          `Missing model pricing id for command "${cmd}" in web mode`,
+        );
+      }
+      return {
+        method: "PUT",
+        url: `${apiBase}/proxy/pricing/models/${encode(modelId)}`,
+        body: record,
+      };
+    }
+    case "delete_model_pricing": {
+      const modelId = requireArg(args, "modelId", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/proxy/pricing/models/${encode(modelId)}`,
+      };
+    }
     case "update_web_credentials":
       return {
         method: "PUT",

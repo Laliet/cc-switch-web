@@ -175,6 +175,10 @@ pub struct ProxyAppSettings {
     pub auto_failover_enabled: bool,
     #[serde(default = "default_proxy_max_retries")]
     pub max_retries: u8,
+    #[serde(default = "default_cost_multiplier")]
+    pub default_cost_multiplier: String,
+    #[serde(default = "default_pricing_model_source")]
+    pub pricing_model_source: String,
 }
 
 impl Default for ProxyAppSettings {
@@ -183,6 +187,8 @@ impl Default for ProxyAppSettings {
             enabled: false,
             auto_failover_enabled: false,
             max_retries: default_proxy_max_retries(),
+            default_cost_multiplier: default_cost_multiplier(),
+            pricing_model_source: default_pricing_model_source(),
         }
     }
 }
@@ -226,6 +232,14 @@ fn default_non_streaming_timeout() -> u64 {
 
 fn default_proxy_max_retries() -> u8 {
     0
+}
+
+fn default_cost_multiplier() -> String {
+    "1".to_string()
+}
+
+fn default_pricing_model_source() -> String {
+    "response".to_string()
 }
 
 impl Default for ProxySettings {

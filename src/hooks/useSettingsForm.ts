@@ -33,10 +33,34 @@ const defaultProxySettings = () => ({
   streamingIdleTimeout: 120,
   nonStreamingTimeout: 180,
   apps: {
-    claude: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
-    codex: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
-    gemini: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
-    opencode: { enabled: false, autoFailoverEnabled: false, maxRetries: 0 },
+    claude: {
+      enabled: false,
+      autoFailoverEnabled: false,
+      maxRetries: 0,
+      defaultCostMultiplier: "1",
+      pricingModelSource: "response",
+    },
+    codex: {
+      enabled: false,
+      autoFailoverEnabled: false,
+      maxRetries: 0,
+      defaultCostMultiplier: "1",
+      pricingModelSource: "response",
+    },
+    gemini: {
+      enabled: false,
+      autoFailoverEnabled: false,
+      maxRetries: 0,
+      defaultCostMultiplier: "1",
+      pricingModelSource: "response",
+    },
+    opencode: {
+      enabled: false,
+      autoFailoverEnabled: false,
+      maxRetries: 0,
+      defaultCostMultiplier: "1",
+      pricingModelSource: "response",
+    },
   },
 });
 

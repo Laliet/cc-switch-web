@@ -82,7 +82,7 @@ pub async fn upsert_mcp_server_in_config(
 
     // 读取现有的服务器（如果存在）
     let existing_server = {
-        let cfg = state.config.read().map_err(|e| e.to_string())?;
+        let cfg = state.load_config().map_err(|e| e.to_string())?;
         if let Some(servers) = &cfg.mcp.servers {
             servers.get(&id).cloned()
         } else {

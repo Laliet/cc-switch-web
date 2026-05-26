@@ -1,11 +1,6 @@
 #![cfg(feature = "web-server")]
 
-use std::{
-    env,
-    ffi::OsString,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{env, ffi::OsString, sync::Arc, time::Duration};
 
 use axum::{
     body::{to_bytes, Body, Bytes},
@@ -16,7 +11,9 @@ use axum::{
     Json,
 };
 use base64::Engine;
-use cc_switch_lib::{web_api, AppState, AppType, MultiAppConfig, Provider, ProviderMeta};
+use cc_switch_lib::{
+    web_api, AppState, AppType, MultiAppConfig, Provider, ProviderMeta, UniversalProvider,
+};
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -79,9 +76,7 @@ fn make_app_with_gemini_provider(
     add_claude_provider(&mut config);
     add_gemini_provider(&mut config, gemini_provider);
 
-    let state = Arc::new(AppState {
-        config: RwLock::new(config),
-    });
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
     web_api::create_router(state, password.to_string())
 }
 
@@ -90,15 +85,21 @@ fn make_app_with_claude_provider(
     csrf: &str,
     claude_provider: Provider,
 ) -> axum::Router {
+    make_app_with_claude_provider_and_state(password, csrf, claude_provider).0
+}
+
+fn make_app_with_claude_provider_and_state(
+    password: &str,
+    csrf: &str,
+    claude_provider: Provider,
+) -> (axum::Router, Arc<AppState>) {
     env::set_var("WEB_CSRF_TOKEN", csrf);
     let mut config = MultiAppConfig::default();
     add_claude_provider_value(&mut config, claude_provider);
     add_gemini_provider(&mut config, generic_gemini_provider());
 
-    let state = Arc::new(AppState {
-        config: RwLock::new(config),
-    });
-    web_api::create_router(state, password.to_string())
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+    (web_api::create_router(state.clone(), password.to_string()), state)
 }
 
 fn make_app_with_claude_failover(
@@ -122,9 +123,30 @@ fn make_app_with_claude_failover(
         .insert(backup_provider.id.clone(), backup_provider);
     add_gemini_provider(&mut config, generic_gemini_provider());
 
-    let state = Arc::new(AppState {
-        config: RwLock::new(config),
-    });
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+    web_api::create_router(state, password.to_string())
+}
+
+fn make_app_with_claude_providers(
+    password: &str,
+    csrf: &str,
+    current_provider_id: &str,
+    backup_provider_id: Option<&str>,
+    providers: Vec<Provider>,
+) -> axum::Router {
+    env::set_var("WEB_CSRF_TOKEN", csrf);
+    let mut config = MultiAppConfig::default();
+    let manager = config
+        .get_manager_mut(&AppType::Claude)
+        .expect("claude manager");
+    manager.current = current_provider_id.to_string();
+    manager.backup_current = backup_provider_id.map(ToString::to_string);
+    for provider in providers {
+        manager.providers.insert(provider.id.clone(), provider);
+    }
+    add_gemini_provider(&mut config, generic_gemini_provider());
+
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
     web_api::create_router(state, password.to_string())
 }
 
@@ -191,6 +213,39 @@ fn google_oauth_gemini_provider() -> Provider {
         ..ProviderMeta::default()
     });
     provider
+}
+
+fn universal_provider_fixture() -> UniversalProvider {
+    serde_json::from_value(json!({
+        "id": "newapi",
+        "name": "New API",
+        "providerType": "newapi",
+        "apps": {
+            "claude": true,
+            "codex": true,
+            "gemini": true
+        },
+        "baseUrl": "https://gateway.example.com",
+        "apiKey": "universal-token",
+        "models": {
+            "claude": {
+                "model": "claude-sonnet-test",
+                "haikuModel": "claude-haiku-test",
+                "sonnetModel": "claude-sonnet-test",
+                "opusModel": "claude-opus-test"
+            },
+            "codex": {
+                "model": "gpt-test",
+                "reasoningEffort": "medium"
+            },
+            "gemini": {
+                "model": "gemini-test"
+            }
+        },
+        "websiteUrl": "https://gateway.example.com/docs",
+        "notes": "shared provider"
+    }))
+    .expect("universal provider fixture")
 }
 
 fn claude_provider_with_base_url(base_url: &str) -> Provider {
@@ -626,6 +681,293 @@ async fn proxy_settings_put_returns_boolean_and_takeover_get_is_status_alias() {
 
 #[tokio::test]
 #[serial]
+async fn proxy_failover_queue_routes_manage_ordered_provider_ids() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let app = make_app_with_claude_providers(
+        "password",
+        "csrf-token",
+        "claude-primary",
+        None,
+        vec![
+            claude_provider_with_id_base_url("claude-primary", "Claude Primary", "http://p1"),
+            claude_provider_with_id_base_url("claude-second", "Claude Second", "http://p2"),
+            claude_provider_with_id_base_url("claude-third", "Claude Third", "http://p3"),
+        ],
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/failover/claude",
+            Some(json!({ "providerIds": ["claude-third", "claude-second"] })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    assert_eq!(queue[0]["providerId"], json!("claude-third"));
+    assert_eq!(queue[0]["providerName"], json!("Claude Third"));
+    assert_eq!(queue[0]["position"], json!(0));
+    assert_eq!(queue[1]["providerId"], json!("claude-second"));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::POST, "/api/proxy/failover/claude/claude-primary", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    let ids: Vec<_> = queue
+        .as_array()
+        .expect("queue array")
+        .iter()
+        .map(|item| item["providerId"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids, vec!["claude-third", "claude-second", "claude-primary"]);
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::DELETE, "/api/proxy/failover/claude/claude-second", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    let ids: Vec<_> = queue
+        .as_array()
+        .expect("queue array")
+        .iter()
+        .map(|item| item["providerId"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids, vec!["claude-third", "claude-primary"]);
+    assert_eq!(queue[1]["position"], json!(1));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/proxy/failover/claude", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    assert_eq!(queue.as_array().expect("queue array").len(), 2);
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::PUT, "/api/proxy/failover/claude", Some(json!({}))),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/failover/claude",
+            Some(json!({ "providerIds": ["missing-provider"] })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let res = dispatch(
+        app,
+        request(Method::DELETE, "/api/proxy/failover/claude", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    assert_eq!(queue, json!([]));
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_model_pricing_routes_manage_custom_pricing() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let app = make_app("password", "csrf-token");
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/pricing/models/custom-model",
+            Some(json!({
+                "modelId": "custom-model",
+                "displayName": "Custom Model",
+                "inputCostPerMillion": "2.5",
+                "outputCostPerMillion": "7.5",
+                "cacheReadCostPerMillion": "0.25",
+                "cacheCreationCostPerMillion": "1.25"
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let saved: Value = json_body(res).await;
+    assert_eq!(saved, json!(true));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/proxy/pricing/models", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let rows: Value = json_body(res).await;
+    let custom = rows
+        .as_array()
+        .expect("pricing rows")
+        .iter()
+        .find(|row| row["modelId"] == json!("custom-model"))
+        .expect("custom model row");
+    assert_eq!(custom["displayName"], json!("Custom Model"));
+    assert_eq!(custom["inputCostPerMillion"], json!("2.5"));
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/pricing/models/custom-model",
+            Some(json!({
+                "modelId": "other-model",
+                "displayName": "Other Model",
+                "inputCostPerMillion": "2.5",
+                "outputCostPerMillion": "7.5",
+                "cacheReadCostPerMillion": "0.25",
+                "cacheCreationCostPerMillion": "1.25"
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/pricing/models/bad-model",
+            Some(json!({
+                "modelId": "bad-model",
+                "displayName": "Bad Model",
+                "inputCostPerMillion": "not-a-number",
+                "outputCostPerMillion": "7.5",
+                "cacheReadCostPerMillion": "0.25",
+                "cacheCreationCostPerMillion": "1.25"
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let res = dispatch(
+        app,
+        request(Method::DELETE, "/api/proxy/pricing/models/custom-model", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let deleted: Value = json_body(res).await;
+    assert_eq!(deleted, json!(true));
+}
+
+#[tokio::test]
+#[serial]
+async fn universal_provider_web_api_roundtrips_syncs_and_deletes_generated_app_providers() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let app = make_app("password", "csrf-token");
+    let provider = serde_json::to_value(universal_provider_fixture()).expect("provider json");
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/providers/universal/newapi",
+            Some(provider.clone()),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let saved: Value = json_body(res).await;
+    assert_eq!(saved, json!(true));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/providers/universal", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let providers: Value = json_body(res).await;
+    assert_eq!(providers["newapi"]["name"], json!("New API"));
+    assert_eq!(providers["newapi"]["apps"]["claude"], json!(true));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::POST, "/api/providers/universal/newapi/sync", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let synced: Value = json_body(res).await;
+    assert_eq!(synced, json!(true));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/providers/claude", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let claude_providers: Value = json_body(res).await;
+    assert_eq!(
+        claude_providers["universal-claude-newapi"]["settingsConfig"]["env"]
+            ["ANTHROPIC_MODEL"],
+        json!("claude-sonnet-test")
+    );
+
+    let res = dispatch(app.clone(), request(Method::GET, "/api/providers/codex", None)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let codex_providers: Value = json_body(res).await;
+    assert!(codex_providers["universal-codex-newapi"]["settingsConfig"]["config"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("gpt-test"));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::DELETE, "/api/providers/universal/newapi", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let deleted: Value = json_body(res).await;
+    assert_eq!(deleted, json!(true));
+
+    let res = dispatch(app, request(Method::GET, "/api/providers/claude", None)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let claude_providers: Value = json_body(res).await;
+    assert!(claude_providers.get("universal-claude-newapi").is_none());
+}
+
+#[tokio::test]
+#[serial]
+async fn universal_provider_web_api_rejects_path_body_id_mismatch() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let app = make_app("password", "csrf-token");
+    let mut provider = serde_json::to_value(universal_provider_fixture()).expect("provider json");
+    provider["id"] = json!("other");
+
+    let res = dispatch(
+        app,
+        request(
+            Method::PUT,
+            "/api/providers/universal/newapi",
+            Some(provider),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+#[serial]
 async fn proxy_config_routes_reject_invalid_settings_boundaries() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     let _account_guard = setup();
@@ -864,6 +1206,90 @@ async fn proxy_recent_logs_capture_request_summary_with_sanitized_query() {
 
 #[tokio::test]
 #[serial]
+async fn proxy_request_logs_persist_response_usage_and_cost_to_database() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle) = spawn_text_upstream(
+        StatusCode::OK,
+        "application/json",
+        r#"{
+            "id": "msg_test",
+            "model": "claude-sonnet-4-20250514",
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "cache_read_input_tokens": 100,
+                "cache_creation_input_tokens": 20
+            }
+        }"#,
+    )
+    .await;
+    let proxy_port = free_tcp_port();
+    let (app, state) = make_app_with_claude_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_provider_with_base_url(&upstream_base),
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "enableLogging": true
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+
+    let proxy_response = reqwest::Client::new()
+        .post(format!("{listen_url}/v1/messages"))
+        .json(&json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": []
+        }))
+        .send()
+        .await
+        .expect("proxy request");
+    assert_eq!(proxy_response.status(), reqwest::StatusCode::OK);
+
+    let logs = state
+        .db
+        .recent_proxy_request_logs(1)
+        .expect("recent proxy request logs");
+    assert_eq!(logs.len(), 1);
+    let log = &logs[0];
+    assert_eq!(log.app_type, "claude");
+    assert_eq!(log.model, "claude-sonnet-4-20250514");
+    assert_eq!(log.request_model.as_deref(), Some("claude-sonnet-4-20250514"));
+    assert_eq!(log.input_tokens, 1000);
+    assert_eq!(log.output_tokens, 500);
+    assert_eq!(log.cache_read_tokens, 100);
+    assert_eq!(log.cache_creation_tokens, 20);
+    assert_eq!(log.input_cost_usd, "0.003");
+    assert_eq!(log.output_cost_usd, "0.0075");
+    assert_eq!(log.cache_read_cost_usd, "0.00003");
+    assert_eq!(log.cache_creation_cost_usd, "0.000075");
+    assert_eq!(log.total_cost_usd, "0.010605");
+    assert_eq!(log.status_code, 200);
+    assert!(!log.is_streaming);
+    assert_eq!(log.cost_multiplier, "1");
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
 async fn proxy_recent_logs_sanitize_upstream_error_query_values() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     let _account_guard = setup();
@@ -981,6 +1407,79 @@ async fn proxy_streaming_response_is_passed_through_without_conversion() {
     let body = proxy_response.text().await.expect("streaming body");
     assert!(content_type.contains("text/event-stream"));
     assert_eq!(body, "data: one\n\ndata: two\n\n");
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_streaming_request_logs_update_usage_after_stream_finishes() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle) = spawn_text_upstream(
+        StatusCode::OK,
+        "text/event-stream",
+        "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":1000,\"cache_read_input_tokens\":100}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":500}}\n\n",
+    )
+    .await;
+    let proxy_port = free_tcp_port();
+    let (app, state) = make_app_with_claude_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_provider_with_base_url(&upstream_base),
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "enableLogging": true,
+                    "streamingFirstByteTimeout": 1,
+                    "streamingIdleTimeout": 1
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+
+    let proxy_response = reqwest::Client::new()
+        .post(format!("{listen_url}/v1/messages"))
+        .header("accept", "text/event-stream")
+        .json(&json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": []
+        }))
+        .send()
+        .await
+        .expect("proxy request");
+    assert_eq!(proxy_response.status(), reqwest::StatusCode::OK);
+    let body = proxy_response.text().await.expect("streaming body");
+    assert!(body.contains("message_start"));
+    assert!(body.contains("message_delta"));
+
+    let logs = state
+        .db
+        .recent_proxy_request_logs(1)
+        .expect("recent proxy request logs");
+    assert_eq!(logs.len(), 1);
+    let log = &logs[0];
+    assert!(log.is_streaming);
+    assert!(log.first_token_ms.is_some());
+    assert_eq!(log.model, "claude-sonnet-4-20250514");
+    assert_eq!(log.input_tokens, 1000);
+    assert_eq!(log.output_tokens, 500);
+    assert_eq!(log.cache_read_tokens, 100);
+    assert_eq!(log.total_cost_usd, "0.01053");
 
     let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
     upstream_handle.abort();
@@ -1174,6 +1673,93 @@ async fn proxy_failover_switches_backup_provider_to_current() {
 
     let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
     primary_handle.abort();
+    backup_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_failover_uses_db_queue_before_backup_current() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (primary_base, primary_handle) =
+        spawn_text_upstream(StatusCode::INTERNAL_SERVER_ERROR, "application/json", "{}").await;
+    let (queued_base, queued_handle) =
+        spawn_text_upstream(StatusCode::OK, "application/json", r#"{"source":"queued"}"#).await;
+    let (backup_base, backup_handle) =
+        spawn_text_upstream(StatusCode::OK, "application/json", r#"{"source":"backup"}"#).await;
+    let proxy_port = free_tcp_port();
+    let app = make_app_with_claude_providers(
+        "password",
+        "csrf-token",
+        "claude-primary",
+        Some("claude-backup"),
+        vec![
+            claude_provider_with_id_base_url("claude-primary", "Claude Primary", &primary_base),
+            claude_provider_with_id_base_url("claude-queued", "Claude Queued", &queued_base),
+            claude_provider_with_id_base_url("claude-backup", "Claude Backup", &backup_base),
+        ],
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/failover/claude",
+            Some(json!({ "providerIds": ["claude-queued"] })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "apps": {
+                        "claude": {
+                            "autoFailoverEnabled": true,
+                            "maxRetries": 1
+                        }
+                    }
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+
+    let proxy_response = reqwest::Client::new()
+        .post(format!("{listen_url}/v1/messages"))
+        .json(&json!({ "messages": [] }))
+        .send()
+        .await
+        .expect("proxy request");
+    assert_eq!(proxy_response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        proxy_response.text().await.expect("proxy response body"),
+        r#"{"source":"queued"}"#
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/providers/claude/current", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let current: Value = json_body(res).await;
+    assert_eq!(current, json!("claude-queued"));
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    primary_handle.abort();
+    queued_handle.abort();
     backup_handle.abort();
 }
 

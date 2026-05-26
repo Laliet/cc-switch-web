@@ -1,4 +1,4 @@
-import type { Provider } from "@/types";
+import type { Provider, UniversalProvider } from "@/types";
 import { invoke, isWeb } from "./adapter";
 import type { AppId } from "./types";
 
@@ -77,6 +77,26 @@ export const providersApi = {
 
   async getOmoPluginStatus(): Promise<boolean> {
     return await invoke("get_omo_plugin_status");
+  },
+
+  async getUniversalAll(): Promise<Record<string, UniversalProvider>> {
+    return await invoke("get_universal_providers");
+  },
+
+  async getUniversal(id: string): Promise<UniversalProvider | null> {
+    return await invoke("get_universal_provider", { id });
+  },
+
+  async upsertUniversal(provider: UniversalProvider): Promise<boolean> {
+    return await invoke("upsert_universal_provider", { provider });
+  },
+
+  async deleteUniversal(id: string): Promise<boolean> {
+    return await invoke("delete_universal_provider", { id });
+  },
+
+  async syncUniversal(id: string): Promise<boolean> {
+    return await invoke("sync_universal_provider_to_apps", { id });
   },
 
   async onSwitched(

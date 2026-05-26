@@ -110,11 +110,7 @@ pub async fn install_skill(
 
     // 收集仓库信息并查找目标技能
     let (repos, mut repo_cache) = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
+        let cfg = state.load_config().map_err(ApiError::from)?;
         (cfg.skills.repos.clone(), cfg.skills.repo_cache.clone())
     };
     let skills = service
@@ -155,22 +151,19 @@ pub async fn install_skill(
     }
 
     // 写入状态
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        cfg.skills.repo_cache = repo_cache;
-        cfg.skills.skills.insert(
-            SkillService::state_key(&app, &directory),
-            crate::services::skill::SkillState {
-                installed: true,
-                installed_at: Utc::now(),
-            },
-        );
-    }
-    state.save().map_err(internal_error)?;
+    state
+        .update_config(|cfg| {
+            cfg.skills.repo_cache = repo_cache;
+            cfg.skills.skills.insert(
+                SkillService::state_key(&app, &directory),
+                crate::services::skill::SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(internal_error)?;
 
     Ok(Json(true))
 }
@@ -187,17 +180,14 @@ pub async fn uninstall_skill(
         .uninstall_skill(payload.directory.clone())
         .map_err(internal_error)?;
 
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        cfg.skills
-            .skills
-            .remove(&SkillService::state_key(&app, &payload.directory));
-    }
-    state.save().map_err(internal_error)?;
+    state
+        .update_config(|cfg| {
+            cfg.skills
+                .skills
+                .remove(&SkillService::state_key(&app, &payload.directory));
+            Ok(())
+        })
+        .map_err(internal_error)?;
 
     Ok(Json(true))
 }
@@ -205,11 +195,7 @@ pub async fn uninstall_skill(
 pub async fn list_repos(State(state): State<Arc<AppState>>) -> ApiResult<Vec<SkillRepo>> {
     let service = SkillService::new().map_err(internal_error)?;
     let repos = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
+        let cfg = state.load_config().map_err(ApiError::from)?;
         service.list_repos(&cfg.skills)
     };
     Ok(Json(repos))
@@ -220,17 +206,13 @@ pub async fn add_repo(
     Json(repo): Json<SkillRepo>,
 ) -> ApiResult<bool> {
     let service = SkillService::new().map_err(internal_error)?;
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        service
-            .add_repo(&mut cfg.skills, repo)
-            .map_err(internal_error)?;
-    }
-    state.save().map_err(internal_error)?;
+    state
+        .update_config(|cfg| {
+            service
+                .add_repo(&mut cfg.skills, repo)
+                .map_err(|e| AppError::Config(e.to_string()))
+        })
+        .map_err(internal_error)?;
     Ok(Json(true))
 }
 
@@ -239,17 +221,13 @@ pub async fn remove_repo(
     Path((owner, name)): Path<(String, String)>,
 ) -> ApiResult<bool> {
     let service = SkillService::new().map_err(internal_error)?;
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        service
-            .remove_repo(&mut cfg.skills, owner, name)
-            .map_err(internal_error)?;
-    }
-    state.save().map_err(internal_error)?;
+    state
+        .update_config(|cfg| {
+            service
+                .remove_repo(&mut cfg.skills, owner, name)
+                .map_err(|e| AppError::Config(e.to_string()))
+        })
+        .map_err(internal_error)?;
     Ok(Json(true))
 }
 
@@ -279,11 +257,7 @@ pub async fn list_skills(
 ) -> ApiResult<SkillsResponse> {
     let app = parse_skill_app(query.app)?;
     let (repos, mut repo_cache) = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
+        let cfg = state.load_config().map_err(ApiError::from)?;
         (cfg.skills.repos.clone(), cfg.skills.repo_cache.clone())
     };
 
@@ -292,15 +266,12 @@ pub async fn list_skills(
         .list_skills(repos, &mut repo_cache)
         .await
         .map_err(internal_error)?;
-    {
-        let mut cfg = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        cfg.skills.repo_cache = repo_cache;
-    }
-    state.save().map_err(internal_error)?;
+    state
+        .update_config(|cfg| {
+            cfg.skills.repo_cache = repo_cache;
+            Ok(())
+        })
+        .map_err(internal_error)?;
     let skills = result.skills.into_iter().map(SkillResponse::from).collect();
     Ok(Json(SkillsResponse {
         skills,

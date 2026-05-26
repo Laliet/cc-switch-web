@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum AppError {
     #[error("配置错误: {0}")]
     Config(String),
+    #[error("数据库错误: {0}")]
+    Database(String),
     #[error("无效输入: {0}")]
     InvalidInput(String),
     #[error("IO 错误: {path}: {source}")]

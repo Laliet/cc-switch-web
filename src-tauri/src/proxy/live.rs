@@ -17,7 +17,7 @@ use crate::{
     },
     opencode_config::{get_opencode_config_path, read_opencode_config, write_opencode_config},
     provider::Provider,
-    settings,
+    settings::{self, ProxySettings},
     store::AppState,
 };
 
@@ -193,7 +193,7 @@ pub fn restore_takeover(app: &AppType) -> Result<(), AppError> {
     save_backups(&backups)
 }
 
-pub fn restore_all() -> Result<(), AppError> {
+pub fn restore_all() -> Result<ProxySettings, AppError> {
     for app in [
         AppType::Claude,
         AppType::Codex,
@@ -209,7 +209,7 @@ pub fn restore_all() -> Result<(), AppError> {
     app_settings.proxy.apps.gemini.enabled = false;
     app_settings.proxy.apps.opencode.enabled = false;
     settings::update_settings(app_settings)?;
-    Ok(())
+    Ok(settings::get_settings().proxy)
 }
 
 fn capture_claude() -> Result<ClaudeBackup, AppError> {
@@ -249,34 +249,34 @@ fn sync_claude_provider_from_live(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     }
 
-    let mut guard = state.config.write().map_err(AppError::from)?;
-    let Some(manager) = guard.get_manager_mut(&AppType::Claude) else {
-        return Ok(());
-    };
-    let current = manager.current.clone();
-    let Some(provider) = manager.providers.get_mut(&current) else {
-        return Ok(());
-    };
-    if !provider.settings_config.is_object() {
-        provider.settings_config = json!({});
-    }
-    let root = provider
-        .settings_config
-        .as_object_mut()
-        .expect("provider object");
-    let env_value = root.entry("env").or_insert_with(|| json!({}));
-    if !env_value.is_object() {
-        *env_value = json!({});
-    }
-    let target_env = env_value.as_object_mut().expect("env object");
-    if let Some(token) = token {
-        target_env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), json!(token));
-    }
-    if let Some(base_url) = base_url {
-        target_env.insert("ANTHROPIC_BASE_URL".to_string(), json!(base_url));
-    }
-    drop(guard);
-    state.save()
+    state.update_config(|cfg| {
+        let Some(manager) = cfg.get_manager_mut(&AppType::Claude) else {
+            return Ok(());
+        };
+        let current = manager.current.clone();
+        let Some(provider) = manager.providers.get_mut(&current) else {
+            return Ok(());
+        };
+        if !provider.settings_config.is_object() {
+            provider.settings_config = json!({});
+        }
+        let root = provider
+            .settings_config
+            .as_object_mut()
+            .expect("provider object");
+        let env_value = root.entry("env").or_insert_with(|| json!({}));
+        if !env_value.is_object() {
+            *env_value = json!({});
+        }
+        let target_env = env_value.as_object_mut().expect("env object");
+        if let Some(token) = token {
+            target_env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), json!(token));
+        }
+        if let Some(base_url) = base_url {
+            target_env.insert("ANTHROPIC_BASE_URL".to_string(), json!(base_url));
+        }
+        Ok(())
+    })
 }
 
 fn sync_codex_provider_from_live(state: &AppState) -> Result<(), AppError> {
@@ -307,36 +307,36 @@ fn sync_codex_provider_from_live(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     }
 
-    let mut guard = state.config.write().map_err(AppError::from)?;
-    let Some(manager) = guard.get_manager_mut(&AppType::Codex) else {
-        return Ok(());
-    };
-    let current = manager.current.clone();
-    let Some(provider) = manager.providers.get_mut(&current) else {
-        return Ok(());
-    };
-    if !provider.settings_config.is_object() {
-        provider.settings_config = json!({});
-    }
-    let root = provider
-        .settings_config
-        .as_object_mut()
-        .expect("provider object");
-    let auth_value = root.entry("auth").or_insert_with(|| json!({}));
-    if !auth_value.is_object() {
-        *auth_value = json!({});
-    }
-    if let Some(token) = token {
-        auth_value
+    state.update_config(|cfg| {
+        let Some(manager) = cfg.get_manager_mut(&AppType::Codex) else {
+            return Ok(());
+        };
+        let current = manager.current.clone();
+        let Some(provider) = manager.providers.get_mut(&current) else {
+            return Ok(());
+        };
+        if !provider.settings_config.is_object() {
+            provider.settings_config = json!({});
+        }
+        let root = provider
+            .settings_config
             .as_object_mut()
-            .expect("auth object")
-            .insert("OPENAI_API_KEY".to_string(), json!(token));
-    }
-    if let Some(config_text) = config_text {
-        root.insert("config".to_string(), json!(config_text));
-    }
-    drop(guard);
-    state.save()
+            .expect("provider object");
+        let auth_value = root.entry("auth").or_insert_with(|| json!({}));
+        if !auth_value.is_object() {
+            *auth_value = json!({});
+        }
+        if let Some(token) = token {
+            auth_value
+                .as_object_mut()
+                .expect("auth object")
+                .insert("OPENAI_API_KEY".to_string(), json!(token));
+        }
+        if let Some(config_text) = config_text {
+            root.insert("config".to_string(), json!(config_text));
+        }
+        Ok(())
+    })
 }
 
 fn sync_gemini_provider_from_live(state: &AppState) -> Result<(), AppError> {
@@ -355,34 +355,34 @@ fn sync_gemini_provider_from_live(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     }
 
-    let mut guard = state.config.write().map_err(AppError::from)?;
-    let Some(manager) = guard.get_manager_mut(&AppType::Gemini) else {
-        return Ok(());
-    };
-    let current = manager.current.clone();
-    let Some(provider) = manager.providers.get_mut(&current) else {
-        return Ok(());
-    };
-    if !provider.settings_config.is_object() {
-        provider.settings_config = json!({});
-    }
-    let root = provider
-        .settings_config
-        .as_object_mut()
-        .expect("provider object");
-    let env_value = root.entry("env").or_insert_with(|| json!({}));
-    if !env_value.is_object() {
-        *env_value = json!({});
-    }
-    let target_env = env_value.as_object_mut().expect("env object");
-    if let Some(token) = token {
-        target_env.insert("GEMINI_API_KEY".to_string(), json!(token));
-    }
-    if let Some(base_url) = base_url {
-        target_env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(base_url));
-    }
-    drop(guard);
-    state.save()
+    state.update_config(|cfg| {
+        let Some(manager) = cfg.get_manager_mut(&AppType::Gemini) else {
+            return Ok(());
+        };
+        let current = manager.current.clone();
+        let Some(provider) = manager.providers.get_mut(&current) else {
+            return Ok(());
+        };
+        if !provider.settings_config.is_object() {
+            provider.settings_config = json!({});
+        }
+        let root = provider
+            .settings_config
+            .as_object_mut()
+            .expect("provider object");
+        let env_value = root.entry("env").or_insert_with(|| json!({}));
+        if !env_value.is_object() {
+            *env_value = json!({});
+        }
+        let target_env = env_value.as_object_mut().expect("env object");
+        if let Some(token) = token {
+            target_env.insert("GEMINI_API_KEY".to_string(), json!(token));
+        }
+        if let Some(base_url) = base_url {
+            target_env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), json!(base_url));
+        }
+        Ok(())
+    })
 }
 
 fn capture_codex() -> Result<CodexBackup, AppError> {
@@ -561,7 +561,7 @@ fn is_managed_token(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, env, ffi::OsString, path::Path, sync::RwLock};
+    use std::{collections::HashMap, env, ffi::OsString, path::Path};
 
     use serde_json::{json, Value};
     use serial_test::serial;
@@ -690,9 +690,7 @@ mod tests {
                 }
             }),
         );
-        AppState {
-            config: RwLock::new(config),
-        }
+        AppState::new_for_tests(config).expect("test app state")
     }
 
     fn insert_provider(config: &mut MultiAppConfig, app: AppType, settings_config: Value) {
@@ -944,7 +942,7 @@ mod tests {
         sync_current_provider_from_live(&state, &AppType::Codex).expect("sync codex");
         sync_current_provider_from_live(&state, &AppType::Gemini).expect("sync gemini");
 
-        let guard = state.config.read().expect("read state");
+        let guard = state.load_config().expect("read state");
         let claude = &guard
             .get_manager(&AppType::Claude)
             .expect("claude manager")
@@ -1013,7 +1011,7 @@ mod tests {
         sync_current_provider_from_live(&state, &AppType::Codex).expect("sync codex");
         sync_current_provider_from_live(&state, &AppType::Gemini).expect("sync gemini");
 
-        let guard = state.config.read().expect("read state");
+        let guard = state.load_config().expect("read state");
         let claude = &guard
             .get_manager(&AppType::Claude)
             .expect("claude manager")

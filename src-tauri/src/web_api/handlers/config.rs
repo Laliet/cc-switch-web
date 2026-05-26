@@ -54,12 +54,7 @@ pub async fn export_config(
 ) -> ApiResult<Value> {
     // 当未提供 body 时，直接返回 config 快照，兼容 bash 测试和备份逻辑。
     if payload.is_none() {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?
-            .clone();
+        let cfg = state.load_config().map_err(ApiError::from)?;
         let value = serde_json::to_value(cfg)
             .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         return Ok(Json(value));
@@ -71,7 +66,8 @@ pub async fn export_config(
         .file_path
         .ok_or_else(|| ApiError::bad_request("filePath is required"))?;
     let target_path = ConfigService::sanitize_transfer_path(&file_path).map_err(ApiError::from)?;
-    ConfigService::export_config_to_path(&target_path).map_err(ApiError::from)?;
+    let cfg = state.load_config().map_err(ApiError::from)?;
+    ConfigService::export_config_to_path(&cfg, &target_path).map_err(ApiError::from)?;
 
     Ok(Json(serde_json::json!(ConfigTransferResult {
         success: true,
@@ -99,16 +95,8 @@ pub async fn import_config(
         let backup_id = ConfigService::create_backup(&config_path).map_err(ApiError::from)?;
         let parsed: MultiAppConfig =
             serde_json::from_value(body).map_err(|e| ApiError::bad_request(e.to_string()))?;
+        state.replace_config(&parsed).map_err(ApiError::from)?;
         atomic_write(&config_path, content.as_bytes()).map_err(ApiError::from)?;
-
-        {
-            let mut guard = state
-                .config
-                .write()
-                .map_err(AppError::from)
-                .map_err(ApiError::from)?;
-            *guard = parsed;
-        }
 
         return Ok(Json(ConfigTransferResult {
             success: true,
@@ -123,33 +111,21 @@ pub async fn import_config(
         .map_err(|e| ApiError::bad_request(format!("invalid payload: {e}")))?;
     let mut file_path_ret = payload.file_path.clone();
 
-    let mut updated_state = false;
-    let (new_config, backup_id) = if let Some(content) = payload.content {
+    let backup_id = if let Some(content) = payload.content {
         let config_path = resolve_app_config_path().map_err(ApiError::from)?;
         let backup_id = ConfigService::create_backup(&config_path).map_err(ApiError::from)?;
         let parsed: MultiAppConfig =
             serde_json::from_str(&content).map_err(|e| ApiError::bad_request(e.to_string()))?;
+        state.replace_config(&parsed).map_err(ApiError::from)?;
         atomic_write(&config_path, content.as_bytes()).map_err(ApiError::from)?;
-        (parsed, backup_id)
+        backup_id
     } else if let Some(file_path) = &payload.file_path {
         let path_buf = ConfigService::sanitize_transfer_path(file_path).map_err(ApiError::from)?;
         let parsed = ConfigService::load_config_for_import(&path_buf).map_err(ApiError::from)?;
-        let backup_id = ConfigService::apply_import_config(parsed.clone(), state.as_ref())
-            .map_err(ApiError::from)?;
-        updated_state = true;
-        (parsed, backup_id)
+        ConfigService::apply_import_config(parsed, state.as_ref()).map_err(ApiError::from)?
     } else {
         return Err(ApiError::bad_request("filePath or content is required"));
     };
-
-    if !updated_state {
-        let mut guard = state
-            .config
-            .write()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
-        *guard = new_config;
-    }
 
     Ok(Json(ConfigTransferResult {
         success: true,
@@ -163,12 +139,7 @@ pub async fn import_config(
 pub async fn export_config_snapshot(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<MultiAppConfig> {
-    let config = state
-        .config
-        .read()
-        .map_err(AppError::from)
-        .map_err(ApiError::from)?
-        .clone();
+    let config = state.load_config().map_err(ApiError::from)?;
     Ok(Json(config))
 }
 
@@ -274,11 +245,7 @@ pub async fn get_common_config_snippet(
     Path(app): Path<String>,
 ) -> ApiResult<Option<String>> {
     let app_type = parse_app_type(&app)?;
-    let cfg = state
-        .config
-        .read()
-        .map_err(AppError::from)
-        .map_err(ApiError::from)?;
+    let cfg = state.load_config().map_err(ApiError::from)?;
     Ok(Json(cfg.common_config_snippets.get(&app_type).cloned()))
 }
 
@@ -294,11 +261,6 @@ pub async fn set_common_config_snippet(
 ) -> ApiResult<bool> {
     let app_type =
         AppType::parse_supported(&app).map_err(|e| ApiError::bad_request(e.to_string()))?;
-    let mut guard = state
-        .config
-        .write()
-        .map_err(AppError::from)
-        .map_err(ApiError::from)?;
 
     if !payload.snippet.trim().is_empty() {
         match app_type {
@@ -316,26 +278,26 @@ pub async fn set_common_config_snippet(
         }
     }
 
-    guard.common_config_snippets.set(
-        &app_type,
-        if payload.snippet.trim().is_empty() {
-            None
-        } else {
-            Some(payload.snippet)
-        },
-    );
-    guard.save().map_err(ApiError::from)?;
+    state
+        .update_config(|guard| {
+            guard.common_config_snippets.set(
+                &app_type,
+                if payload.snippet.trim().is_empty() {
+                    None
+                } else {
+                    Some(payload.snippet)
+                },
+            );
+            Ok(())
+        })
+        .map_err(ApiError::from)?;
     Ok(Json(true))
 }
 
 pub async fn get_claude_common_config_snippet(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<Option<String>> {
-    let guard = state
-        .config
-        .read()
-        .map_err(AppError::from)
-        .map_err(ApiError::from)?;
+    let guard = state.load_config().map_err(ApiError::from)?;
     Ok(Json(guard.common_config_snippets.claude.clone()))
 }
 
@@ -343,23 +305,21 @@ pub async fn set_claude_common_config_snippet(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SnippetPayload>,
 ) -> ApiResult<bool> {
-    let mut guard = state
-        .config
-        .write()
-        .map_err(AppError::from)
-        .map_err(ApiError::from)?;
-
     if !payload.snippet.trim().is_empty() {
         serde_json::from_str::<serde_json::Value>(&payload.snippet)
             .map_err(|e| ApiError::bad_request(format!("无效的 JSON 格式: {e}")))?;
     }
 
-    guard.common_config_snippets.claude = if payload.snippet.trim().is_empty() {
-        None
-    } else {
-        Some(payload.snippet)
-    };
-    guard.save().map_err(ApiError::from)?;
+    state
+        .update_config(|guard| {
+            guard.common_config_snippets.claude = if payload.snippet.trim().is_empty() {
+                None
+            } else {
+                Some(payload.snippet)
+            };
+            Ok(())
+        })
+        .map_err(ApiError::from)?;
     Ok(Json(true))
 }
 

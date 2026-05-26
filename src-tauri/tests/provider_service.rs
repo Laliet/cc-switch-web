@@ -1,5 +1,5 @@
 use serde_json::json;
-use std::{path::PathBuf, sync::RwLock};
+use std::path::PathBuf;
 
 use cc_switch_lib::{
     get_claude_settings_path, get_codex_config_path, read_json_file, write_codex_live_atomic,
@@ -85,9 +85,7 @@ command = "say"
         }),
     );
 
-    let state = AppState {
-        config: RwLock::new(initial_config),
-    };
+    let state = AppState::new_for_tests(initial_config).expect("test app state");
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -107,7 +105,7 @@ command = "say"
         "config.toml should contain synced MCP servers"
     );
 
-    let guard = state.config.read().expect("read config after switch");
+    let guard = state.load_config().expect("read config after switch");
     let manager = guard
         .get_manager(&AppType::Codex)
         .expect("codex manager after switch");
@@ -171,9 +169,7 @@ fn switch_packycode_gemini_updates_security_selected_type() {
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::switch(&state, AppType::Gemini, "packy-gemini")
         .expect("switching to PackyCode Gemini should succeed");
@@ -227,9 +223,7 @@ fn packycode_partner_meta_triggers_security_flag_even_without_keywords() {
         manager.providers.insert("packy-meta".to_string(), provider);
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::switch(&state, AppType::Gemini, "packy-meta")
         .expect("switching to partner meta provider should succeed");
@@ -282,9 +276,7 @@ fn switch_google_official_gemini_sets_oauth_security() {
             .insert("google-official".to_string(), provider);
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::switch(&state, AppType::Gemini, "google-official")
         .expect("switching to Google official Gemini should succeed");
@@ -380,9 +372,7 @@ fn provider_service_switch_claude_updates_live_and_state() {
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::switch(&state, AppType::Claude, "new-provider")
         .expect("switch provider should succeed");
@@ -399,8 +389,7 @@ fn provider_service_switch_claude_updates_live_and_state() {
     );
 
     let guard = state
-        .config
-        .read()
+        .load_config()
         .expect("read claude config after switch");
     let manager = guard
         .get_manager(&AppType::Claude)
@@ -450,9 +439,7 @@ fn sync_default_provider_from_live_preserves_current_and_category() {
             .insert("default".to_string(), default_provider);
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::sync_default_provider_from_live(
         &state,
@@ -461,7 +448,7 @@ fn sync_default_provider_from_live_preserves_current_and_category() {
     )
     .expect("sync default provider from live should succeed");
 
-    let guard = state.config.read().expect("read config after sync default");
+    let guard = state.load_config().expect("read config after sync default");
     let manager = guard
         .get_manager(&AppType::Claude)
         .expect("claude manager after sync");
@@ -508,9 +495,7 @@ fn sync_default_provider_from_live_creates_default_when_missing() {
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::sync_default_provider_from_live(
         &state,
@@ -519,7 +504,7 @@ fn sync_default_provider_from_live_creates_default_when_missing() {
     )
     .expect("sync default provider from live should succeed");
 
-    let guard = state.config.read().expect("read config after sync default");
+    let guard = state.load_config().expect("read config after sync default");
     let manager = guard
         .get_manager(&AppType::Claude)
         .expect("claude manager after sync");
@@ -574,9 +559,7 @@ fn sync_default_provider_from_live_updates_current_opencode_provider_without_def
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::sync_default_provider_from_live(
         &state,
@@ -601,7 +584,7 @@ fn sync_default_provider_from_live_updates_current_opencode_provider_without_def
     )
     .expect("sync current opencode provider from live should succeed");
 
-    let guard = state.config.read().expect("read config after sync");
+    let guard = state.load_config().expect("read config after sync");
     let manager = guard
         .get_manager(&AppType::Opencode)
         .expect("opencode manager after sync");
@@ -642,9 +625,7 @@ fn sync_default_provider_from_live_updates_current_omo_provider_without_default(
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::sync_default_provider_from_live(
         &state,
@@ -653,7 +634,7 @@ fn sync_default_provider_from_live_updates_current_omo_provider_without_default(
     )
     .expect("sync current omo provider from live should succeed");
 
-    let guard = state.config.read().expect("read config after sync");
+    let guard = state.load_config().expect("read config after sync");
     let manager = guard
         .get_manager(&AppType::Omo)
         .expect("omo manager after sync");
@@ -704,14 +685,12 @@ fn import_default_config_opencode_uses_deterministic_current_provider() {
     )
     .expect("write opencode config");
 
-    let state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     ProviderService::import_default_config(&state, AppType::Opencode)
         .expect("import default opencode config should succeed");
 
-    let guard = state.config.read().expect("read config after import");
+    let guard = state.load_config().expect("read config after import");
     let manager = guard
         .get_manager(&AppType::Opencode)
         .expect("opencode manager");
@@ -723,9 +702,7 @@ fn import_default_config_opencode_uses_deterministic_current_provider() {
 
 #[test]
 fn provider_service_switch_missing_provider_returns_error() {
-    let state = AppState {
-        config: RwLock::new(MultiAppConfig::default()),
-    };
+    let state = AppState::new_for_tests(MultiAppConfig::default()).expect("test app state");
 
     let err = ProviderService::switch(&state, AppType::Claude, "missing")
         .expect_err("switching missing provider should fail");
@@ -755,9 +732,7 @@ fn provider_service_switch_codex_missing_auth_returns_error() {
         );
     }
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     let err = ProviderService::switch(&state, AppType::Codex, "invalid")
         .expect_err("switching should fail without auth");
@@ -816,14 +791,12 @@ fn provider_service_delete_codex_removes_provider_and_files() {
     std::fs::write(&auth_path, "{}").expect("seed auth file");
     std::fs::write(&cfg_path, "base_url = \"https://example\"").expect("seed config file");
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::delete(&app_state, AppType::Codex, "to-delete")
         .expect("delete provider should succeed");
 
-    let locked = app_state.config.read().expect("lock config after delete");
+    let locked = app_state.load_config().expect("lock config after delete");
     let manager = locked.get_manager(&AppType::Codex).expect("codex manager");
     assert!(
         !manager.providers.contains_key("to-delete"),
@@ -879,13 +852,11 @@ fn provider_service_delete_claude_removes_provider_files() {
     std::fs::write(&by_name, "{}").expect("seed settings by name");
     std::fs::write(&by_id, "{}").expect("seed settings by id");
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::delete(&app_state, AppType::Claude, "delete").expect("delete claude provider");
 
-    let locked = app_state.config.read().expect("lock config after delete");
+    let locked = app_state.load_config().expect("lock config after delete");
     let manager = locked
         .get_manager(&AppType::Claude)
         .expect("claude manager");
@@ -920,9 +891,7 @@ fn provider_service_delete_current_provider_returns_error() {
         );
     }
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     let err = ProviderService::delete(&app_state, AppType::Claude, "keep")
         .expect_err("deleting current provider should fail");
@@ -977,9 +946,7 @@ fn provider_service_update_current_codex_preserves_mcp_in_live_and_snapshot() {
         }),
     );
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     ProviderService::update(
         &state,
@@ -1015,7 +982,7 @@ fn provider_service_update_current_codex_preserves_mcp_in_live_and_snapshot() {
         "config.toml should contain relay-pulse command after update"
     );
 
-    let guard = state.config.read().expect("read config after update");
+    let guard = state.load_config().expect("read config after update");
     let manager = guard
         .get_manager(&AppType::Codex)
         .expect("codex manager after update");

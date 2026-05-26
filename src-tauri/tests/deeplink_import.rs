@@ -1,5 +1,3 @@
-use std::sync::RwLock;
-
 use cc_switch_lib::{
     import_provider_from_deeplink, parse_deeplink_url, AppState, AppType, MultiAppConfig,
 };
@@ -12,7 +10,7 @@ use support::{ensure_test_home, reset_test_fs, test_mutex};
 fn deeplink_import_claude_provider_persists_to_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let url = "ccswitch://v1/import?resource=provider&app=claude&name=DeepLink%20Claude&homepage=https%3A%2F%2Fexample.com&endpoint=https%3A%2F%2Fapi.example.com%2Fv1&apiKey=sk-test-claude-key&model=claude-sonnet-4";
     let request = parse_deeplink_url(url).expect("parse deeplink url");
@@ -20,15 +18,13 @@ fn deeplink_import_claude_provider_persists_to_config() {
     let mut config = MultiAppConfig::default();
     config.ensure_app(&AppType::Claude);
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     let provider_id = import_provider_from_deeplink(&state, request.clone())
         .expect("import provider from deeplink");
 
     // 验证内存状态
-    let guard = state.config.read().expect("read config");
+    let guard = state.load_config().expect("read config");
     let manager = guard
         .get_manager(&AppType::Claude)
         .expect("claude manager should exist");
@@ -53,11 +49,14 @@ fn deeplink_import_claude_provider_persists_to_config() {
     assert_eq!(base_url, Some(request.endpoint.as_str()));
     drop(guard);
 
-    // 验证配置已持久化
-    let config_path = home.join(".cc-switch").join("config.json");
+    let reloaded = state.load_config().expect("reload config from database");
     assert!(
-        config_path.exists(),
-        "importing provider from deeplink should persist config.json"
+        reloaded
+            .get_manager(&AppType::Claude)
+            .expect("claude manager should exist")
+            .providers
+            .contains_key(&provider_id),
+        "importing provider from deeplink should persist provider in SQLite"
     );
 }
 
@@ -65,7 +64,7 @@ fn deeplink_import_claude_provider_persists_to_config() {
 fn deeplink_import_codex_provider_builds_auth_and_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
-    let home = ensure_test_home();
+    ensure_test_home();
 
     let url = "ccswitch://v1/import?resource=provider&app=codex&name=DeepLink%20Codex&homepage=https%3A%2F%2Fopenai.example&endpoint=https%3A%2F%2Fapi.openai.example%2Fv1&apiKey=sk-test-codex-key&model=gpt-4o";
     let request = parse_deeplink_url(url).expect("parse deeplink url");
@@ -73,14 +72,12 @@ fn deeplink_import_codex_provider_builds_auth_and_config() {
     let mut config = MultiAppConfig::default();
     config.ensure_app(&AppType::Codex);
 
-    let state = AppState {
-        config: RwLock::new(config),
-    };
+    let state = AppState::new_for_tests(config).expect("test app state");
 
     let provider_id = import_provider_from_deeplink(&state, request.clone())
         .expect("import provider from deeplink");
 
-    let guard = state.config.read().expect("read config");
+    let guard = state.load_config().expect("read config");
     let manager = guard
         .get_manager(&AppType::Codex)
         .expect("codex manager should exist");
@@ -113,9 +110,13 @@ fn deeplink_import_codex_provider_builds_auth_and_config() {
     );
     drop(guard);
 
-    let config_path = home.join(".cc-switch").join("config.json");
+    let reloaded = state.load_config().expect("reload config from database");
     assert!(
-        config_path.exists(),
-        "importing provider from deeplink should persist config.json"
+        reloaded
+            .get_manager(&AppType::Codex)
+            .expect("codex manager should exist")
+            .providers
+            .contains_key(&provider_id),
+        "importing provider from deeplink should persist provider in SQLite"
     );
 }

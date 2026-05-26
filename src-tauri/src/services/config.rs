@@ -220,13 +220,15 @@ impl ConfigService {
         Ok(())
     }
 
-    /// 将当前 config.json 拷贝到目标路径。
-    pub fn export_config_to_path(target_path: &Path) -> Result<(), AppError> {
+    /// 将当前数据库配置快照导出为 JSON。
+    pub fn export_config_to_path(
+        config: &MultiAppConfig,
+        target_path: &Path,
+    ) -> Result<(), AppError> {
         let target_path = Self::validate_transfer_path(target_path)?;
-        let config_path = crate::config::get_app_config_path()?;
         let config_content =
-            fs::read_to_string(&config_path).map_err(|e| AppError::io(&config_path, e))?;
-        atomic_write(&target_path, config_content.as_bytes())
+            serde_json::to_vec_pretty(config).map_err(|e| AppError::Config(e.to_string()))?;
+        atomic_write(&target_path, &config_content)
     }
 
     /// 从磁盘文件加载配置并进行校验，返回新配置。
@@ -253,17 +255,16 @@ impl ConfigService {
         Self::apply_import_config(new_config, state)
     }
 
-    /// 将导入配置写入磁盘并同步到 AppState，返回备份 ID。
+    /// 将导入配置写入 SQLite，并刷新 legacy config.json 快照，返回备份 ID。
     pub fn apply_import_config(
         new_config: MultiAppConfig,
         state: &AppState,
     ) -> Result<String, AppError> {
-        let mut guard = state.config.write().map_err(AppError::from)?;
         let config_path = crate::config::get_app_config_path()?;
         let backup_id = Self::create_backup(&config_path)?;
 
+        state.replace_config(&new_config)?;
         Self::save_config_to_path(&new_config, &config_path)?;
-        *guard = new_config;
 
         Ok(backup_id)
     }

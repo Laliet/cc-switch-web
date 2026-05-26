@@ -572,7 +572,7 @@ impl MultiAppConfig {
     }
 
     /// 创建默认配置并自动导入已存在的提示词文件
-    fn default_with_auto_import() -> Result<Self, AppError> {
+    pub(crate) fn default_with_auto_import() -> Result<Self, AppError> {
         log::info!("首次启动，创建默认配置并检测提示词文件");
 
         let mut config = Self::default();

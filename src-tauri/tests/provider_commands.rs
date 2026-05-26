@@ -1,5 +1,5 @@
 use serde_json::json;
-use std::{collections::HashMap, path::PathBuf, sync::RwLock};
+use std::{collections::HashMap, path::PathBuf};
 
 use cc_switch_lib::{
     get_codex_auth_path, get_codex_config_path, read_json_file, switch_provider_test_hook,
@@ -76,9 +76,7 @@ command = "say"
         }),
     );
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     switch_provider_test_hook(&app_state, AppType::Codex, "new-provider")
         .expect("switch provider should succeed");
@@ -101,7 +99,7 @@ command = "say"
         "config.toml should contain synced MCP servers"
     );
 
-    let locked = app_state.config.read().expect("lock config after switch");
+    let locked = app_state.load_config().expect("lock config after switch");
     let manager = locked
         .get_manager(&AppType::Codex)
         .expect("codex manager after switch");
@@ -148,9 +146,7 @@ fn switch_provider_missing_provider_returns_error() {
         .expect("claude manager")
         .current = "does-not-exist".to_string();
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     let err = switch_provider_test_hook(&app_state, AppType::Claude, "missing-provider")
         .expect_err("switching to a missing provider should fail");
@@ -216,9 +212,7 @@ fn switch_provider_updates_claude_live_and_state() {
         );
     }
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     switch_provider_test_hook(&app_state, AppType::Claude, "new-provider")
         .expect("switch provider should succeed");
@@ -234,7 +228,7 @@ fn switch_provider_updates_claude_live_and_state() {
         "live settings.json should reflect new provider auth"
     );
 
-    let locked = app_state.config.read().expect("lock config after switch");
+    let locked = app_state.load_config().expect("lock config after switch");
     let manager = locked
         .get_manager(&AppType::Claude)
         .expect("claude manager after switch");
@@ -265,24 +259,16 @@ fn switch_provider_updates_claude_live_and_state() {
 
     drop(locked);
 
-    let home_dir = std::env::var("HOME").expect("HOME should be set by ensure_test_home");
-    let config_path = std::path::Path::new(&home_dir)
-        .join(".cc-switch")
-        .join("config.json");
-    assert!(
-        config_path.exists(),
-        "switching provider should persist config.json"
-    );
-    let persisted: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read saved config"))
-            .expect("parse saved config");
+    let persisted = app_state
+        .load_config()
+        .expect("reload provider state from database");
     assert_eq!(
         persisted
-            .get("claude")
-            .and_then(|claude| claude.get("current"))
-            .and_then(|current| current.as_str()),
-        Some("new-provider"),
-        "saved config.json should record the new current provider"
+            .get_manager(&AppType::Claude)
+            .expect("claude manager")
+            .current,
+        "new-provider",
+        "SQLite state should record the new current provider"
     );
 }
 
@@ -310,9 +296,7 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
         );
     }
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     let err = switch_provider_test_hook(&app_state, AppType::Codex, "invalid")
         .expect_err("switching should fail when auth missing");
@@ -324,7 +308,7 @@ fn switch_provider_codex_missing_auth_returns_error_and_keeps_state() {
         other => panic!("expected config error, got {other:?}"),
     }
 
-    let locked = app_state.config.read().expect("lock config after failure");
+    let locked = app_state.load_config().expect("lock config after failure");
     let manager = locked.get_manager(&AppType::Codex).expect("codex manager");
     assert!(
         manager.current.is_empty(),
@@ -412,9 +396,7 @@ fn switch_provider_omo_rolls_back_opencode_plugin_when_post_commit_fails() {
         },
     )]));
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     let err = switch_provider_test_hook(&app_state, AppType::Omo, "new-omo")
         .expect_err("post-commit failure should bubble up");
@@ -423,7 +405,7 @@ fn switch_provider_omo_rolls_back_opencode_plugin_when_post_commit_fails() {
         "unexpected error: {err}"
     );
 
-    let locked = app_state.config.read().expect("lock config after failure");
+    let locked = app_state.load_config().expect("lock config after failure");
     let manager = locked.get_manager(&AppType::Omo).expect("omo manager");
     assert_eq!(
         manager.current, "old-omo",
@@ -503,9 +485,7 @@ fn switch_provider_omo_replaces_old_plugin_versions_with_latest() {
         );
     }
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     switch_provider_test_hook(&app_state, AppType::Omo, "omo")
         .expect("switch provider should succeed");
@@ -594,9 +574,7 @@ fn switch_provider_opencode_rejects_full_config_without_current_provider_fragmen
         );
     }
 
-    let app_state = AppState {
-        config: RwLock::new(config),
-    };
+    let app_state = AppState::new_for_tests(config).expect("test app state");
 
     let err = switch_provider_test_hook(&app_state, AppType::Opencode, "broken")
         .expect_err("switch should reject malformed full config");
@@ -620,7 +598,7 @@ fn switch_provider_opencode_rejects_full_config_without_current_provider_fragmen
         "existing live opencode config should remain unchanged after rejection"
     );
 
-    let locked = app_state.config.read().expect("lock config after failure");
+    let locked = app_state.load_config().expect("lock config after failure");
     let manager = locked
         .get_manager(&AppType::Opencode)
         .expect("opencode manager after failure");

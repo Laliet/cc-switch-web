@@ -334,7 +334,12 @@ CC-Switch 管理以下配置文件：
 | **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`       |
 | **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`        |
 
-CC-Switch 自身配置：`~/.cc-switch/config.json`
+CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
+
+旧版导入/导出快照：`~/.cc-switch/config.json`。启动时，如果 SQLite 数据库为空且
+已存在旧快照，会先导入数据库；此后 providers、MCP servers、prompts、skills、
+proxy settings、provider health、request logs、failover queue，以及导入/导出
+兼容快照均以 SQLite 为权威存储。
 
 ---
 

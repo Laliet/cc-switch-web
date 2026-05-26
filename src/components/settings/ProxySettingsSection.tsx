@@ -3,10 +3,13 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Plus,
   Play,
   RotateCcw,
+  Save,
   Square,
   TestTube2,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,8 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { settingsApi } from "@/lib/api";
+import { providersApi, settingsApi } from "@/lib/api";
 import type {
+  FailoverQueueItem,
+  ModelPricingRecord,
+  Provider,
   ProxyAppId,
   ProxyRecentLog,
   ProxySettings,
@@ -44,6 +50,23 @@ export function ProxySettingsSection({
   const { t } = useTranslation();
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [recentLogs, setRecentLogs] = useState<ProxyRecentLog[]>([]);
+  const [failoverApp, setFailoverApp] = useState<ProxyAppId>("claude");
+  const [failoverQueue, setFailoverQueue] = useState<FailoverQueueItem[]>([]);
+  const [failoverProviders, setFailoverProviders] = useState<
+    Record<string, Provider>
+  >({});
+  const [failoverProviderId, setFailoverProviderId] = useState("");
+  const [failoverLoading, setFailoverLoading] = useState(false);
+  const [pricingRows, setPricingRows] = useState<ModelPricingRecord[]>([]);
+  const [pricingDraft, setPricingDraft] = useState<ModelPricingRecord>({
+    modelId: "",
+    displayName: "",
+    inputCostPerMillion: "0",
+    outputCostPerMillion: "0",
+    cacheReadCostPerMillion: "0",
+    cacheCreationCostPerMillion: "0",
+  });
+  const [pricingLoading, setPricingLoading] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<
@@ -54,6 +77,8 @@ export function ProxySettingsSection({
     | `test:${ProxyAppId}`
     | "restore"
     | `takeover:${ProxyAppId}`
+    | "failover"
+    | "pricing"
     | null
   >(null);
   const takeoverInFlightRef = useRef<Set<ProxyAppId>>(new Set());
@@ -77,6 +102,51 @@ export function ProxySettingsSection({
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
+
+  const loadFailoverQueue = useCallback(async () => {
+    setFailoverLoading(true);
+    try {
+      const [queue, providerMap] = await Promise.all([
+        settingsApi.getFailoverQueue(failoverApp),
+        providersApi.getAll(failoverApp),
+      ]);
+      setFailoverQueue(queue);
+      setFailoverProviders(providerMap);
+      if (
+        failoverProviderId &&
+        (!providerMap[failoverProviderId] ||
+          queue.some((item) => item.providerId === failoverProviderId))
+      ) {
+        setFailoverProviderId("");
+      }
+    } catch (error) {
+      console.warn("Failed to load failover queue", error);
+      setFailoverQueue([]);
+      setFailoverProviders({});
+    } finally {
+      setFailoverLoading(false);
+    }
+  }, [failoverApp, failoverProviderId]);
+
+  useEffect(() => {
+    void loadFailoverQueue();
+  }, [loadFailoverQueue]);
+
+  const loadPricingRows = useCallback(async () => {
+    setPricingLoading(true);
+    try {
+      setPricingRows(await settingsApi.listModelPricing());
+    } catch (error) {
+      console.warn("Failed to load model pricing", error);
+      setPricingRows([]);
+    } finally {
+      setPricingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPricingRows();
+  }, [loadPricingRows]);
 
   const update = (updates: Partial<ProxySettings>) => {
     onChange({ ...value, ...updates });
@@ -305,11 +375,198 @@ export function ProxySettingsSection({
     }
   };
 
+  const handleAddFailoverProvider = async () => {
+    if (!failoverProviderId) return;
+    setBusyAction("failover");
+    try {
+      setFailoverQueue(
+        await settingsApi.addFailoverProvider(failoverApp, failoverProviderId),
+      );
+      setFailoverProviderId("");
+      toast.success(
+        t("settings.proxy.failoverQueueSaved", {
+          defaultValue: "故障切换队列已更新",
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.failoverQueueFailed", {
+          defaultValue: "更新故障切换队列失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleRemoveFailoverProvider = async (providerId: string) => {
+    setBusyAction("failover");
+    try {
+      setFailoverQueue(
+        await settingsApi.removeFailoverProvider(failoverApp, providerId),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.failoverQueueFailed", {
+          defaultValue: "更新故障切换队列失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleMoveFailoverProvider = async (
+    providerId: string,
+    direction: -1 | 1,
+  ) => {
+    const currentIndex = failoverQueue.findIndex(
+      (item) => item.providerId === providerId,
+    );
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= failoverQueue.length) {
+      return;
+    }
+    const nextIds = failoverQueue.map((item) => item.providerId);
+    [nextIds[currentIndex], nextIds[nextIndex]] = [
+      nextIds[nextIndex],
+      nextIds[currentIndex],
+    ];
+    setBusyAction("failover");
+    try {
+      setFailoverQueue(
+        await settingsApi.replaceFailoverQueue(failoverApp, nextIds),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.failoverQueueFailed", {
+          defaultValue: "更新故障切换队列失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleClearFailoverQueue = async () => {
+    setBusyAction("failover");
+    try {
+      setFailoverQueue(await settingsApi.clearFailoverQueue(failoverApp));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.failoverQueueFailed", {
+          defaultValue: "更新故障切换队列失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const validatePricingDraft = () => {
+    if (!pricingDraft.modelId.trim() || !pricingDraft.displayName.trim()) {
+      toast.error(
+        t("settings.proxy.pricingValidationRequired", {
+          defaultValue: "模型 ID 和显示名称不能为空",
+        }),
+      );
+      return false;
+    }
+    for (const value of [
+      pricingDraft.inputCostPerMillion,
+      pricingDraft.outputCostPerMillion,
+      pricingDraft.cacheReadCostPerMillion,
+      pricingDraft.cacheCreationCostPerMillion,
+    ]) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        toast.error(
+          t("settings.proxy.pricingValidationInvalid", {
+            defaultValue: "价格必须是非负数字",
+          }),
+        );
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleSavePricing = async () => {
+    if (!validatePricingDraft()) return;
+    setBusyAction("pricing");
+    const record: ModelPricingRecord = {
+      ...pricingDraft,
+      modelId: pricingDraft.modelId.trim(),
+      displayName: pricingDraft.displayName.trim(),
+    };
+    try {
+      await settingsApi.upsertModelPricing(record);
+      await loadPricingRows();
+      setPricingDraft({
+        modelId: "",
+        displayName: "",
+        inputCostPerMillion: "0",
+        outputCostPerMillion: "0",
+        cacheReadCostPerMillion: "0",
+        cacheCreationCostPerMillion: "0",
+      });
+      toast.success(
+        t("settings.proxy.pricingSaved", {
+          defaultValue: "模型价格已保存",
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.pricingFailed", {
+          defaultValue: "保存模型价格失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeletePricing = async (modelId: string) => {
+    setBusyAction("pricing");
+    try {
+      await settingsApi.deleteModelPricing(modelId);
+      await loadPricingRows();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.pricingFailed", {
+          defaultValue: "保存模型价格失败",
+        }),
+        { description: message },
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const isBusy = busyAction !== null;
   const isRunning = status?.running ?? false;
   const bindAppName = t(`apps.${value.bindApp}`, {
     defaultValue: value.bindApp,
   });
+  const failoverProviderOptions = Object.values(failoverProviders)
+    .filter(
+      (provider) =>
+        !failoverQueue.some((item) => item.providerId === provider.id),
+    )
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
 
   return (
     <section className="space-y-4">
@@ -558,6 +815,81 @@ export function ProxySettingsSection({
                       defaultValue: `${appName} 接管：让 ${appName} 走本地代理`,
                     })}
                   </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Switch
+                        checked={
+                          value.apps[app]?.autoFailoverEnabled ?? false
+                        }
+                        onCheckedChange={(checked) =>
+                          updateApp(app, { autoFailoverEnabled: checked })
+                        }
+                      />
+                      <span>
+                        {t("settings.proxy.autoFailover", {
+                          defaultValue: "自动故障切换",
+                        })}
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings.proxy.maxRetries", {
+                          defaultValue: "重试",
+                        })}
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={value.apps[app]?.maxRetries ?? 0}
+                        onChange={(event) =>
+                          updateApp(app, {
+                            maxRetries: Number(event.target.value) || 0,
+                          })
+                        }
+                        className="h-8 w-20"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings.proxy.costMultiplier", {
+                          defaultValue: "计费倍率",
+                        })}
+                      </span>
+                      <Input
+                        value={value.apps[app]?.defaultCostMultiplier ?? "1"}
+                        onChange={(event) =>
+                          updateApp(app, {
+                            defaultCostMultiplier: event.target.value,
+                          })
+                        }
+                        className="h-8"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings.proxy.pricingModelSource", {
+                          defaultValue: "模型来源",
+                        })}
+                      </span>
+                      <Select
+                        value={
+                          value.apps[app]?.pricingModelSource ?? "response"
+                        }
+                        onValueChange={(source) =>
+                          updateApp(app, { pricingModelSource: source })
+                        }
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="response">response</SelectItem>
+                          <SelectItem value="request">request</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -607,6 +939,151 @@ export function ProxySettingsSection({
       </div>
 
       <div className="space-y-3 rounded-md border p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-medium">
+              {t("settings.proxy.failoverQueue", {
+                defaultValue: "故障切换队列",
+              })}
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.proxy.failoverQueueDescription", {
+                defaultValue:
+                  "代理故障切换优先读取 SQLite 队列；队列为空时才回退到备用供应商。",
+              })}
+            </p>
+          </div>
+          <Select
+            value={failoverApp}
+            onValueChange={(app) => setFailoverApp(app as ProxyAppId)}
+          >
+            <SelectTrigger className="h-8 w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROXY_APPS.map((app) => (
+                <SelectItem key={app} value={app}>
+                  {t(`apps.${app}`, { defaultValue: app })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={failoverProviderId}
+            onValueChange={setFailoverProviderId}
+            disabled={failoverLoading || failoverProviderOptions.length === 0}
+          >
+            <SelectTrigger className="h-9 min-w-[220px]">
+              <SelectValue
+                placeholder={t("settings.proxy.selectProvider", {
+                  defaultValue: "选择 Provider",
+                })}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {failoverProviderOptions.map((provider) => (
+                <SelectItem key={provider.id} value={provider.id}>
+                  {provider.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleAddFailoverProvider()}
+            disabled={isBusy || !failoverProviderId}
+            className="gap-1"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("common.add", { defaultValue: "新增" })}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleClearFailoverQueue()}
+            disabled={isBusy || failoverQueue.length === 0}
+            className="gap-1"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {t("common.clear", { defaultValue: "清空" })}
+          </Button>
+        </div>
+        {failoverLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("common.loading", { defaultValue: "加载中" })}
+          </div>
+        ) : failoverQueue.length === 0 ? (
+          <div className="text-xs text-muted-foreground">
+            {t("settings.proxy.failoverQueueEmpty", {
+              defaultValue: "当前队列为空",
+            })}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {failoverQueue.map((item, index) => (
+              <div
+                key={item.providerId}
+                className="grid items-center gap-2 rounded-md border px-3 py-2 text-sm sm:grid-cols-[32px_1fr_auto]"
+              >
+                <div className="text-xs text-muted-foreground">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate font-medium">
+                    {item.providerName}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {item.providerId}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void handleMoveFailoverProvider(item.providerId, -1)
+                    }
+                    disabled={isBusy || index === 0}
+                  >
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void handleMoveFailoverProvider(item.providerId, 1)
+                    }
+                    disabled={isBusy || index === failoverQueue.length - 1}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void handleRemoveFailoverProvider(item.providerId)
+                    }
+                    disabled={isBusy}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 rounded-md border p-3">
         <div>
           <h4 className="text-sm font-medium">
             {t("settings.proxy.advanced", { defaultValue: "高级设置" })}
@@ -642,6 +1119,143 @@ export function ProxySettingsSection({
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-md border p-3">
+        <div>
+          <h4 className="text-sm font-medium">
+            {t("settings.proxy.modelPricing", {
+              defaultValue: "模型价格",
+            })}
+          </h4>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.proxy.modelPricingDescription", {
+              defaultValue:
+                "用量解析会按模型价格、缓存 token 和计费倍率计算请求成本。",
+            })}
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <Input
+            value={pricingDraft.modelId}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                modelId: event.target.value,
+              }))
+            }
+            placeholder="model id"
+          />
+          <Input
+            value={pricingDraft.displayName}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                displayName: event.target.value,
+              }))
+            }
+            placeholder={t("settings.proxy.displayName", {
+              defaultValue: "显示名称",
+            })}
+          />
+          <Input
+            value={pricingDraft.inputCostPerMillion}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                inputCostPerMillion: event.target.value,
+              }))
+            }
+            placeholder="input / 1M"
+          />
+          <Input
+            value={pricingDraft.outputCostPerMillion}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                outputCostPerMillion: event.target.value,
+              }))
+            }
+            placeholder="output / 1M"
+          />
+          <Input
+            value={pricingDraft.cacheReadCostPerMillion}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                cacheReadCostPerMillion: event.target.value,
+              }))
+            }
+            placeholder="cache read / 1M"
+          />
+          <Input
+            value={pricingDraft.cacheCreationCostPerMillion}
+            onChange={(event) =>
+              setPricingDraft((current) => ({
+                ...current,
+                cacheCreationCostPerMillion: event.target.value,
+              }))
+            }
+            placeholder="cache create / 1M"
+          />
+        </div>
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleSavePricing()}
+            disabled={isBusy}
+            className="gap-1"
+          >
+            {busyAction === "pricing" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            {t("common.save", { defaultValue: "保存" })}
+          </Button>
+        </div>
+        {pricingLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("common.loading", { defaultValue: "加载中" })}
+          </div>
+        ) : (
+          <div className="max-h-56 space-y-2 overflow-y-auto">
+            {pricingRows.slice(0, 24).map((row) => (
+              <div
+                key={row.modelId}
+                className="grid items-center gap-2 rounded-md border px-3 py-2 text-xs sm:grid-cols-[1fr_auto]"
+              >
+                <button
+                  type="button"
+                  className="min-w-0 text-left"
+                  onClick={() => setPricingDraft(row)}
+                >
+                  <div className="truncate text-sm font-medium">
+                    {row.displayName}
+                  </div>
+                  <div className="truncate text-muted-foreground">
+                    {row.modelId} · in {row.inputCostPerMillion} · out{" "}
+                    {row.outputCostPerMillion} · cache{" "}
+                    {row.cacheReadCostPerMillion}/
+                    {row.cacheCreationCostPerMillion}
+                  </div>
+                </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleDeletePricing(row.modelId)}
+                  disabled={isBusy}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {value.host.trim() === "0.0.0.0" ? (

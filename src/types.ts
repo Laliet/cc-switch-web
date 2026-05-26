@@ -85,6 +85,53 @@ export interface ProviderMeta {
   isPartner?: boolean;
   // 合作伙伴促销 key（用于后端识别 PackyCode 等）
   partnerPromotionKey?: string;
+  // 代理用量计费倍率
+  costMultiplier?: string;
+  // 计费用模型来源：request 或 response
+  pricingModelSource?: string;
+}
+
+export interface UniversalProviderApps {
+  claude: boolean;
+  codex: boolean;
+  gemini: boolean;
+}
+
+export interface ClaudeModelConfig {
+  model?: string;
+  haikuModel?: string;
+  sonnetModel?: string;
+  opusModel?: string;
+}
+
+export interface CodexModelConfig {
+  model?: string;
+  reasoningEffort?: string;
+}
+
+export interface GeminiModelConfig {
+  model?: string;
+}
+
+export interface UniversalProviderModels {
+  claude?: ClaudeModelConfig;
+  codex?: CodexModelConfig;
+  gemini?: GeminiModelConfig;
+}
+
+export interface UniversalProvider {
+  id: string;
+  name: string;
+  providerType: string;
+  apps: UniversalProviderApps;
+  baseUrl: string;
+  apiKey: string;
+  models: UniversalProviderModels;
+  websiteUrl?: string;
+  notes?: string;
+  meta?: ProviderMeta;
+  createdAt?: number;
+  sortIndex?: number;
 }
 
 export interface OpenCodeModel {
@@ -161,6 +208,23 @@ export interface ProxyAppSettings {
   enabled: boolean;
   autoFailoverEnabled: boolean;
   maxRetries: number;
+  defaultCostMultiplier?: string;
+  pricingModelSource?: string;
+}
+
+export interface FailoverQueueItem {
+  providerId: string;
+  providerName: string;
+  position: number;
+}
+
+export interface ModelPricingRecord {
+  modelId: string;
+  displayName: string;
+  inputCostPerMillion: string;
+  outputCostPerMillion: string;
+  cacheReadCostPerMillion: string;
+  cacheCreationCostPerMillion: string;
 }
 
 export interface ProxyStatus {

@@ -179,10 +179,7 @@ pub async fn open_app_config_folder(handle: AppHandle) -> Result<bool, String> {
 pub async fn get_claude_common_config_snippet(
     state: tauri::State<'_, crate::store::AppState>,
 ) -> Result<Option<String>, String> {
-    let guard = state
-        .config
-        .read()
-        .map_err(|e| format!("读取配置锁失败: {e}"))?;
+    let guard = state.load_config().map_err(|e| e.to_string())?;
     Ok(guard.common_config_snippets.claude.clone())
 }
 
@@ -192,24 +189,22 @@ pub async fn set_claude_common_config_snippet(
     snippet: String,
     state: tauri::State<'_, crate::store::AppState>,
 ) -> Result<(), String> {
-    let mut guard = state
-        .config
-        .write()
-        .map_err(|e| format!("写入配置锁失败: {e}"))?;
-
     // 验证是否为有效的 JSON（如果不为空）
     if !snippet.trim().is_empty() {
         serde_json::from_str::<serde_json::Value>(&snippet)
             .map_err(|e| format!("无效的 JSON 格式: {e}"))?;
     }
 
-    guard.common_config_snippets.claude = if snippet.trim().is_empty() {
-        None
-    } else {
-        Some(snippet)
-    };
-
-    guard.save().map_err(|e| e.to_string())?;
+    state
+        .update_config(|guard| {
+            guard.common_config_snippets.claude = if snippet.trim().is_empty() {
+                None
+            } else {
+                Some(snippet)
+            };
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -223,10 +218,7 @@ pub async fn get_common_config_snippet(
 
     let app = AppType::parse_supported(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
 
-    let guard = state
-        .config
-        .read()
-        .map_err(|e| format!("读取配置锁失败: {e}"))?;
+    let guard = state.load_config().map_err(|e| e.to_string())?;
 
     Ok(guard.common_config_snippets.get(&app).cloned())
 }
@@ -241,11 +233,6 @@ pub async fn set_common_config_snippet(
     use crate::app_config::AppType;
 
     let app = AppType::parse_supported(&app_type).map_err(|e| format!("无效的应用类型: {e}"))?;
-
-    let mut guard = state
-        .config
-        .write()
-        .map_err(|e| format!("写入配置锁失败: {e}"))?;
 
     // 验证格式（根据应用类型）
     if !snippet.trim().is_empty() {
@@ -265,15 +252,18 @@ pub async fn set_common_config_snippet(
         }
     }
 
-    guard.common_config_snippets.set(
-        &app,
-        if snippet.trim().is_empty() {
-            None
-        } else {
-            Some(snippet)
-        },
-    );
-
-    guard.save().map_err(|e| e.to_string())?;
+    state
+        .update_config(|guard| {
+            guard.common_config_snippets.set(
+                &app,
+                if snippet.trim().is_empty() {
+                    None
+                } else {
+                    Some(snippet)
+                },
+            );
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

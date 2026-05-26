@@ -16,16 +16,27 @@ use super::{
 pub struct ProxyService;
 
 impl ProxyService {
-    pub fn config() -> ProxySettings {
-        settings::get_settings().proxy
+    pub fn config(state: &AppState) -> Result<ProxySettings, AppError> {
+        let config = state.db.get_proxy_config()?;
+        if is_default_proxy_config(&config) {
+            let legacy = settings::get_settings().proxy;
+            if !is_default_proxy_config(&legacy) {
+                let normalized = normalize_config(legacy);
+                server::validate_settings(&normalized)?;
+                state.db.save_proxy_config(&normalized)?;
+                return Ok(normalized);
+            }
+        }
+        Ok(config)
     }
 
-    pub fn save_config(config: ProxySettings) -> Result<ProxySettings, AppError> {
+    pub fn save_config(state: &AppState, config: ProxySettings) -> Result<ProxySettings, AppError> {
         let mut app_settings = settings::get_settings();
         app_settings.proxy = normalize_config(config);
         server::validate_settings(&app_settings.proxy)?;
+        state.db.save_proxy_config(&app_settings.proxy)?;
         settings::update_settings(app_settings)?;
-        Ok(settings::get_settings().proxy)
+        state.db.get_proxy_config()
     }
 
     pub async fn start(
@@ -37,9 +48,9 @@ impl ProxyService {
         config = normalize_config(config);
         ensure_takeover_config_supported(&state, &config)?;
         server::start_proxy(state.clone(), config.clone()).await?;
-        if let Err(err) = Self::save_config(config) {
+        if let Err(err) = Self::save_config(&state, config) {
             let _ = server::stop_proxy().await;
-            let _ = live::restore_all();
+            let _ = live::restore_all().and_then(|config| state.db.save_proxy_config(&config));
             return Err(err);
         }
         Ok(server::status_for_state(&state).await)
@@ -47,11 +58,13 @@ impl ProxyService {
 
     pub async fn stop(state: Arc<AppState>) -> Result<ProxyStatus, AppError> {
         let _ = server::stop_proxy().await?;
-        live::restore_all()?;
+        let restored_config = live::restore_all()?;
         server::clear_recent_logs().await;
         let mut app_settings = settings::get_settings();
+        app_settings.proxy = restored_config;
         app_settings.proxy.enabled = false;
         app_settings.proxy.live_takeover_active = false;
+        state.db.save_proxy_config(&app_settings.proxy)?;
         settings::update_settings(app_settings)?;
         Ok(server::status_for_state(&state).await)
     }
@@ -106,6 +119,7 @@ impl ProxyService {
             }
             return Err(err);
         }
+        state.db.save_proxy_config(&app_settings.proxy)?;
         server::update_runtime_settings(app_settings.proxy.clone()).await;
 
         Ok(ProxyTakeoverResult {
@@ -116,15 +130,23 @@ impl ProxyService {
     }
 
     pub async fn restore(state: Arc<AppState>) -> Result<ProxyStatus, AppError> {
-        live::restore_all()?;
-        server::update_runtime_settings(settings::get_settings().proxy).await;
+        let config = live::restore_all()?;
+        state.db.save_proxy_config(&config)?;
+        let mut app_settings = settings::get_settings();
+        app_settings.proxy = config.clone();
+        settings::update_settings(app_settings)?;
+        server::update_runtime_settings(config).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }
 
     pub async fn recover_stale_takeover(state: Arc<AppState>) -> Result<ProxyStatus, AppError> {
-        live::restore_all()?;
-        server::update_runtime_settings(settings::get_settings().proxy).await;
+        let config = live::restore_all()?;
+        state.db.save_proxy_config(&config)?;
+        let mut app_settings = settings::get_settings();
+        app_settings.proxy = config.clone();
+        settings::update_settings(app_settings)?;
+        server::update_runtime_settings(config).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }
@@ -168,6 +190,33 @@ fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
         AppType::Opencode => config.apps.opencode.enabled,
         AppType::Omo => false,
     }
+}
+
+fn is_default_proxy_config(config: &ProxySettings) -> bool {
+    let default = ProxySettings::default();
+    !config.enabled
+        && config.host == default.host
+        && config.port == default.port
+        && config.upstream_proxy == default.upstream_proxy
+        && config.bind_app == default.bind_app
+        && !config.auto_start
+        && !config.enable_logging
+        && !config.live_takeover_active
+        && config.streaming_first_byte_timeout == default.streaming_first_byte_timeout
+        && config.streaming_idle_timeout == default.streaming_idle_timeout
+        && config.non_streaming_timeout == default.non_streaming_timeout
+        && !config.apps.claude.enabled
+        && !config.apps.claude.auto_failover_enabled
+        && config.apps.claude.max_retries == default.apps.claude.max_retries
+        && !config.apps.codex.enabled
+        && !config.apps.codex.auto_failover_enabled
+        && config.apps.codex.max_retries == default.apps.codex.max_retries
+        && !config.apps.gemini.enabled
+        && !config.apps.gemini.auto_failover_enabled
+        && config.apps.gemini.max_retries == default.apps.gemini.max_retries
+        && !config.apps.opencode.enabled
+        && !config.apps.opencode.auto_failover_enabled
+        && config.apps.opencode.max_retries == default.apps.opencode.max_retries
 }
 
 fn ensure_takeover_config_supported(

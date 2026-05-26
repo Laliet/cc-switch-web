@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     app_config::{AppType, McpServer},
     claude_mcp,
-    error::AppError,
     services::McpService,
     store::AppState,
 };
@@ -152,11 +151,7 @@ pub async fn upsert_server_in_config(
 
     // 尝试读取现有服务器
     let existing = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(AppError::from)
-            .map_err(ApiError::from)?;
+        let cfg = state.load_config().map_err(ApiError::from)?;
         cfg.mcp
             .servers
             .as_ref()
