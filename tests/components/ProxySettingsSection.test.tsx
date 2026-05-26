@@ -19,6 +19,8 @@ import type {
 const settingsApiMock = vi.hoisted(() => ({
   getProxyStatus: vi.fn(),
   getProxyRecentLogs: vi.fn(),
+  getFailoverQueue: vi.fn(),
+  listModelPricing: vi.fn(),
   startProxy: vi.fn(),
   stopProxy: vi.fn(),
   testProxy: vi.fn(),
@@ -34,6 +36,9 @@ const toastMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
   settingsApi: settingsApiMock,
+  providersApi: {
+    getAll: vi.fn().mockResolvedValue({}),
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -61,6 +66,8 @@ const createAppSettings = () => ({
   enabled: false,
   autoFailoverEnabled: false,
   maxRetries: 0,
+  defaultCostMultiplier: "1",
+  pricingModelSource: "response",
 });
 
 const createSettings = (
@@ -151,17 +158,17 @@ const getAppCard = (name: string) => {
   const card = screen
     .getAllByText(name)
     .map((item) => item.closest("div.rounded-md"))
-    .find((item): item is HTMLElement =>
-      Boolean(
-        item instanceof HTMLElement && within(item).queryByRole("switch"),
-      ),
-    );
+    .find((item): item is HTMLElement => item instanceof HTMLElement);
   if (!card) throw new Error(`Missing app card for ${name}`);
   return card;
 };
 
-const getAppSwitch = (name: string) =>
-  within(getAppCard(name)).getByRole("switch");
+const getAppSwitch = (name: string) => {
+  const switches = within(getAppCard(name)).getAllByRole("switch");
+  const takeoverSwitch = switches.at(-1);
+  if (!takeoverSwitch) throw new Error(`Missing takeover switch for ${name}`);
+  return takeoverSwitch;
+};
 
 const waitForInitialStatus = async () => {
   await waitFor(() =>
@@ -172,6 +179,8 @@ const waitForInitialStatus = async () => {
 beforeEach(() => {
   settingsApiMock.getProxyStatus.mockResolvedValue(createStatus());
   settingsApiMock.getProxyRecentLogs.mockResolvedValue([]);
+  settingsApiMock.getFailoverQueue.mockResolvedValue([]);
+  settingsApiMock.listModelPricing.mockResolvedValue([]);
   settingsApiMock.startProxy.mockResolvedValue(createStatus({ running: true }));
   settingsApiMock.stopProxy.mockResolvedValue(createStatus({ running: false }));
   settingsApiMock.testProxy.mockResolvedValue({

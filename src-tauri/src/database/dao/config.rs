@@ -4,21 +4,20 @@ use crate::{app_config::MultiAppConfig, error::AppError};
 impl Database {
     pub fn load_config(&self) -> Result<MultiAppConfig, AppError> {
         let conn = lock_conn!(self.conn);
-        let mut config = MultiAppConfig::default();
-        config.version = self
-            .get_setting_with_conn(&conn, SETTINGS_CONFIG_VERSION)?
-            .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or(2);
-
-        config.apps = self.load_provider_managers(&conn)?;
-        config.mcp = self.load_mcp_root(&conn)?;
-        config.prompts = self.load_prompt_root(&conn)?;
-        config.skills = self.load_skill_store(&conn)?;
-        config.common_config_snippets = self
-            .load_json_setting_with_conn(&conn, SETTINGS_COMMON_SNIPPETS)?
-            .unwrap_or_default();
-        config.claude_common_config_snippet = None;
-        Ok(config)
+        Ok(MultiAppConfig {
+            version: self
+                .get_setting_with_conn(&conn, SETTINGS_CONFIG_VERSION)?
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(2),
+            apps: self.load_provider_managers(&conn)?,
+            mcp: self.load_mcp_root(&conn)?,
+            prompts: self.load_prompt_root(&conn)?,
+            skills: self.load_skill_store(&conn)?,
+            common_config_snippets: self
+                .load_json_setting_with_conn(&conn, SETTINGS_COMMON_SNIPPETS)?
+                .unwrap_or_default(),
+            claude_common_config_snippet: None,
+        })
     }
 
     pub fn replace_config(&self, config: &MultiAppConfig) -> Result<(), AppError> {
