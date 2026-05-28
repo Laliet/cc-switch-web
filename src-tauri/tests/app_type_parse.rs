@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cc_switch_lib::AppType;
+use cc_switch_lib::{AppType, MultiAppConfig};
 
 #[test]
 fn parse_known_apps_case_insensitive_and_trim() {
@@ -27,6 +27,32 @@ fn parse_supported_accepts_opencode_and_rejects_omo() {
     ));
     let err = AppType::parse_supported("omo").unwrap_err();
     assert!(err.to_string().contains("暂未支持") || err.to_string().contains("not supported yet"));
+}
+
+#[test]
+fn parse_skills_app_maps_omo_to_opencode() {
+    assert!(matches!(
+        AppType::parse_skills_app("omo"),
+        Ok(AppType::Opencode)
+    ));
+}
+
+#[test]
+fn mcp_for_omo_uses_opencode_storage() {
+    let mut config = MultiAppConfig::default();
+    config.mcp_for_mut(&AppType::Omo).servers.insert(
+        "omo-shared".to_string(),
+        serde_json::json!({ "type": "stdio" }),
+    );
+
+    assert!(config
+        .mcp_for(&AppType::Opencode)
+        .servers
+        .contains_key("omo-shared"));
+    assert!(!config
+        .mcp_for(&AppType::Codex)
+        .servers
+        .contains_key("omo-shared"));
 }
 
 #[test]

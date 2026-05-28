@@ -5,6 +5,9 @@ export type ProviderCategory =
   | "cn_official" // 开源官方（原"国产官方"）
   | "aggregator" // 聚合网站
   | "third_party" // 第三方供应商
+  | "cloud_provider"
+  | "omo"
+  | "omo-slim"
   | "custom"; // 自定义
 
 export interface Provider {
@@ -172,7 +175,7 @@ export interface Settings {
   codexConfigDir?: string;
   // 覆盖 Gemini 配置目录（可选）
   geminiConfigDir?: string;
-  // 覆盖 OpenCode 配置目录（可选，oh-my-opencode 共用）
+  // 覆盖 OpenCode 配置目录（可选，OMO 共用）
   opencodeConfigDir?: string;
   // 首选语言（可选，默认中文）
   language?: "en" | "zh";

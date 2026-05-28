@@ -44,7 +44,7 @@ const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
       </label>
       <div className="relative">
         <input
-          type={showKey ? "text" : "password"}
+          type="text"
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -52,7 +52,7 @@ const ApiKeyInput: React.FC<ApiKeyInputProps> = ({
           disabled={disabled}
           required={required}
           autoComplete="off"
-          className={inputClass}
+          className={`${inputClass} ${showKey ? "" : "secret-text-security"}`}
         />
         {!disabled && value && (
           <button

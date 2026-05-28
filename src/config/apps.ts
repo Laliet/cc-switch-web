@@ -11,6 +11,7 @@ export const PROVIDER_APPS = [
   "gemini",
   "opencode",
   "omo",
+  "omo-slim",
 ] as const satisfies readonly AppId[];
 
 export const PROMPT_APPS = [
@@ -26,6 +27,7 @@ export const MCP_APPS = [
   "gemini",
   "opencode",
   "omo",
+  "omo-slim",
 ] as const satisfies readonly AppId[];
 
 export const SKILLS_APPS = [
@@ -34,6 +36,7 @@ export const SKILLS_APPS = [
   "gemini",
   "opencode",
   "omo",
+  "omo-slim",
 ] as const satisfies readonly AppId[];
 
 export const DIRECTORY_APPS = [

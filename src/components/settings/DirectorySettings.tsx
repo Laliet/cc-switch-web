@@ -147,7 +147,7 @@ export function DirectorySettings({
           })}
           description={t("settings.opencodeConfigDirDescription", {
             defaultValue:
-              "OpenCode 与 oh-my-opencode 共用该目录，默认位于 ~/.config/opencode。",
+              "OpenCode 与 OMO 共用该目录，默认位于 ~/.config/opencode。",
           })}
           value={opencodeDir}
           resolvedValue={resolvedDirs.opencode}

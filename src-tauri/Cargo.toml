@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "0.12.0"
+version = "0.13.0"
 description = "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
@@ -53,10 +53,14 @@ tauri-build = { version = "2.4.0", features = [], optional = true }
 
 [dependencies]
 serde_json = "1.0"
+json5 = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 env_logger = { version = "0.11", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 tauri = { version = "2.8.2", features = ["tray-icon", "protocol-asset"], optional = true }
 tauri-plugin-log = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }

@@ -19,6 +19,10 @@ import {
   geminiProviderPresets,
   type GeminiProviderPreset,
 } from "@/config/geminiProviderPresets";
+import {
+  opencodeProviderPresets,
+  type OpenCodeProviderPreset,
+} from "@/config/opencodeProviderPresets";
 import { applyTemplateValues } from "@/utils/providerConfigUtils";
 import { mergeProviderMeta } from "@/utils/providerMetaUtils";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
@@ -31,7 +35,12 @@ import { ClaudeFormFields } from "./ClaudeFormFields";
 import { CodexFormFields } from "./CodexFormFields";
 import { GeminiFormFields } from "./GeminiFormFields";
 import { OpenCodeFormFields } from "./OpenCodeFormFields";
-import { OPENCODE_DEFAULT_CONFIG } from "./helpers/opencodeFormUtils";
+import { OmoFormFields } from "./OmoFormFields";
+import {
+  OPENCODE_DEFAULT_CONFIG,
+  parseOpencodeConfig,
+} from "./helpers/opencodeFormUtils";
+import { parseOmoOtherFieldsObject } from "@/types/omo";
 import {
   useProviderCategory,
   useApiKeyState,
@@ -47,6 +56,8 @@ import {
   useGeminiConfigState,
   useGeminiCommonConfig,
 } from "./hooks";
+import { useOmoDraftState } from "./hooks/useOmoDraftState";
+import { useOmoModelSource } from "./hooks/useOmoModelSource";
 import { useOpencodeConfigState } from "./hooks/useOpencodeConfigState";
 
 const CLAUDE_DEFAULT_CONFIG = JSON.stringify({ env: {} }, null, 2);
@@ -73,7 +84,11 @@ const OMO_DEFAULT_CONFIG = JSON.stringify(
 
 type PresetEntry = {
   id: string;
-  preset: ProviderPreset | CodexProviderPreset | GeminiProviderPreset;
+  preset:
+    | ProviderPreset
+    | CodexProviderPreset
+    | GeminiProviderPreset
+    | OpenCodeProviderPreset;
 };
 
 interface ProviderFormProps {
@@ -104,8 +119,12 @@ export function ProviderForm({
 }: ProviderFormProps) {
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
+  const isOmoApp = appId === "omo" || appId === "omo-slim";
   const supportsPresets =
-    appId === "claude" || appId === "codex" || appId === "gemini";
+    appId === "claude" ||
+    appId === "codex" ||
+    appId === "gemini" ||
+    appId === "opencode";
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     initialData ? null : "custom",
@@ -161,7 +180,7 @@ export function ProviderForm({
             ? GEMINI_DEFAULT_CONFIG
             : appId === "opencode"
               ? OPENCODE_DEFAULT_CONFIG
-              : appId === "omo"
+              : appId === "omo" || appId === "omo-slim"
                 ? OMO_DEFAULT_CONFIG
                 : CLAUDE_DEFAULT_CONFIG,
     }),
@@ -271,6 +290,11 @@ export function ProviderForm({
       third_party: t("providerForm.categoryThirdParty", {
         defaultValue: "第三方",
       }),
+      cloud_provider: t("providerForm.categoryCloudProvider", {
+        defaultValue: "云服务",
+      }),
+      omo: "OMO",
+      "omo-slim": "OMO Slim",
     }),
     [t],
   );
@@ -291,6 +315,12 @@ export function ProviderForm({
     if (appId === "claude") {
       return providerPresets.map<PresetEntry>((preset, index) => ({
         id: `claude-${index}`,
+        preset,
+      }));
+    }
+    if (appId === "opencode") {
+      return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
+        id: `opencode-${index}`,
         preset,
       }));
     }
@@ -412,6 +442,19 @@ export function ProviderForm({
     getSettingsConfig: () => form.watch("settingsConfig"),
   });
 
+  const { omoModelOptions, omoModelVariantsMap, omoPresetMetaMap } =
+    useOmoModelSource({
+      isOmoCategory: isOmoApp,
+      providerId,
+    });
+
+  const omoDraft = useOmoDraftState({
+    initialOmoSettings: isOmoApp ? initialData?.settingsConfig : undefined,
+    isEditMode,
+    appId,
+    category: appId,
+  });
+
   const handleSubmit = (values: ProviderFormData) => {
     // 验证模板变量（仅 Claude 模式）
     if (appId === "claude" && templateValueEntries.length > 0) {
@@ -459,6 +502,51 @@ export function ProviderForm({
       }
     } else if (appId === "opencode") {
       settingsConfig = values.settingsConfig.trim();
+    } else if (isOmoApp) {
+      if (omoDraft.omoOtherFieldsStr.trim()) {
+        try {
+          const otherFields = parseOmoOtherFieldsObject(
+            omoDraft.omoOtherFieldsStr,
+          );
+          if (!otherFields) {
+            form.setError("settingsConfig", {
+              type: "manual",
+              message: t("omo.jsonMustBeObject", {
+                field: t("omo.otherFields", {
+                  defaultValue: "Other Config",
+                }),
+                defaultValue: "{{field}} must be a JSON object",
+              }),
+            });
+            return;
+          }
+        } catch {
+          form.setError("settingsConfig", {
+            type: "manual",
+            message: t("omo.invalidJson", {
+              defaultValue: "Other Fields contains invalid JSON",
+            }),
+          });
+          return;
+        }
+      }
+
+      const omoConfig: Record<string, unknown> = {};
+      if (Object.keys(omoDraft.omoAgents).length > 0) {
+        omoConfig.agents = omoDraft.omoAgents;
+      }
+      if (appId === "omo" && Object.keys(omoDraft.omoCategories).length > 0) {
+        omoConfig.categories = omoDraft.omoCategories;
+      }
+      if (omoDraft.omoOtherFieldsStr.trim()) {
+        const otherFields = parseOmoOtherFieldsObject(
+          omoDraft.omoOtherFieldsStr,
+        );
+        if (otherFields) {
+          Object.assign(omoConfig, otherFields);
+        }
+      }
+      settingsConfig = JSON.stringify(omoConfig);
     } else {
       // Claude: 使用表单配置
       settingsConfig = values.settingsConfig.trim();
@@ -480,6 +568,9 @@ export function ProviderForm({
       if (activePreset.isPartner) {
         payload.isPartner = activePreset.isPartner;
       }
+    }
+    if (isOmoApp && !payload.presetCategory) {
+      payload.presetCategory = appId;
     }
 
     // 处理 meta 字段：仅在新建模式下从 draftCustomEndpoints 生成 custom_endpoints
@@ -594,6 +685,19 @@ export function ProviderForm({
     formWebsiteUrl: form.watch("websiteUrl") || "",
   });
 
+  const {
+    shouldShowApiKeyLink: shouldShowOpencodeApiKeyLink,
+    websiteUrl: opencodeWebsiteUrl,
+    isPartner: isOpencodePartner,
+    partnerPromotionKey: opencodePartnerPromotionKey,
+  } = useApiKeyLink({
+    appId: "opencode",
+    category,
+    selectedPresetId,
+    presetEntries,
+    formWebsiteUrl: form.watch("websiteUrl") || "",
+  });
+
   // 使用端点测速候选 hook
   const speedTestEndpoints = useSpeedTestEndpoints({
     appId,
@@ -667,6 +771,29 @@ export function ProviderForm({
         name: preset.name,
         websiteUrl: preset.websiteUrl ?? "",
         settingsConfig: JSON.stringify(preset.settingsConfig, null, 2),
+      });
+      return;
+    }
+
+    if (appId === "opencode") {
+      const preset = entry.preset as OpenCodeProviderPreset;
+      if (preset.category === "omo" || preset.category === "omo-slim") {
+        form.reset({
+          name: preset.category === "omo" ? "OMO" : "OMO Slim",
+          websiteUrl: preset.websiteUrl ?? "",
+          notes: "",
+          settingsConfig: JSON.stringify({}, null, 2),
+        });
+        return;
+      }
+
+      const config = parseOpencodeConfig(preset.settingsConfig);
+      opencodeState.reset(config);
+      form.reset({
+        name: preset.nameKey ? t(preset.nameKey) : preset.name,
+        websiteUrl: preset.websiteUrl ?? "",
+        notes: "",
+        settingsConfig: JSON.stringify(config, null, 2),
       });
       return;
     }
@@ -807,15 +934,41 @@ export function ProviderForm({
         {appId === "opencode" && (
           <OpenCodeFormFields
             npm={opencodeState.npm}
-            apiKey={opencodeState.apiKey}
-            baseUrl={opencodeState.baseUrl}
-            models={opencodeState.models}
-            extraOptions={opencodeState.extraOptions}
             onNpmChange={opencodeState.handleNpmChange}
+            apiKey={opencodeState.apiKey}
             onApiKeyChange={opencodeState.handleApiKeyChange}
+            category={category}
+            shouldShowApiKeyLink={shouldShowOpencodeApiKeyLink}
+            websiteUrl={opencodeWebsiteUrl}
+            isPartner={isOpencodePartner}
+            partnerPromotionKey={opencodePartnerPromotionKey}
+            baseUrl={opencodeState.baseUrl}
             onBaseUrlChange={opencodeState.handleBaseUrlChange}
+            isFullUrl={opencodeState.isFullUrl}
+            onIsFullUrlChange={opencodeState.handleIsFullUrlChange}
+            modelsUrl={opencodeState.modelsUrl}
+            onModelsUrlChange={opencodeState.handleModelsUrlChange}
+            models={opencodeState.models}
             onModelsChange={opencodeState.handleModelsChange}
+            extraOptions={opencodeState.extraOptions}
             onExtraOptionsChange={opencodeState.handleExtraOptionsChange}
+          />
+        )}
+
+        {isOmoApp && (
+          <OmoFormFields
+            modelOptions={omoModelOptions}
+            modelVariantsMap={omoModelVariantsMap}
+            presetMetaMap={omoPresetMetaMap}
+            agents={omoDraft.omoAgents}
+            onAgentsChange={omoDraft.setOmoAgents}
+            categories={appId === "omo" ? omoDraft.omoCategories : undefined}
+            onCategoriesChange={
+              appId === "omo" ? omoDraft.setOmoCategories : undefined
+            }
+            otherFieldsStr={omoDraft.omoOtherFieldsStr}
+            onOtherFieldsStrChange={omoDraft.setOmoOtherFieldsStr}
+            isSlim={appId === "omo-slim"}
           />
         )}
 
@@ -874,6 +1027,16 @@ export function ProviderForm({
               )}
             />
           </>
+        ) : isOmoApp ? (
+          <FormField
+            control={form.control}
+            name="settingsConfig"
+            render={() => (
+              <FormItem className="space-y-0">
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         ) : (
           <>
             <CommonConfigEditor

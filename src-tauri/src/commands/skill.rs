@@ -167,7 +167,7 @@ pub fn uninstall_skill(
 
 fn parse_skill_app(raw: Option<String>) -> Result<AppType, String> {
     match raw {
-        Some(value) => AppType::parse_supported(&value).map_err(|e| e.to_string()),
+        Some(value) => AppType::parse_skills_app(&value).map_err(|e| e.to_string()),
         None => Ok(AppType::Claude),
     }
 }
@@ -187,6 +187,12 @@ mod tests {
     fn parse_skill_app_accepts_opencode() {
         let app = parse_skill_app(Some("opencode".into()))
             .expect("opencode should be supported for skills");
+        assert_eq!(app, AppType::Opencode);
+    }
+
+    #[test]
+    fn parse_skill_app_maps_omo_to_opencode() {
+        let app = parse_skill_app(Some("omo".into())).expect("omo should reuse opencode skills");
         assert_eq!(app, AppType::Opencode);
     }
 }

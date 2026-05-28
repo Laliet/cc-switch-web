@@ -27,6 +27,7 @@ import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
+import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
@@ -283,12 +284,17 @@ export function SettingsDialog({
               onValueChange={setActiveTab}
               className="flex flex-col h-full"
             >
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="general">
                   {t("settings.tabGeneral")}
                 </TabsTrigger>
                 <TabsTrigger value="advanced">
                   {t("settings.tabAdvanced")}
+                </TabsTrigger>
+                <TabsTrigger value="stream">
+                  {t("streamCheck.settingsTab", {
+                    defaultValue: "Stream Check",
+                  })}
                 </TabsTrigger>
                 <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
               </TabsList>
@@ -357,7 +363,13 @@ export function SettingsDialog({
                       />
                     ) : null}
                     {showWebCredentials ? (
-                      <section className="space-y-3">
+                      <form
+                        className="space-y-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void handleUpdateWebCredentials();
+                        }}
+                      >
                         <div>
                           <h3 className="text-sm font-medium">
                             {t("settings.webCredentials.title", {
@@ -424,8 +436,7 @@ export function SettingsDialog({
                         </div>
                         <div>
                           <Button
-                            type="button"
-                            onClick={() => void handleUpdateWebCredentials()}
+                            type="submit"
                             disabled={isUpdatingWebCredentials}
                           >
                             {isUpdatingWebCredentials
@@ -434,13 +445,20 @@ export function SettingsDialog({
                                 })
                               : t("settings.webCredentials.submit", {
                                   defaultValue: "更新凭据",
-                                })}
+                              })}
                           </Button>
                         </div>
-                      </section>
+                      </form>
                     ) : null}
                   </>
                 ) : null}
+              </TabsContent>
+
+              <TabsContent
+                value="stream"
+                className="space-y-6 mt-6 min-h-[400px]"
+              >
+                <ModelTestConfigPanel />
               </TabsContent>
 
               <TabsContent value="about" className="mt-6 min-h-[400px]">

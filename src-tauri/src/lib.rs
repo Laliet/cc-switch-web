@@ -602,6 +602,7 @@ pub fn run() {
                 config.ensure_app(&app_config::AppType::Gemini);
                 config.ensure_app(&app_config::AppType::Opencode);
                 config.ensure_app(&app_config::AppType::Omo);
+                config.ensure_app(&app_config::AppType::OmoSlim);
                 Ok(())
             }) {
                 log::error!("初始化配置失败，跳过 ensure_app: {e}");
@@ -779,6 +780,15 @@ pub fn run() {
             // provider sort order management
             commands::update_providers_sort_order,
             commands::get_omo_plugin_status,
+            commands::get_omo_slim_plugin_status,
+            commands::disable_current_omo,
+            commands::disable_current_omo_slim,
+            commands::get_opencode_live_provider_ids,
+            commands::fetch_models_for_config,
+            commands::stream_check_provider,
+            commands::stream_check_all_providers,
+            commands::get_stream_check_config,
+            commands::save_stream_check_config,
             // theirs: config import/export and dialogs
             commands::export_config_to_file,
             commands::import_config_from_file,

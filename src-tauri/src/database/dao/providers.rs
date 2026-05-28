@@ -19,6 +19,7 @@ impl Database {
             AppType::Gemini,
             AppType::Opencode,
             AppType::Omo,
+            AppType::OmoSlim,
         ] {
             apps.insert(app.as_str().to_string(), ProviderManager::default());
         }

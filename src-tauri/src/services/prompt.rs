@@ -21,7 +21,7 @@ impl PromptService {
             AppType::Codex => &cfg.prompts.codex.prompts,
             AppType::Gemini => &cfg.prompts.gemini.prompts,
             AppType::Opencode => &cfg.prompts.opencode.prompts,
-            AppType::Omo => {
+            AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::localized(
                     "app_not_supported_yet",
                     format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -44,7 +44,7 @@ impl PromptService {
                 AppType::Codex => &mut cfg.prompts.codex.prompts,
                 AppType::Gemini => &mut cfg.prompts.gemini.prompts,
                 AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-                AppType::Omo => {
+                AppType::Omo | AppType::OmoSlim => {
                     return Err(AppError::localized(
                         "app_not_supported_yet",
                         format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -77,7 +77,7 @@ impl PromptService {
                 AppType::Codex => &mut cfg.prompts.codex.prompts,
                 AppType::Gemini => &mut cfg.prompts.gemini.prompts,
                 AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-                AppType::Omo => {
+                AppType::Omo | AppType::OmoSlim => {
                     return Err(AppError::localized(
                         "app_not_supported_yet",
                         format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -111,7 +111,7 @@ impl PromptService {
                         AppType::Codex => &mut cfg.prompts.codex.prompts,
                         AppType::Gemini => &mut cfg.prompts.gemini.prompts,
                         AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-                        AppType::Omo => {
+                        AppType::Omo | AppType::OmoSlim => {
                             return Err(AppError::localized(
                                 "app_not_supported_yet",
                                 format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -162,7 +162,7 @@ impl PromptService {
                 AppType::Codex => &mut cfg.prompts.codex.prompts,
                 AppType::Gemini => &mut cfg.prompts.gemini.prompts,
                 AppType::Opencode => &mut cfg.prompts.opencode.prompts,
-                AppType::Omo => {
+                AppType::Omo | AppType::OmoSlim => {
                     return Err(AppError::localized(
                         "app_not_supported_yet",
                         format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
