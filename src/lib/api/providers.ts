@@ -79,6 +79,26 @@ export const providersApi = {
     return await invoke("get_omo_plugin_status");
   },
 
+  async getOmoSlimPluginStatus(): Promise<boolean> {
+    return await invoke("get_omo_slim_plugin_status");
+  },
+
+  async disableCurrentOmo(): Promise<boolean> {
+    return await invoke("disable_current_omo");
+  },
+
+  async disableCurrentOmoSlim(): Promise<boolean> {
+    return await invoke("disable_current_omo_slim");
+  },
+
+  async readLiveSettings(appId: AppId): Promise<Record<string, unknown>> {
+    return await invoke("read_live_provider_settings", { app: appId });
+  },
+
+  async getOpenCodeLiveProviderIds(): Promise<string[]> {
+    return await invoke("get_opencode_live_provider_ids");
+  },
+
   async getUniversalAll(): Promise<Record<string, UniversalProvider>> {
     return await invoke("get_universal_providers");
   },

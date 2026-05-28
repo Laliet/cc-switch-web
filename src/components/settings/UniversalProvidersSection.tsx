@@ -346,8 +346,9 @@ export function UniversalProvidersSection({
                 onChange={(event) =>
                   updateDraft({ apiKey: event.target.value })
                 }
-                type="password"
+                type="text"
                 autoComplete="off"
+                className="secret-text-security"
               />
             </div>
             <div className="space-y-2">

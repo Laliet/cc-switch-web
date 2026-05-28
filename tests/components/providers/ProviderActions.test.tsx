@@ -11,6 +11,9 @@ const tMock = vi.fn((key: string) => {
   if (key === "provider.enable") {
     return "启用";
   }
+  if (key === "streamCheck.action") {
+    return "流式健康检查";
+  }
   return key;
 });
 
@@ -71,19 +74,31 @@ describe("ProviderActions", () => {
 
   it("calls callbacks when buttons are clicked", async () => {
     const user = userEvent.setup();
-    const props = renderActions();
+    const props = renderActions({ onStreamCheck: vi.fn() });
 
     await user.click(screen.getByRole("button", { name: "启用" }));
     await user.click(screen.getByRole("button", { name: "common.edit" }));
     await user.click(
       screen.getByRole("button", { name: "provider.configureUsage" }),
     );
+    await user.click(screen.getByRole("button", { name: "流式健康检查" }));
     await user.click(screen.getByRole("button", { name: "common.delete" }));
 
     expect(props.onSwitch).toHaveBeenCalledTimes(1);
     expect(props.onEdit).toHaveBeenCalledTimes(1);
     expect(props.onConfigureUsage).toHaveBeenCalledTimes(1);
+    expect(props.onStreamCheck).toHaveBeenCalledTimes(1);
     expect(props.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides and disables stream check action according to props", () => {
+    renderActions();
+    expect(
+      screen.queryByRole("button", { name: "流式健康检查" }),
+    ).not.toBeInTheDocument();
+
+    renderActions({ onStreamCheck: vi.fn(), isStreamChecking: true });
+    expect(screen.getByRole("button", { name: "流式健康检查" })).toBeDisabled();
   });
 
   it("hides usage action when usage is unsupported", () => {

@@ -306,7 +306,7 @@ requires_openai_auth = true
 
             json!({ "env": env })
         }
-        AppType::Opencode | AppType::Omo => {
+        AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
             return Err(AppError::localized(
                 "app_not_supported_yet",
                 format!("应用 '{}' 暂未支持，敬请期待。", app_type.as_str()),

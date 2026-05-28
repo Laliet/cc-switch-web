@@ -6,7 +6,10 @@ use axum::{
 };
 
 use super::{
-    handlers::{config, health, mcp, prompts, providers, proxy, settings, skills, system},
+    handlers::{
+        config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
+        stream_check, system,
+    },
     SharedState,
 };
 
@@ -20,6 +23,8 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/settings", settings_routes())
         .nest("/proxy", proxy_routes())
         .nest("/config", config_routes())
+        .route("/model-fetch", post(model_fetch::fetch_models_for_config))
+        .nest("/stream-check", stream_check_routes())
         .route("/tray/update", post(system::update_tray))
         .route("/system/csrf-token", get(system::get_csrf_token))
         .route("/system/credentials", put(system::update_credentials))
@@ -28,6 +33,19 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/fs/save-file", post(config::save_file_dialog))
         .route("/fs/open-file", post(config::open_file_dialog))
         .with_state(state)
+}
+
+fn stream_check_routes() -> Router<SharedState> {
+    Router::new()
+        .route(
+            "/config",
+            get(stream_check::get_stream_check_config).put(stream_check::save_stream_check_config),
+        )
+        .route(
+            "/providers/:app/:id",
+            post(stream_check::stream_check_provider),
+        )
+        .route("/providers", post(stream_check::stream_check_all_providers))
 }
 
 fn provider_routes() -> Router<SharedState> {
@@ -53,6 +71,10 @@ fn provider_routes() -> Router<SharedState> {
             get(providers::read_live_provider_settings),
         )
         .route(
+            "/opencode/live-provider-ids",
+            get(providers::opencode_live_provider_ids),
+        )
+        .route(
             "/:app/:id",
             put(providers::update_provider).delete(providers::delete_provider),
         )
@@ -65,6 +87,15 @@ fn provider_routes() -> Router<SharedState> {
         )
         .route("/:app/sort-order", put(providers::update_sort_order))
         .route("/omo/plugin-status", get(providers::omo_plugin_status))
+        .route(
+            "/omo-slim/plugin-status",
+            get(providers::omo_slim_plugin_status),
+        )
+        .route("/omo/disable-current", post(providers::disable_current_omo))
+        .route(
+            "/omo-slim/disable-current",
+            post(providers::disable_current_omo_slim),
+        )
         .route(
             "/:app/backup",
             get(providers::backup_provider).put(providers::set_backup_provider),

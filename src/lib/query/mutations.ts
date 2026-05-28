@@ -31,7 +31,9 @@ const getLiveConfigPath = (appId: AppId, dir: string): string => {
     case "opencode":
       return joinDisplayPath(dir, "opencode.json");
     case "omo":
-      return joinDisplayPath(dir, "oh-my-opencode.jsonc");
+      return joinDisplayPath(dir, "oh-my-openagent.jsonc");
+    case "omo-slim":
+      return joinDisplayPath(dir, "oh-my-opencode-slim.jsonc");
     default:
       return dir;
   }

@@ -196,7 +196,7 @@
     "geminiConfigDir": "Gemini Configuration Directory",
     "geminiConfigDirDescription": "Override Gemini configuration directory (.env). On Windows + WSL use \\\\wsl$\\Distro\\home\\user\\.gemini.",
     "opencodeConfigDir": "OpenCode / OMO Configuration Directory",
-    "opencodeConfigDirDescription": "Override the shared OpenCode and oh-my-opencode configuration directory. On Windows + WSL use \\\\wsl$\\Distro\\home\\user\\.config\\opencode.",
+    "opencodeConfigDirDescription": "Override the shared OpenCode and OMO configuration directory. On Windows + WSL use \\\\wsl$\\Distro\\home\\user\\.config\\opencode.",
     "currentWriteTarget": "Current live write target: {{path}}",
     "homeMismatchHint": "Web service HOME ({{serviceHome}}) differs from account HOME ({{accountHome}}). The app currently writes to {{path}}. Set an explicit override here if you want another target.",
     "browsePlaceholderClaude": "e.g., /home/<your-username>/.claude or \\\\wsl$\\Ubuntu\\home\\<your-username>\\.claude",
@@ -257,6 +257,7 @@
     "gemini": "Gemini",
     "opencode": "OpenCode",
     "omo": "OMO",
+    "omo-slim": "OMO Slim",
     "comingSoon": "Coming soon",
     "scopeHint": "This only switches the management view. Live config changes happen when you switch providers."
   },

@@ -32,7 +32,8 @@ describe("AppSwitcher", () => {
     expect(getButton("apps.gemini")).toBeInTheDocument();
     expect(getButton("apps.opencode")).toBeInTheDocument();
     expect(getButton("apps.omo")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(5);
+    expect(getButton("apps.omo-slim")).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(6);
   });
 
   it("calls onSwitch when clicking different buttons", async () => {
@@ -44,12 +45,14 @@ describe("AppSwitcher", () => {
     await user.click(getButton("apps.gemini"));
     await user.click(getButton("apps.opencode"));
     await user.click(getButton("apps.omo"));
+    await user.click(getButton("apps.omo-slim"));
 
-    expect(onSwitch).toHaveBeenCalledTimes(4);
+    expect(onSwitch).toHaveBeenCalledTimes(5);
     expect(onSwitch).toHaveBeenNthCalledWith(1, "codex");
     expect(onSwitch).toHaveBeenNthCalledWith(2, "gemini");
     expect(onSwitch).toHaveBeenNthCalledWith(3, "opencode");
     expect(onSwitch).toHaveBeenNthCalledWith(4, "omo");
+    expect(onSwitch).toHaveBeenNthCalledWith(5, "omo-slim");
   });
 
   it("does not call onSwitch when clicking active button", async () => {

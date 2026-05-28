@@ -1,4 +1,4 @@
-import { BarChart3, Check, Edit, Play, Trash2 } from "lucide-react";
+import { Activity, BarChart3, Check, Edit, Play, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,8 @@ interface ProviderActionsProps {
   onSwitch: () => void;
   onEdit: () => void;
   onConfigureUsage: () => void;
+  onStreamCheck?: () => void;
+  isStreamChecking?: boolean;
   onDelete: () => void;
   showUsageActions?: boolean;
 }
@@ -17,6 +19,8 @@ export function ProviderActions({
   onSwitch,
   onEdit,
   onConfigureUsage,
+  onStreamCheck,
+  isStreamChecking = false,
   onDelete,
   showUsageActions = true,
 }: ProviderActionsProps) {
@@ -66,6 +70,25 @@ export function ProviderActions({
             title={t("provider.configureUsage")}
           >
             <BarChart3 className="h-4 w-4" />
+          </Button>
+        ) : null}
+
+        {onStreamCheck ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={onStreamCheck}
+            disabled={isStreamChecking}
+            aria-label={t("streamCheck.action", {
+              defaultValue: "流式健康检查",
+            })}
+            title={t("streamCheck.action", {
+              defaultValue: "流式健康检查",
+            })}
+          >
+            <Activity
+              className={cn("h-4 w-4", isStreamChecking && "animate-pulse")}
+            />
           </Button>
         ) : null}
 

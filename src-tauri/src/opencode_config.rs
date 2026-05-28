@@ -4,6 +4,36 @@ use crate::settings::get_opencode_override_dir;
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 
+const STANDARD_OMO_PLUGIN_PREFIXES: [&str; 2] = ["oh-my-openagent", "oh-my-opencode"];
+const SLIM_OMO_PLUGIN_PREFIXES: [&str; 1] = ["oh-my-opencode-slim"];
+pub const STANDARD_OMO_PLUGIN: &str = "oh-my-openagent@latest";
+#[allow(dead_code)]
+pub const LEGACY_OMO_PLUGIN: &str = "oh-my-opencode@latest";
+pub const SLIM_OMO_PLUGIN: &str = "oh-my-opencode-slim@latest";
+
+fn matches_plugin_prefix(plugin_name: &str, prefix: &str) -> bool {
+    plugin_name == prefix
+        || plugin_name
+            .strip_prefix(prefix)
+            .map(|suffix| suffix.starts_with('@'))
+            .unwrap_or(false)
+}
+
+fn matches_any_plugin_prefix(plugin_name: &str, prefixes: &[&str]) -> bool {
+    prefixes
+        .iter()
+        .any(|prefix| matches_plugin_prefix(plugin_name, prefix))
+}
+
+fn canonicalize_plugin_name(plugin_name: &str) -> String {
+    if let Some(suffix) = plugin_name.strip_prefix("oh-my-opencode") {
+        if suffix.is_empty() || suffix.starts_with('@') {
+            return format!("oh-my-openagent{suffix}");
+        }
+    }
+    plugin_name.to_string()
+}
+
 pub fn get_opencode_dir() -> PathBuf {
     get_client_config_dir_path(get_opencode_override_dir(), ".config/opencode")
         .unwrap_or_else(|_| PathBuf::from(".config").join("opencode"))
@@ -27,7 +57,12 @@ pub fn read_opencode_config() -> Result<Value, AppError> {
     }
 
     let content = std::fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
-    serde_json::from_str(&content).map_err(|e| AppError::json(&path, e))
+    json5::from_str(&content).map_err(|e| {
+        AppError::Config(format!(
+            "Failed to parse OpenCode config: {}: {e}",
+            path.display()
+        ))
+    })
 }
 
 pub fn write_opencode_config(config: &Value) -> Result<(), AppError> {
@@ -80,6 +115,7 @@ pub fn remove_provider(id: &str) -> Result<(), AppError> {
 
 pub fn add_plugin(plugin_name: &str) -> Result<(), AppError> {
     let mut config = read_opencode_config()?;
+    let normalized_plugin_name = canonicalize_plugin_name(plugin_name);
 
     let plugins = config
         .get_mut("plugin")
@@ -87,20 +123,50 @@ pub fn add_plugin(plugin_name: &str) -> Result<(), AppError> {
 
     match plugins {
         Some(arr) => {
-            let already_exists = arr.iter().any(|value| value.as_str() == Some(plugin_name));
+            if matches_any_plugin_prefix(&normalized_plugin_name, &STANDARD_OMO_PLUGIN_PREFIXES)
+                || matches_any_plugin_prefix(&normalized_plugin_name, &SLIM_OMO_PLUGIN_PREFIXES)
+            {
+                arr.retain(|value| {
+                    value
+                        .as_str()
+                        .map(|plugin| {
+                            !matches_any_plugin_prefix(plugin, &STANDARD_OMO_PLUGIN_PREFIXES)
+                                && !matches_any_plugin_prefix(plugin, &SLIM_OMO_PLUGIN_PREFIXES)
+                        })
+                        .unwrap_or(true)
+                });
+            }
+
+            let already_exists = arr
+                .iter()
+                .any(|value| value.as_str() == Some(normalized_plugin_name.as_str()));
             if !already_exists {
-                arr.push(Value::String(plugin_name.to_string()));
+                arr.push(Value::String(normalized_plugin_name));
             }
         }
         None => {
-            config["plugin"] = json!([plugin_name]);
+            config["plugin"] = json!([normalized_plugin_name]);
         }
     }
 
     write_opencode_config(&config)
 }
 
+pub fn add_standard_omo_plugin() -> Result<(), AppError> {
+    add_plugin(STANDARD_OMO_PLUGIN)
+}
+
+#[allow(dead_code)]
+pub fn add_slim_omo_plugin() -> Result<(), AppError> {
+    add_plugin(SLIM_OMO_PLUGIN)
+}
+
+#[allow(dead_code)]
 pub fn remove_plugin_by_prefix(prefix: &str) -> Result<(), AppError> {
+    remove_plugins_by_prefixes(&[prefix])
+}
+
+pub fn remove_plugins_by_prefixes(prefixes: &[&str]) -> Result<(), AppError> {
     let mut config = read_opencode_config()?;
 
     if let Some(arr) = config
@@ -110,7 +176,7 @@ pub fn remove_plugin_by_prefix(prefix: &str) -> Result<(), AppError> {
         arr.retain(|value| {
             value
                 .as_str()
-                .map(|plugin| !plugin.starts_with(prefix))
+                .map(|plugin| !matches_any_plugin_prefix(plugin, prefixes))
                 .unwrap_or(true)
         });
 
@@ -122,15 +188,48 @@ pub fn remove_plugin_by_prefix(prefix: &str) -> Result<(), AppError> {
     write_opencode_config(&config)
 }
 
+#[allow(dead_code)]
 pub fn has_plugin(plugin_name: &str) -> Result<bool, AppError> {
+    has_any_plugin(&[plugin_name])
+}
+
+#[allow(dead_code)]
+pub fn has_any_plugin(plugin_names: &[&str]) -> Result<bool, AppError> {
     let config = read_opencode_config()?;
     Ok(config
         .get("plugin")
         .and_then(|value| value.as_array())
         .map(|plugins| {
-            plugins
-                .iter()
-                .any(|value| value.as_str() == Some(plugin_name))
+            plugins.iter().any(|value| {
+                value.as_str().is_some_and(|plugin| {
+                    plugin_names
+                        .iter()
+                        .any(|name| plugin == canonicalize_plugin_name(name))
+                })
+            })
+        })
+        .unwrap_or(false))
+}
+
+pub fn has_standard_omo_plugin() -> Result<bool, AppError> {
+    has_any_plugin_prefix(&STANDARD_OMO_PLUGIN_PREFIXES)
+}
+
+pub fn has_slim_omo_plugin() -> Result<bool, AppError> {
+    has_any_plugin_prefix(&SLIM_OMO_PLUGIN_PREFIXES)
+}
+
+fn has_any_plugin_prefix(prefixes: &[&str]) -> Result<bool, AppError> {
+    let config = read_opencode_config()?;
+    Ok(config
+        .get("plugin")
+        .and_then(|value| value.as_array())
+        .map(|plugins| {
+            plugins.iter().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|plugin| matches_any_plugin_prefix(plugin, prefixes))
+            })
         })
         .unwrap_or(false))
 }
@@ -172,4 +271,57 @@ pub fn remove_mcp_server(id: &str) -> Result<(), AppError> {
     }
 
     write_opencode_config(&config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn canonicalizes_legacy_omo_plugin_name() {
+        assert_eq!(
+            canonicalize_plugin_name("oh-my-opencode@latest"),
+            "oh-my-openagent@latest"
+        );
+        assert_eq!(
+            canonicalize_plugin_name("oh-my-opencode"),
+            "oh-my-openagent"
+        );
+        assert_eq!(
+            canonicalize_plugin_name("oh-my-opencode-slim@latest"),
+            "oh-my-opencode-slim@latest"
+        );
+    }
+
+    #[test]
+    fn plugin_prefix_matching_requires_exact_package_prefix() {
+        assert!(matches_plugin_prefix(
+            "oh-my-openagent@latest",
+            "oh-my-openagent"
+        ));
+        assert!(matches_plugin_prefix("oh-my-openagent", "oh-my-openagent"));
+        assert!(!matches_plugin_prefix(
+            "oh-my-openagent-slim@latest",
+            "oh-my-openagent"
+        ));
+    }
+
+    #[test]
+    fn read_opencode_config_accepts_json5_content_shape() {
+        let parsed: Value = json5::from_str(
+            r#"{
+              // OpenCode accepts JSON5-style comments
+              provider: {
+                test: { npm: "@ai-sdk/openai-compatible" },
+              },
+            }"#,
+        )
+        .expect("json5 should parse");
+
+        assert_eq!(
+            parsed["provider"]["test"]["npm"],
+            json!("@ai-sdk/openai-compatible")
+        );
+    }
 }

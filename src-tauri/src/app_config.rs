@@ -25,7 +25,7 @@ impl McpApps {
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::Opencode => self.opencode,
-            AppType::Omo => false,
+            AppType::Omo | AppType::OmoSlim => false,
         }
     }
 
@@ -36,7 +36,7 @@ impl McpApps {
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::Opencode => self.opencode = enabled,
-            AppType::Omo => {}
+            AppType::Omo | AppType::OmoSlim => {}
         }
     }
 
@@ -234,6 +234,8 @@ pub enum AppType {
     Gemini,
     Opencode,
     Omo,
+    #[serde(rename = "omo-slim")]
+    OmoSlim,
 }
 
 impl AppType {
@@ -244,6 +246,7 @@ impl AppType {
             AppType::Gemini => "gemini",
             AppType::Opencode => "opencode",
             AppType::Omo => "omo",
+            AppType::OmoSlim => "omo-slim",
         }
     }
 
@@ -270,6 +273,17 @@ impl AppType {
         app.ensure_supported()?;
         Ok(app)
     }
+
+    pub fn parse_skills_app(s: &str) -> Result<Self, AppError> {
+        let app = Self::from_str(s)?;
+        Ok(match app {
+            AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+            other => {
+                other.ensure_supported()?;
+                other
+            }
+        })
+    }
 }
 
 impl FromStr for AppType {
@@ -283,13 +297,14 @@ impl FromStr for AppType {
             "gemini" => Ok(AppType::Gemini),
             "opencode" => Ok(AppType::Opencode),
             "omo" => Ok(AppType::Omo),
+            "omo-slim" | "omoslim" => Ok(AppType::OmoSlim),
             other => Err(AppError::localized(
                 "unsupported_app",
                 format!(
-                    "不支持的应用标识: '{other}'。可选值: claude, codex, gemini, opencode, omo。"
+                    "不支持的应用标识: '{other}'。可选值: claude, codex, gemini, opencode, omo, omo-slim。"
                 ),
                 format!(
-                    "Unsupported app id: '{other}'. Allowed: claude, codex, gemini, opencode, omo."
+                    "Unsupported app id: '{other}'. Allowed: claude, codex, gemini, opencode, omo, omo-slim."
                 ),
             )),
         }
@@ -316,7 +331,7 @@ impl CommonConfigSnippets {
             AppType::Claude => self.claude.as_ref(),
             AppType::Codex => self.codex.as_ref(),
             AppType::Gemini => self.gemini.as_ref(),
-            AppType::Opencode | AppType::Omo => None,
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => None,
         }
     }
 
@@ -326,7 +341,7 @@ impl CommonConfigSnippets {
             AppType::Claude => self.claude = snippet,
             AppType::Codex => self.codex = snippet,
             AppType::Gemini => self.gemini = snippet,
-            AppType::Opencode | AppType::Omo => {}
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {}
         }
     }
 }
@@ -368,6 +383,7 @@ impl Default for MultiAppConfig {
         apps.insert("gemini".to_string(), ProviderManager::default());
         apps.insert("opencode".to_string(), ProviderManager::default());
         apps.insert("omo".to_string(), ProviderManager::default());
+        apps.insert("omo-slim".to_string(), ProviderManager::default());
 
         Self {
             version: 2,
@@ -436,7 +452,7 @@ impl MultiAppConfig {
             updated = true;
         }
 
-        for app_id in ["gemini", "opencode", "omo"] {
+        for app_id in ["gemini", "opencode", "omo", "omo-slim"] {
             if !self.apps.contains_key(app_id) {
                 self.apps
                     .insert(app_id.to_string(), ProviderManager::default());
@@ -555,8 +571,7 @@ impl MultiAppConfig {
             AppType::Claude => &self.mcp.claude,
             AppType::Codex => &self.mcp.codex,
             AppType::Gemini => &self.mcp.gemini,
-            AppType::Opencode => &self.mcp.opencode,
-            AppType::Omo => &self.mcp.codex,
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => &self.mcp.opencode,
         }
     }
 
@@ -566,8 +581,7 @@ impl MultiAppConfig {
             AppType::Claude => &mut self.mcp.claude,
             AppType::Codex => &mut self.mcp.codex,
             AppType::Gemini => &mut self.mcp.gemini,
-            AppType::Opencode => &mut self.mcp.opencode,
-            AppType::Omo => &mut self.mcp.codex,
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => &mut self.mcp.opencode,
         }
     }
 
@@ -684,7 +698,7 @@ impl MultiAppConfig {
             AppType::Codex => &mut config.prompts.codex.prompts,
             AppType::Gemini => &mut config.prompts.gemini.prompts,
             AppType::Opencode => &mut config.prompts.opencode.prompts,
-            AppType::Omo => return Ok(false),
+            AppType::Omo | AppType::OmoSlim => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -724,7 +738,7 @@ impl MultiAppConfig {
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::Opencode => &self.mcp.opencode.servers,
-                AppType::Omo => continue,
+                AppType::Omo | AppType::OmoSlim => continue,
             };
 
             for (id, entry) in old_servers {

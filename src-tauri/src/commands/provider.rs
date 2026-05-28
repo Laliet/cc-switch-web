@@ -224,6 +224,13 @@ pub fn read_live_provider_settings(
     ProviderService::read_live_settings(app_type).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_opencode_live_provider_ids() -> Result<Vec<String>, String> {
+    crate::opencode_config::get_providers()
+        .map(|providers| providers.keys().cloned().collect())
+        .map_err(|e| e.to_string())
+}
+
 /// 测试第三方/自定义供应商端点的网络延迟
 #[tauri::command]
 pub async fn test_api_endpoints(
@@ -297,8 +304,26 @@ pub fn update_providers_sort_order(
     ProviderService::update_sort_order(state.inner(), app_type, updates).map_err(|e| e.to_string())
 }
 
-/// 查询 opencode.json 是否已启用 oh-my-opencode 插件。
+/// 查询 opencode.json 是否已启用标准 OMO 插件。
 #[tauri::command]
 pub fn get_omo_plugin_status() -> Result<bool, String> {
-    crate::opencode_config::has_plugin("oh-my-opencode@latest").map_err(|e| e.to_string())
+    crate::opencode_config::has_standard_omo_plugin().map_err(|e| e.to_string())
+}
+
+/// 查询 opencode.json 是否已启用 OMO Slim 插件。
+#[tauri::command]
+pub fn get_omo_slim_plugin_status() -> Result<bool, String> {
+    crate::opencode_config::has_slim_omo_plugin().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn disable_current_omo(state: State<'_, AppState>) -> Result<bool, String> {
+    ProviderService::disable_current_omo(state.inner()).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn disable_current_omo_slim(state: State<'_, AppState>) -> Result<bool, String> {
+    ProviderService::disable_current_omo_slim(state.inner()).map_err(|e| e.to_string())?;
+    Ok(true)
 }

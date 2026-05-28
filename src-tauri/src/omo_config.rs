@@ -6,27 +6,48 @@ use std::path::PathBuf;
 
 const OMO_CONFIG_JSONC: &str = "oh-my-opencode.jsonc";
 const OMO_CONFIG_JSON: &str = "oh-my-opencode.json";
+const OPENAGENT_CONFIG_JSONC: &str = "oh-my-openagent.jsonc";
+const OPENAGENT_CONFIG_JSON: &str = "oh-my-openagent.json";
+const OMO_SLIM_CONFIG_JSONC: &str = "oh-my-opencode-slim.jsonc";
+const OMO_SLIM_CONFIG_JSON: &str = "oh-my-opencode-slim.json";
 
 pub fn get_omo_dir() -> PathBuf {
     get_opencode_dir()
 }
 
 pub fn get_omo_config_path() -> PathBuf {
-    get_omo_dir().join(OMO_CONFIG_JSONC)
+    get_omo_dir().join(OPENAGENT_CONFIG_JSONC)
 }
 
 pub fn resolve_omo_config_path() -> PathBuf {
-    let jsonc_path = get_omo_config_path();
-    if jsonc_path.exists() {
-        return jsonc_path;
+    for file_name in [
+        OPENAGENT_CONFIG_JSONC,
+        OPENAGENT_CONFIG_JSON,
+        OMO_CONFIG_JSONC,
+        OMO_CONFIG_JSON,
+    ] {
+        let path = get_omo_dir().join(file_name);
+        if path.exists() {
+            return path;
+        }
     }
 
-    let json_path = get_omo_dir().join(OMO_CONFIG_JSON);
-    if json_path.exists() {
-        return json_path;
+    get_omo_config_path()
+}
+
+pub fn get_omo_slim_config_path() -> PathBuf {
+    get_omo_dir().join(OMO_SLIM_CONFIG_JSONC)
+}
+
+pub fn resolve_omo_slim_config_path() -> PathBuf {
+    for file_name in [OMO_SLIM_CONFIG_JSONC, OMO_SLIM_CONFIG_JSON] {
+        let path = get_omo_dir().join(file_name);
+        if path.exists() {
+            return path;
+        }
     }
 
-    jsonc_path
+    get_omo_slim_config_path()
 }
 
 pub fn read_omo_config() -> Result<Value, AppError> {
@@ -42,6 +63,23 @@ pub fn read_omo_config() -> Result<Value, AppError> {
 
 pub fn write_omo_config(config: &Value) -> Result<(), AppError> {
     let path = get_omo_config_path();
+    write_json_file(&path, config)?;
+    Ok(())
+}
+
+pub fn read_omo_slim_config() -> Result<Value, AppError> {
+    let path = resolve_omo_slim_config_path();
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+
+    let content = std::fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+    let cleaned = strip_jsonc_comments(&content);
+    serde_json::from_str(&cleaned).map_err(|e| AppError::json(&path, e))
+}
+
+pub fn write_omo_slim_config(config: &Value) -> Result<(), AppError> {
+    let path = get_omo_slim_config_path();
     write_json_file(&path, config)?;
     Ok(())
 }
@@ -130,7 +168,25 @@ mod tests {
         let file_name = path.file_name().and_then(|value| value.to_str());
         assert!(matches!(
             file_name,
-            Some(OMO_CONFIG_JSONC | OMO_CONFIG_JSON)
+            Some(
+                OPENAGENT_CONFIG_JSONC | OPENAGENT_CONFIG_JSON | OMO_CONFIG_JSONC | OMO_CONFIG_JSON
+            )
         ));
+    }
+
+    #[test]
+    fn default_write_paths_use_openagent_and_slim_names() {
+        assert_eq!(
+            get_omo_config_path()
+                .file_name()
+                .and_then(|value| value.to_str()),
+            Some(OPENAGENT_CONFIG_JSONC)
+        );
+        assert_eq!(
+            get_omo_slim_config_path()
+                .file_name()
+                .and_then(|value| value.to_str()),
+            Some(OMO_SLIM_CONFIG_JSONC)
+        );
     }
 }

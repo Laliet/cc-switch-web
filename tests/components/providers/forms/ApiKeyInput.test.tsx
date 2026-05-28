@@ -36,11 +36,12 @@ describe("ApiKeyInput", () => {
     expect(screen.getByLabelText("Secret Key")).toBeInTheDocument();
   });
 
-  it("hides the key by default", () => {
+  it("masks the key by default without using a password input", () => {
     renderApiKeyInput({ value: "token" });
 
     const input = screen.getByLabelText("API Key") as HTMLInputElement;
-    expect(input.type).toBe("password");
+    expect(input.type).toBe("text");
+    expect(input).toHaveClass("secret-text-security");
   });
 
   it("toggles visibility when the eye button is clicked", async () => {
@@ -55,13 +56,15 @@ describe("ApiKeyInput", () => {
     await user.click(toggleButton);
 
     expect(input.type).toBe("text");
+    expect(input).not.toHaveClass("secret-text-security");
     expect(
       screen.getByRole("button", { name: "apiKeyInput.hide" }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "apiKeyInput.hide" }));
 
-    expect(input.type).toBe("password");
+    expect(input.type).toBe("text");
+    expect(input).toHaveClass("secret-text-security");
     expect(
       screen.getByRole("button", { name: "apiKeyInput.show" }),
     ).toBeInTheDocument();

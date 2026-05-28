@@ -1,5 +1,8 @@
-use super::super::{from_json_string, lock_conn, to_json_string, Database};
+use super::super::{
+    from_json_string, lock_conn, to_json_string, Database, SETTINGS_STREAM_CHECK_CONFIG,
+};
 use crate::error::AppError;
+use crate::services::stream_check::StreamCheckConfig;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -62,5 +65,22 @@ impl Database {
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, AppError> {
         let conn = lock_conn!(self.conn);
         self.get_setting_with_conn(&conn, key)
+    }
+
+    pub fn get_stream_check_config(&self) -> Result<StreamCheckConfig, AppError> {
+        let conn = lock_conn!(self.conn);
+        Ok(self
+            .load_json_setting_with_conn(&conn, SETTINGS_STREAM_CHECK_CONFIG)?
+            .unwrap_or_default())
+    }
+
+    pub fn save_stream_check_config(&self, config: &StreamCheckConfig) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![SETTINGS_STREAM_CHECK_CONFIG, to_json_string(config)?],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
     }
 }

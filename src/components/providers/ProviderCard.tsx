@@ -30,6 +30,8 @@ interface ProviderCardProps {
   onEdit: (provider: Provider) => void;
   onDelete: (provider: Provider) => void;
   onConfigureUsage: (provider: Provider) => void;
+  onStreamCheck?: (provider: Provider) => void;
+  isStreamChecking?: boolean;
   onOpenWebsite: (url: string) => void;
   onDuplicate: (provider: Provider) => void;
   onAutoFailover?: (targetId?: string | null) => void;
@@ -87,6 +89,8 @@ export function ProviderCard({
   onEdit,
   onDelete,
   onConfigureUsage,
+  onStreamCheck,
+  isStreamChecking = false,
   onOpenWebsite,
   onDuplicate,
   onAutoFailover,
@@ -313,6 +317,10 @@ export function ProviderCard({
             onSwitch={() => onSwitch(provider)}
             onEdit={() => onEdit(provider)}
             onConfigureUsage={() => onConfigureUsage(provider)}
+            onStreamCheck={
+              onStreamCheck ? () => onStreamCheck(provider) : undefined
+            }
+            isStreamChecking={isStreamChecking}
             onDelete={() => onDelete(provider)}
             showUsageActions={usageSupported}
           />

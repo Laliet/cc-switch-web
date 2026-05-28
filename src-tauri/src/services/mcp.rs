@@ -195,7 +195,7 @@ impl McpService {
             AppType::Opencode => {
                 mcp::sync_single_server_to_opencode(cfg, &server.id, &server.server)?;
             }
-            AppType::Omo => {
+            AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::localized(
                     "app_not_supported_yet",
                     format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -225,7 +225,7 @@ impl McpService {
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
             AppType::Opencode => mcp::remove_server_from_opencode(id)?,
-            AppType::Omo => {
+            AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::localized(
                     "app_not_supported_yet",
                     format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),

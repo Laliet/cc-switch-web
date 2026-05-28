@@ -160,7 +160,9 @@ pub async fn get_config_dir_info(
         AppType::Opencode => {
             crate::opencode_config::get_opencode_dir_info().map_err(ApiError::from)?
         }
-        AppType::Omo => crate::opencode_config::get_opencode_dir_info().map_err(ApiError::from)?,
+        AppType::Omo | AppType::OmoSlim => {
+            crate::opencode_config::get_opencode_dir_info().map_err(ApiError::from)?
+        }
     };
 
     Ok(Json(info))
@@ -180,7 +182,7 @@ fn get_supported_config_dir(app_type: AppType) -> Result<std::path::PathBuf, Api
         AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from),
         AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from),
         AppType::Opencode => Ok(crate::opencode_config::get_opencode_dir()),
-        AppType::Omo => Ok(crate::omo_config::get_omo_dir()),
+        AppType::Omo | AppType::OmoSlim => Ok(crate::omo_config::get_omo_dir()),
     }
 }
 
@@ -269,7 +271,7 @@ pub async fn set_common_config_snippet(
                     .map_err(|e| ApiError::bad_request(format!("无效的 JSON 格式: {e}")))?;
             }
             AppType::Codex => { /* 不验证 TOML */ }
-            AppType::Opencode | AppType::Omo => {
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
                 return Err(ApiError::bad_request(format!(
                     "应用 '{}' 暂未支持，敬请期待。",
                     app_type.as_str()
