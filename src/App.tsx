@@ -732,6 +732,9 @@ function AppContent() {
             onOpenWebsite={handleOpenWebsite}
             onCreate={() => setIsAddOpen(true)}
             onAutoFailover={handleAutoFailover}
+            onOmoDisabled={async () => {
+              await refetch();
+            }}
           />
         </div>
       </main>

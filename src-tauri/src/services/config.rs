@@ -293,6 +293,7 @@ impl ConfigService {
         Self::sync_current_provider_for_app(config, &AppType::Gemini)?;
         Self::sync_current_provider_for_app(config, &AppType::Opencode)?;
         Self::sync_current_provider_for_app(config, &AppType::Omo)?;
+        Self::sync_current_provider_for_app(config, &AppType::OmoSlim)?;
         Ok(())
     }
 
@@ -328,7 +329,9 @@ impl ConfigService {
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
             AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
             AppType::Opencode => Self::sync_opencode_live(config)?,
-            AppType::Omo => Self::sync_omo_live(config, &current_id, &provider)?,
+            AppType::Omo | AppType::OmoSlim => {
+                Self::sync_omo_live(config, app_type, &current_id, &provider)?
+            }
         }
 
         Ok(())
@@ -482,13 +485,22 @@ impl ConfigService {
 
     fn sync_omo_live(
         config: &mut MultiAppConfig,
+        app_type: &AppType,
         provider_id: &str,
         provider: &Provider,
     ) -> Result<(), AppError> {
-        ProviderService::write_omo_live(provider)?;
+        if matches!(app_type, AppType::OmoSlim) {
+            ProviderService::write_omo_slim_live(provider)?;
+        } else {
+            ProviderService::write_omo_live(provider)?;
+        }
 
-        let live_after = crate::omo_config::read_omo_config()?;
-        if let Some(manager) = config.get_manager_mut(&AppType::Omo) {
+        let live_after = if matches!(app_type, AppType::OmoSlim) {
+            crate::omo_config::read_omo_slim_config()?
+        } else {
+            crate::omo_config::read_omo_config()?
+        };
+        if let Some(manager) = config.get_manager_mut(app_type) {
             if let Some(target) = manager.providers.get_mut(provider_id) {
                 target.settings_config = live_after;
             }

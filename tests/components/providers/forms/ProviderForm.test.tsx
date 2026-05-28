@@ -3,6 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderForm } from "@/components/providers/forms/ProviderForm";
 
+let omoDraftMock = {
+  omoAgents: {} as Record<string, Record<string, unknown>>,
+  omoCategories: {} as Record<string, Record<string, unknown>>,
+  omoOtherFieldsStr: "",
+  mergedOmoJsonPreview: "{}",
+};
+
 const tMock = vi.fn((key: string, options?: Record<string, unknown>) => {
   if (options?.defaultValue) {
     return String(options.defaultValue);
@@ -54,6 +61,20 @@ vi.mock("@/components/providers/forms/CodexFormFields", () => ({
 
 vi.mock("@/components/providers/forms/GeminiFormFields", () => ({
   GeminiFormFields: () => <div data-testid="gemini-fields">Gemini Fields</div>,
+}));
+
+vi.mock("@/components/providers/forms/OpenCodeFormFields", () => ({
+  OpenCodeFormFields: () => (
+    <div data-testid="opencode-fields">OpenCode Fields</div>
+  ),
+}));
+
+vi.mock("@/components/providers/forms/OmoFormFields", () => ({
+  OmoFormFields: ({ isSlim }: any) => (
+    <div data-testid="omo-fields" data-slim={String(Boolean(isSlim))}>
+      OMO Fields
+    </div>
+  ),
 }));
 
 vi.mock("@/components/providers/forms/CommonConfigEditor", () => ({
@@ -171,6 +192,25 @@ vi.mock("@/components/providers/forms/hooks", () => ({
   }),
 }));
 
+vi.mock("@/components/providers/forms/hooks/useOmoDraftState", () => ({
+  useOmoDraftState: () => ({
+    ...omoDraftMock,
+    setOmoAgents: vi.fn(),
+    setOmoCategories: vi.fn(),
+    setOmoOtherFieldsStr: vi.fn(),
+    resetOmoDraftState: vi.fn(),
+  }),
+}));
+
+vi.mock("@/components/providers/forms/hooks/useOmoModelSource", () => ({
+  useOmoModelSource: () => ({
+    omoModelOptions: [],
+    omoModelVariantsMap: {},
+    omoPresetMetaMap: {},
+    existingOpencodeKeys: [],
+  }),
+}));
+
 // Mock presets
 vi.mock("@/config/claudeProviderPresets", () => ({
   providerPresets: [
@@ -206,6 +246,25 @@ vi.mock("@/config/geminiProviderPresets", () => ({
   ],
 }));
 
+vi.mock("@/config/opencodeProviderPresets", () => ({
+  OPENCODE_PRESET_MODEL_VARIANTS: {},
+  opencodeNpmPackages: [
+    { value: "@ai-sdk/openai-compatible", label: "OpenAI Compatible" },
+  ],
+  opencodeProviderPresets: [
+    {
+      name: "OpenCode Preset",
+      category: "third_party",
+      websiteUrl: "https://opencode.com",
+      settingsConfig: {
+        npm: "@ai-sdk/openai-compatible",
+        options: { baseURL: "https://api.example.com", apiKey: "" },
+        models: {},
+      },
+    },
+  ],
+}));
+
 vi.mock("@/config/codexTemplates", () => ({
   getCodexCustomTemplate: () => ({ auth: {}, config: "" }),
 }));
@@ -232,6 +291,12 @@ beforeEach(() => {
   tMock.mockClear();
   defaultProps.onSubmit.mockClear();
   defaultProps.onCancel.mockClear();
+  omoDraftMock = {
+    omoAgents: {},
+    omoCategories: {},
+    omoOtherFieldsStr: "",
+    mergedOmoJsonPreview: "{}",
+  };
 });
 
 describe("ProviderForm", () => {
@@ -247,32 +312,30 @@ describe("ProviderForm", () => {
     expect(screen.getByTestId("preset-selector")).toBeInTheDocument();
   });
 
-  it("hides preset selector for opencode and keeps raw json editor", () => {
+  it("renders preset selector and OpenCode fields for opencode", () => {
     render(<ProviderForm {...defaultProps} appId="opencode" />);
 
-    expect(screen.queryByTestId("preset-selector")).not.toBeInTheDocument();
-    expect(screen.getByTestId("common-config-editor")).toBeInTheDocument();
-    expect(screen.getByTestId("common-config-editor")).toHaveAttribute(
-      "data-show-common-config-controls",
-      "false",
-    );
-    expect(
-      (screen.getByTestId("config-textarea") as HTMLTextAreaElement).value,
-    ).toContain("@ai-sdk/openai-compatible");
+    expect(screen.getByTestId("preset-selector")).toBeInTheDocument();
+    expect(screen.getByTestId("opencode-fields")).toBeInTheDocument();
   });
 
-  it("uses omo default json template without preset selector", () => {
+  it("renders OMO form without preset selector", () => {
     render(<ProviderForm {...defaultProps} appId="omo" />);
 
     expect(screen.queryByTestId("preset-selector")).not.toBeInTheDocument();
-    expect(screen.getByTestId("common-config-editor")).toBeInTheDocument();
-    expect(screen.getByTestId("common-config-editor")).toHaveAttribute(
-      "data-show-common-config-controls",
+    expect(screen.getByTestId("omo-fields")).toHaveAttribute(
+      "data-slim",
       "false",
     );
-    expect(
-      (screen.getByTestId("config-textarea") as HTMLTextAreaElement).value,
-    ).toContain('"agents"');
+  });
+
+  it("renders OMO Slim form", () => {
+    render(<ProviderForm {...defaultProps} appId="omo-slim" />);
+
+    expect(screen.getByTestId("omo-fields")).toHaveAttribute(
+      "data-slim",
+      "true",
+    );
   });
 
   it("hides preset selector in edit mode", () => {
@@ -409,6 +472,39 @@ describe("ProviderForm", () => {
 
     const submittedData = onSubmit.mock.calls[0][0];
     expect(submittedData.name).toBe("New Provider");
+  });
+
+  it("submits OMO other fields as top-level config fields", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    omoDraftMock = {
+      omoAgents: { oracle: { model: "anthropic/claude" } },
+      omoCategories: { analyze: { model: "openai/gpt" } },
+      omoOtherFieldsStr: JSON.stringify({
+        $schema: "schema-url",
+        disabled_agents: ["oracle"],
+      }),
+      mergedOmoJsonPreview: "{}",
+    };
+
+    render(
+      <ProviderForm {...defaultProps} appId="omo" onSubmit={onSubmit} />,
+    );
+
+    await user.type(screen.getByTestId("name-input"), "OMO Provider");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalled();
+    });
+    const settingsConfig = JSON.parse(onSubmit.mock.calls[0][0].settingsConfig);
+    expect(settingsConfig).toEqual({
+      agents: { oracle: { model: "anthropic/claude" } },
+      categories: { analyze: { model: "openai/gpt" } },
+      $schema: "schema-url",
+      disabled_agents: ["oracle"],
+    });
+    expect(settingsConfig.otherFields).toBeUndefined();
   });
 
   it("has form id for external submission", () => {

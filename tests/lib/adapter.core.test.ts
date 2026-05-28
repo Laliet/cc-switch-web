@@ -917,6 +917,57 @@ describe("commandToEndpoint", () => {
           body: { snippet: "{}" },
         },
       },
+      {
+        cmd: "fetch_models_for_config",
+        args: {
+          baseUrl: "https://api.example.com",
+          apiKey: "sk-test",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        expected: {
+          method: "POST",
+          url: "/api/model-fetch",
+          body: {
+            baseUrl: "https://api.example.com",
+            apiKey: "sk-test",
+            npm: "@ai-sdk/openai-compatible",
+          },
+        },
+      },
+      {
+        cmd: "stream_check_provider",
+        args: { appType: "opencode", providerId: "provider/1" },
+        expected: {
+          method: "POST",
+          url: "/api/stream-check/providers/opencode/provider%2F1",
+        },
+      },
+      {
+        cmd: "stream_check_all_providers",
+        args: { appType: "claude", proxyTargetsOnly: true },
+        expected: {
+          method: "POST",
+          url: "/api/stream-check/providers",
+          body: { appType: "claude", proxyTargetsOnly: true },
+        },
+      },
+      {
+        cmd: "get_stream_check_config",
+        args: {},
+        expected: {
+          method: "GET",
+          url: "/api/stream-check/config",
+        },
+      },
+      {
+        cmd: "save_stream_check_config",
+        args: { config: { timeoutSecs: 45 } },
+        expected: {
+          method: "PUT",
+          url: "/api/stream-check/config",
+          body: { timeoutSecs: 45 },
+        },
+      },
     ];
 
     for (const testCase of cases) {

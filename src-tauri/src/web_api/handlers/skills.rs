@@ -283,7 +283,7 @@ pub async fn list_skills(
 
 fn parse_skill_app(raw: Option<String>) -> Result<AppType, ApiError> {
     match raw {
-        Some(value) => AppType::parse_supported(&value)
+        Some(value) => AppType::parse_skills_app(&value)
             .map_err(|e: AppError| ApiError::bad_request(e.to_string())),
         None => Ok(AppType::Claude),
     }
@@ -293,7 +293,6 @@ fn parse_skill_app(raw: Option<String>) -> Result<AppType, ApiError> {
 mod tests {
     use super::parse_skill_app;
     use crate::AppType;
-    use axum::http::StatusCode;
 
     #[test]
     fn parse_skill_app_defaults_to_claude() {
@@ -302,14 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_skill_app_rejects_upcoming_app_ids() {
-        let err = parse_skill_app(Some("omo".into()))
-            .expect_err("upcoming app id should be rejected for now");
-        assert_eq!(err.status, StatusCode::BAD_REQUEST);
-        assert!(
-            err.message.contains("暂未支持") || err.message.contains("not supported yet"),
-            "unexpected error message: {}",
-            err.message
-        );
+    fn parse_skill_app_maps_omo_to_opencode() {
+        let app = parse_skill_app(Some("omo".into())).expect("omo should reuse opencode skills");
+        assert_eq!(app, AppType::Opencode);
     }
 }

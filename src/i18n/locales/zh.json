@@ -196,7 +196,7 @@
     "geminiConfigDir": "Gemini 配置目录",
     "geminiConfigDirDescription": "覆盖 Gemini 配置目录 (.env)。Windows + WSL 请填写 \\\\wsl$\\发行版\\home\\user\\.gemini。",
     "opencodeConfigDir": "OpenCode / OMO 配置目录",
-    "opencodeConfigDirDescription": "覆盖 OpenCode 与 oh-my-opencode 共用的配置目录。Windows + WSL 请填写 \\\\wsl$\\发行版\\home\\user\\.config\\opencode。",
+    "opencodeConfigDirDescription": "覆盖 OpenCode 与 OMO 共用的配置目录。Windows + WSL 请填写 \\\\wsl$\\发行版\\home\\user\\.config\\opencode。",
     "currentWriteTarget": "当前实际写入路径：{{path}}",
     "homeMismatchHint": "检测到 Web 服务 HOME ({{serviceHome}}) 与账号 HOME ({{accountHome}}) 不一致；当前会写入 {{path}}。如需其他路径，请在这里显式覆盖。",
     "browsePlaceholderClaude": "例如：/home/<你的用户名>/.claude 或 \\\\wsl$\\Ubuntu\\home\\<你的用户名>\\.claude",
@@ -257,6 +257,7 @@
     "gemini": "Gemini",
     "opencode": "OpenCode",
     "omo": "OMO",
+    "omo-slim": "OMO Slim",
     "comingSoon": "即将支持",
     "scopeHint": "这里只切换当前管理视图；真正写入实际配置发生在切换供应商时。"
   },

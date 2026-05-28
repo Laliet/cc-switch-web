@@ -43,7 +43,7 @@ const toBoolean = (value: unknown): boolean =>
   typeof value === "boolean" ? value : false;
 
 const resolveSkillsApp = (app?: AppId): AppId | undefined =>
-  app === "omo" ? "opencode" : app;
+  app === "omo" || app === "omo-slim" ? "opencode" : app;
 
 export const skillsApi = {
   async getAll(app?: AppId): Promise<SkillsResponse> {

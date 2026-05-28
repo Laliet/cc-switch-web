@@ -126,7 +126,7 @@ fn runtime() -> Arc<ProxyRuntime> {
 
 pub fn parse_proxy_app(value: &str) -> Result<AppType, AppError> {
     let app = AppType::parse_supported(value)?;
-    if matches!(app, AppType::Omo) {
+    if matches!(app, AppType::Omo | AppType::OmoSlim) {
         return Err(AppError::localized(
             "proxy.omo.unsupported",
             "代理暂不支持 OMO，请选择 OpenCode。",
@@ -1021,7 +1021,7 @@ fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettin
         AppType::Codex => settings.apps.codex.clone(),
         AppType::Gemini => settings.apps.gemini.clone(),
         AppType::Opencode => settings.apps.opencode.clone(),
-        AppType::Omo => ProxyAppSettings::default(),
+        AppType::Omo | AppType::OmoSlim => ProxyAppSettings::default(),
     }
 }
 

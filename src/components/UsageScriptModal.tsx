@@ -529,13 +529,16 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                         <div className="relative">
                           <Input
                             id="usage-api-key"
-                            type={showApiKey ? "text" : "password"}
+                            type="text"
                             value={script.apiKey || ""}
                             onChange={(e) =>
                               setScript({ ...script, apiKey: e.target.value })
                             }
                             placeholder="sk-xxxxx"
                             autoComplete="off"
+                            className={
+                              showApiKey ? "" : "secret-text-security"
+                            }
                           />
                           {script.apiKey && (
                             <button
@@ -600,7 +603,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                         <div className="relative">
                           <Input
                             id="usage-access-token"
-                            type={showAccessToken ? "text" : "password"}
+                            type="text"
                             value={script.accessToken || ""}
                             onChange={(e) =>
                               setScript({
@@ -612,6 +615,9 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                               "usageScript.accessTokenPlaceholder",
                             )}
                             autoComplete="off"
+                            className={
+                              showAccessToken ? "" : "secret-text-security"
+                            }
                           />
                           {script.accessToken && (
                             <button

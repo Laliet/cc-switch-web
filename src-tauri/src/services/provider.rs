@@ -38,6 +38,7 @@ enum LiveSnapshot {
     Omo {
         config: Option<Value>,
         opencode_config: Option<Value>,
+        slim: bool,
     },
 }
 
@@ -112,10 +113,19 @@ impl LiveSnapshot {
             LiveSnapshot::Omo {
                 config,
                 opencode_config,
+                slim,
             } => {
-                let path = crate::omo_config::resolve_omo_config_path();
+                let path = if *slim {
+                    crate::omo_config::resolve_omo_slim_config_path()
+                } else {
+                    crate::omo_config::resolve_omo_config_path()
+                };
                 if let Some(value) = config {
-                    crate::omo_config::write_omo_config(value)?;
+                    if *slim {
+                        crate::omo_config::write_omo_slim_config(value)?;
+                    } else {
+                        crate::omo_config::write_omo_config(value)?;
+                    }
                 } else if path.exists() {
                     delete_file(&path)?;
                 }
@@ -600,7 +610,7 @@ impl ProviderService {
                 AppType::Codex => proxy.apps.codex.enabled,
                 AppType::Gemini => proxy.apps.gemini.enabled,
                 AppType::Opencode => proxy.apps.opencode.enabled,
-                AppType::Omo => false,
+                AppType::Omo | AppType::OmoSlim => false,
             };
         }
 
@@ -726,8 +736,13 @@ impl ProviderService {
                     Ok(())
                 })?;
             }
-            AppType::Omo => {
-                let config_path = crate::omo_config::resolve_omo_config_path();
+            AppType::Omo | AppType::OmoSlim => {
+                let slim = matches!(app_type, AppType::OmoSlim);
+                let config_path = if slim {
+                    crate::omo_config::resolve_omo_slim_config_path()
+                } else {
+                    crate::omo_config::resolve_omo_config_path()
+                };
                 if !config_path.exists() {
                     return Err(AppError::localized(
                         "omo.live.missing",
@@ -736,7 +751,11 @@ impl ProviderService {
                     ));
                 }
 
-                let live_after = crate::omo_config::read_omo_config()?;
+                let live_after = if slim {
+                    crate::omo_config::read_omo_slim_config()?
+                } else {
+                    crate::omo_config::read_omo_config()?
+                };
                 state.update_config(|cfg| {
                     if let Some(manager) = cfg.get_manager_mut(app_type) {
                         if let Some(target) = manager.providers.get_mut(provider_id) {
@@ -807,10 +826,19 @@ impl ProviderService {
                 };
                 Ok(LiveSnapshot::Opencode { config })
             }
-            AppType::Omo => {
-                let path = crate::omo_config::resolve_omo_config_path();
+            AppType::Omo | AppType::OmoSlim => {
+                let slim = matches!(app_type, AppType::OmoSlim);
+                let path = if slim {
+                    crate::omo_config::resolve_omo_slim_config_path()
+                } else {
+                    crate::omo_config::resolve_omo_config_path()
+                };
                 let config = if path.exists() {
-                    Some(crate::omo_config::read_omo_config()?)
+                    Some(if slim {
+                        crate::omo_config::read_omo_slim_config()?
+                    } else {
+                        crate::omo_config::read_omo_config()?
+                    })
                 } else {
                     None
                 };
@@ -823,6 +851,7 @@ impl ProviderService {
                 Ok(LiveSnapshot::Omo {
                     config,
                     opencode_config,
+                    slim,
                 })
             }
         }
@@ -1099,8 +1128,13 @@ impl ProviderService {
                 })?;
                 return Ok(());
             }
-            AppType::Omo => {
-                let config_path = crate::omo_config::resolve_omo_config_path();
+            AppType::Omo | AppType::OmoSlim => {
+                let slim = matches!(app_type, AppType::OmoSlim);
+                let config_path = if slim {
+                    crate::omo_config::resolve_omo_slim_config_path()
+                } else {
+                    crate::omo_config::resolve_omo_config_path()
+                };
                 if !config_path.exists() {
                     return Err(AppError::localized(
                         "omo.live.missing",
@@ -1108,7 +1142,11 @@ impl ProviderService {
                         "oh-my-opencode config file is missing",
                     ));
                 }
-                crate::omo_config::read_omo_config()?
+                if slim {
+                    crate::omo_config::read_omo_slim_config()?
+                } else {
+                    crate::omo_config::read_omo_config()?
+                }
             }
         };
 
@@ -1147,7 +1185,7 @@ impl ProviderService {
             AppType::Opencode => {
                 return Self::sync_current_opencode_provider_from_live(state, live_settings);
             }
-            AppType::Omo => {
+            AppType::Omo | AppType::OmoSlim => {
                 return Self::sync_current_provider_from_live(state, app_type, live_settings);
             }
             AppType::Claude | AppType::Codex | AppType::Gemini => {}
@@ -1299,8 +1337,13 @@ impl ProviderService {
                 }
                 crate::opencode_config::read_opencode_config()
             }
-            AppType::Omo => {
-                let path = crate::omo_config::resolve_omo_config_path();
+            AppType::Omo | AppType::OmoSlim => {
+                let slim = matches!(app_type, AppType::OmoSlim);
+                let path = if slim {
+                    crate::omo_config::resolve_omo_slim_config_path()
+                } else {
+                    crate::omo_config::resolve_omo_config_path()
+                };
                 if !path.exists() {
                     return Err(AppError::localized(
                         "omo.live.missing",
@@ -1308,7 +1351,11 @@ impl ProviderService {
                         "oh-my-opencode config file is missing",
                     ));
                 }
-                crate::omo_config::read_omo_config()
+                if slim {
+                    crate::omo_config::read_omo_slim_config()
+                } else {
+                    crate::omo_config::read_omo_config()
+                }
             }
         }
     }
@@ -1613,7 +1660,9 @@ impl ProviderService {
                 AppType::Claude => Self::prepare_switch_claude(config, &provider_id_owned)?,
                 AppType::Gemini => Self::prepare_switch_gemini(config, &provider_id_owned)?,
                 AppType::Opencode => Self::prepare_switch_opencode(config, &provider_id_owned)?,
-                AppType::Omo => Self::prepare_switch_omo(config, &provider_id_owned)?,
+                AppType::Omo | AppType::OmoSlim => {
+                    Self::prepare_switch_omo(config, &app_type_clone, &provider_id_owned)?
+                }
             };
 
             let action = PostCommitAction {
@@ -1798,11 +1847,12 @@ impl ProviderService {
 
     fn prepare_switch_omo(
         config: &mut MultiAppConfig,
+        app_type: &AppType,
         provider_id: &str,
     ) -> Result<Provider, AppError> {
         let provider = config
-            .get_manager(&AppType::Omo)
-            .ok_or_else(|| Self::app_not_found(&AppType::Omo))?
+            .get_manager(app_type)
+            .ok_or_else(|| Self::app_not_found(app_type))?
             .providers
             .get(provider_id)
             .cloned()
@@ -1814,9 +1864,9 @@ impl ProviderService {
                 )
             })?;
 
-        Self::backfill_omo_current(config, provider_id)?;
+        Self::backfill_omo_current(config, app_type, provider_id)?;
 
-        if let Some(manager) = config.get_manager_mut(&AppType::Omo) {
+        if let Some(manager) = config.get_manager_mut(app_type) {
             manager.current = provider_id.to_string();
         }
 
@@ -1925,23 +1975,33 @@ impl ProviderService {
 
     fn backfill_omo_current(
         config: &mut MultiAppConfig,
+        app_type: &AppType,
         next_provider: &str,
     ) -> Result<(), AppError> {
         let current_id = config
-            .get_manager(&AppType::Omo)
+            .get_manager(app_type)
             .map(|manager| manager.current.clone())
             .unwrap_or_default();
         if current_id.is_empty() || current_id == next_provider {
             return Ok(());
         }
 
-        let path = crate::omo_config::resolve_omo_config_path();
+        let slim = matches!(app_type, AppType::OmoSlim);
+        let path = if slim {
+            crate::omo_config::resolve_omo_slim_config_path()
+        } else {
+            crate::omo_config::resolve_omo_config_path()
+        };
         if !path.exists() {
             return Ok(());
         }
 
-        let live_config = crate::omo_config::read_omo_config()?;
-        if let Some(manager) = config.get_manager_mut(&AppType::Omo) {
+        let live_config = if slim {
+            crate::omo_config::read_omo_slim_config()?
+        } else {
+            crate::omo_config::read_omo_config()?
+        };
+        if let Some(manager) = config.get_manager_mut(app_type) {
             if let Some(current) = manager.providers.get_mut(&current_id) {
                 current.settings_config = live_config;
             }
@@ -2081,10 +2141,52 @@ impl ProviderService {
             ));
         }
 
-        crate::omo_config::write_omo_config(&provider.settings_config)?;
-        crate::opencode_config::remove_plugin_by_prefix("oh-my-opencode")?;
-        crate::opencode_config::add_plugin("oh-my-opencode@latest")?;
+        let config = Self::build_omo_live_config(&provider.settings_config, true);
+        crate::omo_config::write_omo_config(&config)?;
+        crate::opencode_config::add_standard_omo_plugin()?;
         Ok(())
+    }
+
+    pub(crate) fn write_omo_slim_live(provider: &Provider) -> Result<(), AppError> {
+        if !provider.settings_config.is_object() {
+            return Err(AppError::localized(
+                "provider.omo.settings.not_object",
+                "oh-my-opencode-slim 配置必须是 JSON 对象",
+                "oh-my-opencode-slim configuration must be a JSON object",
+            ));
+        }
+
+        let config = Self::build_omo_live_config(&provider.settings_config, false);
+        crate::omo_config::write_omo_slim_config(&config)?;
+        crate::opencode_config::add_slim_omo_plugin()?;
+        Ok(())
+    }
+
+    fn build_omo_live_config(
+        config: &serde_json::Value,
+        include_categories: bool,
+    ) -> serde_json::Value {
+        let mut live = serde_json::Map::new();
+        let Some(obj) = config.as_object() else {
+            return serde_json::Value::Object(live);
+        };
+
+        for (key, value) in obj {
+            if key == "otherFields" {
+                if let Some(other) = value.as_object() {
+                    for (other_key, other_value) in other {
+                        live.insert(other_key.clone(), other_value.clone());
+                    }
+                }
+                continue;
+            }
+            if key == "categories" && !include_categories {
+                continue;
+            }
+            live.insert(key.clone(), value.clone());
+        }
+
+        serde_json::Value::Object(live)
     }
 
     fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
@@ -2094,6 +2196,7 @@ impl ProviderService {
             AppType::Gemini => Self::write_gemini_live(provider), // 新增
             AppType::Opencode => Self::write_opencode_live(provider),
             AppType::Omo => Self::write_omo_live(provider),
+            AppType::OmoSlim => Self::write_omo_slim_live(provider),
         }
     }
 
@@ -2162,7 +2265,7 @@ impl ProviderService {
                     ));
                 }
             }
-            AppType::Omo => {
+            AppType::Omo | AppType::OmoSlim => {
                 if !provider.settings_config.is_object() {
                     return Err(AppError::localized(
                         "provider.omo.settings.not_object",
@@ -2375,7 +2478,7 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
-            AppType::Omo => Err(Self::app_not_supported(app_type)),
+            AppType::Omo | AppType::OmoSlim => Err(Self::app_not_supported(app_type)),
         }
     }
 
@@ -2447,7 +2550,7 @@ impl ProviderService {
             AppType::Opencode => {
                 crate::opencode_config::remove_provider(provider_id)?;
             }
-            AppType::Omo => {}
+            AppType::Omo | AppType::OmoSlim => {}
         }
 
         state.update_config(|config| {
@@ -2464,6 +2567,41 @@ impl ProviderService {
             }
 
             manager.providers.remove(provider_id);
+            Ok(())
+        })
+    }
+
+    pub fn disable_current_omo(state: &AppState) -> Result<(), AppError> {
+        Self::disable_current_omo_variant(state, AppType::Omo)
+    }
+
+    pub fn disable_current_omo_slim(state: &AppState) -> Result<(), AppError> {
+        Self::disable_current_omo_variant(state, AppType::OmoSlim)
+    }
+
+    fn disable_current_omo_variant(state: &AppState, app_type: AppType) -> Result<(), AppError> {
+        if matches!(app_type, AppType::OmoSlim) {
+            crate::opencode_config::remove_plugins_by_prefixes(&["oh-my-opencode-slim"])?;
+            let path = crate::omo_config::resolve_omo_slim_config_path();
+            if path.exists() {
+                delete_file(&path)?;
+            }
+        } else {
+            crate::opencode_config::remove_plugins_by_prefixes(&[
+                "oh-my-openagent",
+                "oh-my-opencode",
+            ])?;
+            let path = crate::omo_config::resolve_omo_config_path();
+            if path.exists() {
+                delete_file(&path)?;
+            }
+        }
+
+        state.update_config(|config| {
+            let manager = config
+                .get_manager_mut(&app_type)
+                .ok_or_else(|| Self::app_not_found(&app_type))?;
+            manager.current.clear();
             Ok(())
         })
     }
@@ -2538,7 +2676,7 @@ impl ProviderService {
                         AppType::Claude => format!("universal-claude-{id}"),
                         AppType::Codex => format!("universal-codex-{id}"),
                         AppType::Gemini => format!("universal-gemini-{id}"),
-                        AppType::Opencode | AppType::Omo => continue,
+                        AppType::Opencode | AppType::Omo | AppType::OmoSlim => continue,
                     },
                 };
                 let manager = config

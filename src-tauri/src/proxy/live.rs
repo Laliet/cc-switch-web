@@ -107,7 +107,7 @@ impl ProxyBackupStore {
             AppType::Codex => self.codex.is_some(),
             AppType::Gemini => self.gemini.is_some(),
             AppType::Opencode => self.opencode.is_some(),
-            AppType::Omo => false,
+            AppType::Omo | AppType::OmoSlim => false,
         }
     }
 }
@@ -143,7 +143,7 @@ pub fn apply_takeover(
             }
             write_opencode_takeover(listen_url)?;
         }
-        AppType::Omo => {
+        AppType::Omo | AppType::OmoSlim => {
             return Err(AppError::localized(
                 "proxy.omo.unsupported",
                 "代理暂不支持 OMO。",
@@ -159,7 +159,7 @@ pub fn sync_current_provider_from_live(state: &AppState, app: &AppType) -> Resul
         AppType::Claude => sync_claude_provider_from_live(state),
         AppType::Codex => sync_codex_provider_from_live(state),
         AppType::Gemini => sync_gemini_provider_from_live(state),
-        AppType::Opencode | AppType::Omo => Ok(()),
+        AppType::Opencode | AppType::Omo | AppType::OmoSlim => Ok(()),
     }
 }
 
@@ -188,7 +188,7 @@ pub fn restore_takeover(app: &AppType) -> Result<(), AppError> {
                 restore_json_file(&backup.config_path, backup.config)?;
             }
         }
-        AppType::Omo => {}
+        AppType::Omo | AppType::OmoSlim => {}
     }
     save_backups(&backups)
 }

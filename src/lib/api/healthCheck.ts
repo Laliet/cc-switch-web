@@ -15,6 +15,12 @@ const RELAY_PULSE_API_PATH = "/health/status";
 const CACHE_TTL = 60 * 1000; // 1 分钟缓存
 const HEALTHCHECK_TIMEOUT_MS = 10_000;
 
+function warnHealthCheck(...args: unknown[]) {
+  if (import.meta.env.DEV) {
+    console.warn(...args);
+  }
+}
+
 /** 健康状态枚举 */
 export type HealthStatus = "available" | "degraded" | "unavailable" | "unknown";
 
@@ -284,7 +290,7 @@ export async function fetchAllHealthStatus(): Promise<
         });
 
         if (!response.ok) {
-          console.warn(`[HealthCheck] API returned ${response.status}`);
+          warnHealthCheck(`[HealthCheck] API returned ${response.status}`);
           return healthCache; // 返回旧缓存
         }
 
@@ -299,11 +305,11 @@ export async function fetchAllHealthStatus(): Promise<
     return healthCache;
   } catch (error) {
     if ((error as any)?.name === "AbortError") {
-      console.warn(
+      warnHealthCheck(
         `[HealthCheck] Request timed out after ${HEALTHCHECK_TIMEOUT_MS}ms`,
       );
     } else {
-      console.warn("[HealthCheck] Failed to fetch health status:", error);
+      warnHealthCheck("[HealthCheck] Failed to fetch health status:", error);
     }
     return healthCache; // 返回旧缓存
   }
@@ -390,6 +396,7 @@ export function appIdToService(appId: AppId): "cc" | "cx" {
     case "gemini":
     case "opencode":
     case "omo":
+    case "omo-slim":
       return "cc"; // Gemini 暂时映射到 cc（relay-pulse 未覆盖）
     default:
       return "cc";

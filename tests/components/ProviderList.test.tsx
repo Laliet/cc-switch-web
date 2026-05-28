@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Provider } from "@/types";
 import { ProviderList } from "@/components/providers/ProviderList";
@@ -7,6 +7,11 @@ const useDragSortMock = vi.fn();
 const useSortableMock = vi.fn();
 const providerCardRenderSpy = vi.fn();
 const getOmoPluginStatusMock = vi.fn();
+const getOmoSlimPluginStatusMock = vi.fn();
+const disableCurrentOmoMock = vi.fn();
+const disableCurrentOmoSlimMock = vi.fn();
+const checkProviderMock = vi.fn();
+const isCheckingMock = vi.fn();
 
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
@@ -22,6 +27,7 @@ vi.mock("@/components/providers/ProviderCard", () => ({
       onDelete,
       onDuplicate,
       onConfigureUsage,
+      onStreamCheck,
     } = props;
 
     return (
@@ -51,6 +57,14 @@ vi.mock("@/components/providers/ProviderCard", () => ({
           usage
         </button>
         <button
+          data-testid={`stream-check-${provider.id}`}
+          data-enabled={onStreamCheck ? "true" : "false"}
+          data-checking={props.isStreamChecking ? "true" : "false"}
+          onClick={() => onStreamCheck?.(provider)}
+        >
+          stream-check
+        </button>
+        <button
           data-testid={`delete-${provider.id}`}
           onClick={() => onDelete(provider)}
         >
@@ -73,7 +87,19 @@ vi.mock("@/components/providers/ProviderCard", () => ({
 vi.mock("@/lib/api", () => ({
   providersApi: {
     getOmoPluginStatus: (...args: unknown[]) => getOmoPluginStatusMock(...args),
+    getOmoSlimPluginStatus: (...args: unknown[]) =>
+      getOmoSlimPluginStatusMock(...args),
+    disableCurrentOmo: (...args: unknown[]) => disableCurrentOmoMock(...args),
+    disableCurrentOmoSlim: (...args: unknown[]) =>
+      disableCurrentOmoSlimMock(...args),
   },
+}));
+
+vi.mock("@/hooks/useStreamCheck", () => ({
+  useStreamCheck: () => ({
+    checkProvider: (...args: unknown[]) => checkProviderMock(...args),
+    isChecking: (...args: unknown[]) => isCheckingMock(...args),
+  }),
 }));
 
 vi.mock("@/components/UsageFooter", () => ({
@@ -108,6 +134,16 @@ beforeEach(() => {
   providerCardRenderSpy.mockClear();
   getOmoPluginStatusMock.mockReset();
   getOmoPluginStatusMock.mockResolvedValue(false);
+  getOmoSlimPluginStatusMock.mockReset();
+  getOmoSlimPluginStatusMock.mockResolvedValue(false);
+  disableCurrentOmoMock.mockReset();
+  disableCurrentOmoMock.mockResolvedValue(true);
+  disableCurrentOmoSlimMock.mockReset();
+  disableCurrentOmoSlimMock.mockResolvedValue(true);
+  checkProviderMock.mockReset();
+  checkProviderMock.mockResolvedValue(null);
+  isCheckingMock.mockReset();
+  isCheckingMock.mockReturnValue(false);
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -276,5 +312,140 @@ describe("ProviderList Component", () => {
     expect(
       await screen.findByText("已在 opencode.json plugin 中启用"),
     ).toBeInTheDocument();
+  });
+
+  it("disables current OMO and refreshes the parent state", async () => {
+    const provider = createProvider({ id: "omo-1", name: "OMO" });
+    const handleOmoDisabled = vi.fn();
+    getOmoPluginStatusMock.mockResolvedValueOnce(true);
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "omo-1": provider }}
+        currentProviderId="omo-1"
+        appId="omo"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+        onOmoDisabled={handleOmoDisabled}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /禁用当前 OMO/ }),
+    );
+
+    await waitFor(() => {
+      expect(disableCurrentOmoMock).toHaveBeenCalledTimes(1);
+      expect(handleOmoDisabled).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      await screen.findByText("未在 opencode.json plugin 中启用"),
+    ).toBeInTheDocument();
+  });
+
+  it("disables current OMO Slim", async () => {
+    const provider = createProvider({ id: "omo-slim-1", name: "OMO Slim" });
+    getOmoSlimPluginStatusMock.mockResolvedValueOnce(true);
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "omo-slim-1": provider }}
+        currentProviderId="omo-slim-1"
+        appId="omo-slim"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("oh-my-opencode-slim@latest"),
+    ).toBeInTheDocument();
+    expect(getOmoPluginStatusMock).not.toHaveBeenCalled();
+    expect(getOmoSlimPluginStatusMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /禁用当前 OMO Slim/ }),
+    );
+
+    await waitFor(() => {
+      expect(disableCurrentOmoSlimMock).toHaveBeenCalledTimes(1);
+    });
+    expect(disableCurrentOmoMock).not.toHaveBeenCalled();
+  });
+
+  it("passes stream check action for direct provider apps", () => {
+    const provider = createProvider({ id: "opencode-1", name: "OpenCode" });
+    isCheckingMock.mockImplementation((id: string) => id === "opencode-1");
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "opencode-1": provider }}
+        currentProviderId="opencode-1"
+        appId="opencode"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    const button = screen.getByTestId("stream-check-opencode-1");
+    expect(button).toHaveAttribute("data-enabled", "true");
+    expect(button).toHaveAttribute("data-checking", "true");
+
+    fireEvent.click(button);
+    expect(checkProviderMock).toHaveBeenCalledWith("opencode-1", "OpenCode");
+  });
+
+  it("does not expose stream check action for OMO profile apps", async () => {
+    const provider = createProvider({ id: "omo-slim-1", name: "OMO Slim" });
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "omo-slim-1": provider }}
+        currentProviderId="omo-slim-1"
+        appId="omo-slim"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("oh-my-opencode-slim@latest"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("stream-check-omo-slim-1")).toHaveAttribute(
+      "data-enabled",
+      "false",
+    );
   });
 });

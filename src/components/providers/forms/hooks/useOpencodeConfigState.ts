@@ -37,11 +37,21 @@ export function useOpencodeConfigState({
       ? initialConfig.options.baseURL
       : "",
   );
+  const [isFullUrl, setIsFullUrl] = useState(
+    typeof initialConfig.options.isFullUrl === "boolean"
+      ? initialConfig.options.isFullUrl
+      : false,
+  );
+  const [modelsUrl, setModelsUrl] = useState(
+    typeof initialConfig.options.modelsUrl === "string"
+      ? initialConfig.options.modelsUrl
+      : "",
+  );
   const [models, setModels] = useState<Record<string, OpenCodeModel>>(
     initialConfig.models,
   );
-  const [extraOptions, setExtraOptions] = useState<Record<string, string>>(
-    () => parseExtraOptions(initialConfig.options),
+  const [extraOptions, setExtraOptions] = useState<Record<string, string>>(() =>
+    parseExtraOptions(initialConfig.options),
   );
 
   const updateConfig = useCallback(
@@ -59,23 +69,28 @@ export function useOpencodeConfigState({
     [getSettingsConfig, onSettingsConfigChange],
   );
 
-  const reset = useCallback(
-    (value?: Record<string, unknown>) => {
-      const parsed = parseOpencodeConfig(value);
-      setNpm(parsed.npm ?? OPENCODE_DEFAULT_NPM);
-      setApiKey(
-        typeof parsed.options.apiKey === "string" ? parsed.options.apiKey : "",
-      );
-      setBaseUrl(
-        typeof parsed.options.baseURL === "string"
-          ? parsed.options.baseURL
-          : "",
-      );
-      setModels(parsed.models);
-      setExtraOptions(parseExtraOptions(parsed.options));
-    },
-    [],
-  );
+  const reset = useCallback((value?: Record<string, unknown>) => {
+    const parsed = parseOpencodeConfig(value);
+    setNpm(parsed.npm ?? OPENCODE_DEFAULT_NPM);
+    setApiKey(
+      typeof parsed.options.apiKey === "string" ? parsed.options.apiKey : "",
+    );
+    setBaseUrl(
+      typeof parsed.options.baseURL === "string" ? parsed.options.baseURL : "",
+    );
+    setIsFullUrl(
+      typeof parsed.options.isFullUrl === "boolean"
+        ? parsed.options.isFullUrl
+        : false,
+    );
+    setModelsUrl(
+      typeof parsed.options.modelsUrl === "string"
+        ? parsed.options.modelsUrl
+        : "",
+    );
+    setModels(parsed.models);
+    setExtraOptions(parseExtraOptions(parsed.options));
+  }, []);
 
   const handleNpmChange = useCallback(
     (value: string) => {
@@ -105,6 +120,37 @@ export function useOpencodeConfigState({
       updateConfig((config) => {
         config.options = config.options ?? {};
         config.options.baseURL = normalized;
+      });
+    },
+    [updateConfig],
+  );
+
+  const handleIsFullUrlChange = useCallback(
+    (value: boolean) => {
+      setIsFullUrl(value);
+      updateConfig((config) => {
+        config.options = config.options ?? {};
+        if (value) {
+          config.options.isFullUrl = true;
+        } else {
+          delete config.options.isFullUrl;
+        }
+      });
+    },
+    [updateConfig],
+  );
+
+  const handleModelsUrlChange = useCallback(
+    (value: string) => {
+      const normalized = value.trim();
+      setModelsUrl(normalized);
+      updateConfig((config) => {
+        config.options = config.options ?? {};
+        if (normalized) {
+          config.options.modelsUrl = normalized;
+        } else {
+          delete config.options.modelsUrl;
+        }
       });
     },
     [updateConfig],
@@ -148,12 +194,16 @@ export function useOpencodeConfigState({
     npm,
     apiKey,
     baseUrl,
+    isFullUrl,
+    modelsUrl,
     models,
     extraOptions,
     reset,
     handleNpmChange,
     handleApiKeyChange,
     handleBaseUrlChange,
+    handleIsFullUrlChange,
+    handleModelsUrlChange,
     handleModelsChange,
     handleExtraOptionsChange,
   };

@@ -185,6 +185,15 @@ pub async fn read_live_provider_settings(
     Ok(Json(live_settings))
 }
 
+pub async fn opencode_live_provider_ids(
+    State(_state): State<Arc<AppState>>,
+) -> ApiResult<Vec<String>> {
+    let ids = crate::opencode_config::get_providers()
+        .map(|providers| providers.keys().cloned().collect())
+        .map_err(ApiError::from)?;
+    Ok(Json(ids))
+}
+
 pub async fn update_sort_order(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
@@ -201,9 +210,23 @@ pub async fn update_sort_order(
 }
 
 pub async fn omo_plugin_status(State(_state): State<Arc<AppState>>) -> ApiResult<bool> {
-    let applied =
-        crate::opencode_config::has_plugin("oh-my-opencode@latest").map_err(ApiError::from)?;
+    let applied = crate::opencode_config::has_standard_omo_plugin().map_err(ApiError::from)?;
     Ok(Json(applied))
+}
+
+pub async fn omo_slim_plugin_status(State(_state): State<Arc<AppState>>) -> ApiResult<bool> {
+    let applied = crate::opencode_config::has_slim_omo_plugin().map_err(ApiError::from)?;
+    Ok(Json(applied))
+}
+
+pub async fn disable_current_omo(State(state): State<Arc<AppState>>) -> ApiResult<bool> {
+    ProviderService::disable_current_omo(&state).map_err(ApiError::from)?;
+    Ok(Json(true))
+}
+
+pub async fn disable_current_omo_slim(State(state): State<Arc<AppState>>) -> ApiResult<bool> {
+    ProviderService::disable_current_omo_slim(&state).map_err(ApiError::from)?;
+    Ok(Json(true))
 }
 
 pub async fn query_provider_usage(

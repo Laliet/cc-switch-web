@@ -500,9 +500,351 @@ fn switch_provider_omo_replaces_old_plugin_versions_with_latest() {
             .unwrap_or_default(),
         vec![
             json!("existing-plugin@1.0.0"),
-            json!("oh-my-opencode@latest")
+            json!("oh-my-openagent@latest")
         ],
-        "legacy OMO plugin versions should be replaced with a single latest entry"
+        "legacy OMO plugin versions should be replaced with the standard openagent plugin"
+    );
+}
+
+#[test]
+fn switch_provider_omo_removes_slim_plugin_when_enabling_standard_openagent() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+
+    let opencode_path = opencode_dir.join("opencode.json");
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [
+                "existing-plugin@1.0.0",
+                "oh-my-opencode-slim@latest",
+                "oh-my-openagent@0.1.0"
+            ]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config.get_manager_mut(&AppType::Omo).expect("omo manager");
+        manager.providers.insert(
+            "omo".to_string(),
+            Provider::with_id(
+                "omo".to_string(),
+                "OMO".to_string(),
+                json!({
+                    "agents": { "agent-a": {} },
+                    "categories": {}
+                }),
+                None,
+            ),
+        );
+    }
+
+    let app_state = AppState::new_for_tests(config).expect("test app state");
+
+    switch_provider_test_hook(&app_state, AppType::Omo, "omo")
+        .expect("switch provider should succeed");
+
+    let stored: serde_json::Value =
+        read_json_file(&opencode_path).expect("read updated opencode config");
+    assert_eq!(
+        stored
+            .get("plugin")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        vec![
+            json!("existing-plugin@1.0.0"),
+            json!("oh-my-openagent@latest")
+        ],
+        "standard OMO should replace legacy and slim OMO plugins"
+    );
+}
+
+#[test]
+fn disable_current_omo_clears_current_and_standard_omo_plugins() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+
+    let opencode_path = opencode_dir.join("opencode.json");
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [
+                "existing-plugin@1.0.0",
+                "oh-my-openagent@latest",
+                "oh-my-opencode@0.3.0",
+                "oh-my-opencode-slim@latest"
+            ]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config.get_manager_mut(&AppType::Omo).expect("omo manager");
+        manager.current = "omo".to_string();
+        manager.providers.insert(
+            "omo".to_string(),
+            Provider::with_id(
+                "omo".to_string(),
+                "OMO".to_string(),
+                json!({
+                    "agents": { "agent-a": {} },
+                    "categories": {}
+                }),
+                None,
+            ),
+        );
+    }
+
+    let app_state = AppState::new_for_tests(config).expect("test app state");
+
+    cc_switch_lib::ProviderService::disable_current_omo(&app_state)
+        .expect("disable current omo should succeed");
+
+    let stored: serde_json::Value =
+        read_json_file(&opencode_path).expect("read updated opencode config");
+    assert_eq!(
+        stored
+            .get("plugin")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        vec![
+            json!("existing-plugin@1.0.0"),
+            json!("oh-my-opencode-slim@latest")
+        ],
+        "disable standard OMO should preserve OMO Slim plugins"
+    );
+
+    let locked = app_state.load_config().expect("read config after disable");
+    let manager = locked.get_manager(&AppType::Omo).expect("omo manager");
+    assert!(
+        manager.current.is_empty(),
+        "disable should clear the current OMO provider"
+    );
+}
+
+#[test]
+fn switch_provider_omo_slim_writes_slim_config_and_plugin() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+
+    let opencode_path = opencode_dir.join("opencode.json");
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [
+                "existing-plugin@1.0.0",
+                "oh-my-openagent@latest"
+            ]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::OmoSlim)
+            .expect("omo slim manager");
+        manager.providers.insert(
+            "omo-slim".to_string(),
+            Provider::with_id(
+                "omo-slim".to_string(),
+                "OMO Slim".to_string(),
+                json!({
+                    "agents": { "orchestrator": { "model": "openai/gpt-5.4" } },
+                    "categories": { "should": "be stripped" },
+                    "otherFields": { "$schema": "schema", "disabled_agents": ["oracle"] }
+                }),
+                None,
+            ),
+        );
+    }
+
+    let app_state = AppState::new_for_tests(config).expect("test app state");
+
+    switch_provider_test_hook(&app_state, AppType::OmoSlim, "omo-slim")
+        .expect("switch OMO Slim provider should succeed");
+
+    let slim_path = opencode_dir.join("oh-my-opencode-slim.jsonc");
+    let slim_config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&slim_path).expect("read slim config"))
+            .expect("parse slim config");
+    assert_eq!(
+        slim_config
+            .get("agents")
+            .and_then(|agents| agents.get("orchestrator"))
+            .and_then(|agent| agent.get("model"))
+            .and_then(|model| model.as_str()),
+        Some("openai/gpt-5.4")
+    );
+    assert!(
+        slim_config.get("categories").is_none(),
+        "OMO Slim live config must not contain categories"
+    );
+    assert_eq!(
+        slim_config
+            .get("disabled_agents")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|value| value.as_str()),
+        Some("oracle")
+    );
+
+    let stored: serde_json::Value =
+        read_json_file(&opencode_path).expect("read updated opencode config");
+    assert_eq!(
+        stored
+            .get("plugin")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        vec![
+            json!("existing-plugin@1.0.0"),
+            json!("oh-my-opencode-slim@latest")
+        ],
+        "OMO Slim should replace standard OMO plugin with slim plugin"
+    );
+}
+
+#[test]
+fn disable_current_omo_slim_clears_only_slim_state_and_plugin() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+
+    let opencode_path = opencode_dir.join("opencode.json");
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [
+                "existing-plugin@1.0.0",
+                "oh-my-openagent@latest",
+                "oh-my-opencode-slim@latest"
+            ]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+    let slim_path = opencode_dir.join("oh-my-opencode-slim.jsonc");
+    std::fs::write(&slim_path, "{}").expect("write slim config");
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::OmoSlim)
+            .expect("omo slim manager");
+        manager.current = "omo-slim".to_string();
+        manager.providers.insert(
+            "omo-slim".to_string(),
+            Provider::with_id(
+                "omo-slim".to_string(),
+                "OMO Slim".to_string(),
+                json!({ "agents": {} }),
+                None,
+            ),
+        );
+    }
+
+    let app_state = AppState::new_for_tests(config).expect("test app state");
+
+    cc_switch_lib::ProviderService::disable_current_omo_slim(&app_state)
+        .expect("disable current OMO Slim should succeed");
+
+    assert!(
+        !slim_path.exists(),
+        "disable OMO Slim should remove the slim config file"
+    );
+
+    let stored: serde_json::Value =
+        read_json_file(&opencode_path).expect("read updated opencode config");
+    assert_eq!(
+        stored
+            .get("plugin")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        vec![
+            json!("existing-plugin@1.0.0"),
+            json!("oh-my-openagent@latest")
+        ],
+        "disable OMO Slim should preserve non-slim OMO plugins"
+    );
+
+    let locked = app_state.load_config().expect("read config after disable");
+    let manager = locked
+        .get_manager(&AppType::OmoSlim)
+        .expect("omo slim manager");
+    assert!(
+        manager.current.is_empty(),
+        "disable should clear current OMO Slim provider"
+    );
+}
+
+#[test]
+fn omo_plugin_status_checks_standard_and_slim_plugins_separately() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let opencode_dir = home.join(".config").join("opencode");
+    std::fs::create_dir_all(&opencode_dir).expect("create opencode dir");
+    let opencode_path = opencode_dir.join("opencode.json");
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": ["oh-my-opencode-slim@latest"]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+
+    assert!(cc_switch_lib::get_omo_slim_plugin_status().expect("read slim plugin status"));
+    assert!(
+        !cc_switch_lib::get_omo_plugin_status().expect("read standard plugin status"),
+        "slim plugin should not satisfy standard OMO status"
+    );
+
+    std::fs::write(
+        &opencode_path,
+        serde_json::to_string_pretty(&json!({
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": ["oh-my-openagent@latest"]
+        }))
+        .expect("serialize opencode config"),
+    )
+    .expect("write opencode config");
+
+    assert!(cc_switch_lib::get_omo_plugin_status().expect("read standard plugin status"));
+    assert!(
+        !cc_switch_lib::get_omo_slim_plugin_status().expect("read slim plugin status"),
+        "standard OMO plugin should not satisfy slim status"
     );
 }
 

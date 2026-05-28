@@ -13,11 +13,13 @@ use crate::{app_config::AppType, error::AppError};
 pub mod config;
 pub mod health;
 pub mod mcp;
+pub mod model_fetch;
 pub mod prompts;
 pub mod providers;
 pub mod proxy;
 pub mod settings;
 pub mod skills;
+pub mod stream_check;
 pub mod system;
 
 #[derive(Debug)]

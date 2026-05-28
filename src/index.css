@@ -159,3 +159,8 @@ input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
   display: none;
 }
+
+/* API Key / Token 等密钥不是登录密码，使用 text 输入避免 Chromium 密码表单告警。 */
+.secret-text-security {
+  -webkit-text-security: disc;
+}

@@ -24,6 +24,7 @@ pub(crate) const SCHEMA_VERSION: i32 = 2;
 pub(crate) const SETTINGS_CONFIG_VERSION: &str = "config_version";
 pub(crate) const SETTINGS_COMMON_SNIPPETS: &str = "common_config_snippets";
 pub(crate) const SETTINGS_DB_MIGRATED_FROM_JSON: &str = "migrated_from_config_json";
+pub(crate) const SETTINGS_STREAM_CHECK_CONFIG: &str = "stream_check_config";
 
 macro_rules! lock_conn {
     ($mutex:expr) => {
@@ -98,6 +99,7 @@ pub fn database_path() -> Result<PathBuf, AppError> {
 #[cfg(test)]
 mod tests {
     use super::Database;
+    use crate::services::stream_check::StreamCheckConfig;
     use crate::{
         app_config::{CommonConfigSnippets, McpApps, McpServer, MultiAppConfig},
         database::ProxyRequestLogRecord,
@@ -158,6 +160,34 @@ mod tests {
         assert!(loaded.apps.codex.enabled);
         assert_eq!(loaded.apps.codex.max_retries, 3);
         assert!(!loaded.apps.gemini.enabled);
+    }
+
+    #[test]
+    fn stream_check_config_roundtrips_through_sqlite_settings() {
+        let db = Database::memory().expect("memory db");
+        assert_eq!(
+            db.get_stream_check_config()
+                .expect("load default stream check config"),
+            StreamCheckConfig::default()
+        );
+
+        let config = StreamCheckConfig {
+            timeout_secs: 12,
+            max_retries: 4,
+            degraded_threshold_ms: 3456,
+            claude_model: "claude-test".to_string(),
+            codex_model: "gpt-test".to_string(),
+            gemini_model: "gemini-test".to_string(),
+            test_prompt: "Say pong.".to_string(),
+        };
+
+        db.save_stream_check_config(&config)
+            .expect("save stream check config");
+        assert_eq!(
+            db.get_stream_check_config()
+                .expect("reload stream check config"),
+            config
+        );
     }
 
     #[test]

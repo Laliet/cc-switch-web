@@ -25,7 +25,7 @@ pub fn adapter_for(app: &AppType) -> &'static dyn ProviderAdapter {
         AppType::Claude => &claude::CLAUDE_ADAPTER,
         AppType::Codex => &codex::CODEX_ADAPTER,
         AppType::Gemini => &gemini::GEMINI_ADAPTER,
-        AppType::Opencode | AppType::Omo => &opencode::OPENCODE_ADAPTER,
+        AppType::Opencode | AppType::Omo | AppType::OmoSlim => &opencode::OPENCODE_ADAPTER,
     }
 }
 

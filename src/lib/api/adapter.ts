@@ -707,6 +707,57 @@ export function commandToEndpoint(
     }
     case "get_omo_plugin_status":
       return { method: "GET", url: `${apiBase}/providers/omo/plugin-status` };
+    case "get_omo_slim_plugin_status":
+      return {
+        method: "GET",
+        url: `${apiBase}/providers/omo-slim/plugin-status`,
+      };
+    case "disable_current_omo":
+      return {
+        method: "POST",
+        url: `${apiBase}/providers/omo/disable-current`,
+      };
+    case "disable_current_omo_slim":
+      return {
+        method: "POST",
+        url: `${apiBase}/providers/omo-slim/disable-current`,
+      };
+    case "fetch_models_for_config":
+      return {
+        method: "POST",
+        url: `${apiBase}/model-fetch`,
+        body: args,
+      };
+    case "stream_check_provider": {
+      const appType = requireArg(args, "appType", cmd);
+      const providerId = requireArg(args, "providerId", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/stream-check/providers/${encode(appType)}/${encode(providerId)}`,
+      };
+    }
+    case "stream_check_all_providers":
+      return {
+        method: "POST",
+        url: `${apiBase}/stream-check/providers`,
+        body: args,
+      };
+    case "get_stream_check_config":
+      return {
+        method: "GET",
+        url: `${apiBase}/stream-check/config`,
+      };
+    case "save_stream_check_config":
+      return {
+        method: "PUT",
+        url: `${apiBase}/stream-check/config`,
+        body: requireArg(args, "config", cmd),
+      };
+    case "get_opencode_live_provider_ids":
+      return {
+        method: "GET",
+        url: `${apiBase}/providers/opencode/live-provider-ids`,
+      };
     case "get_universal_providers":
       return { method: "GET", url: `${apiBase}/providers/universal` };
     case "get_universal_provider": {

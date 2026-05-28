@@ -74,7 +74,7 @@ impl ProxyService {
         app: AppType,
         enabled: bool,
     ) -> Result<ProxyTakeoverResult, AppError> {
-        if matches!(app, AppType::Omo) {
+        if matches!(app, AppType::Omo | AppType::OmoSlim) {
             return Err(AppError::localized(
                 "proxy.omo.unsupported",
                 "代理暂不支持 OMO。",
@@ -178,7 +178,7 @@ fn set_app_enabled(config: &mut ProxySettings, app: &AppType, enabled: bool) {
         AppType::Codex => config.apps.codex.enabled = enabled,
         AppType::Gemini => config.apps.gemini.enabled = enabled,
         AppType::Opencode => config.apps.opencode.enabled = enabled,
-        AppType::Omo => {}
+        AppType::Omo | AppType::OmoSlim => {}
     }
 }
 
@@ -188,7 +188,7 @@ fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
         AppType::Codex => config.apps.codex.enabled,
         AppType::Gemini => config.apps.gemini.enabled,
         AppType::Opencode => config.apps.opencode.enabled,
-        AppType::Omo => false,
+        AppType::Omo | AppType::OmoSlim => false,
     }
 }
 

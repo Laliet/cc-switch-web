@@ -102,6 +102,18 @@ const createDefaultProviders = (): ProvidersByApp => ({
       createdAt: Date.now(),
     },
   },
+  "omo-slim": {
+    "omo-slim-1": {
+      id: "omo-slim-1",
+      name: "OMO Slim Default",
+      settingsConfig: {
+        agents: {},
+      },
+      category: "custom",
+      sortIndex: 0,
+      createdAt: Date.now(),
+    },
+  },
 });
 
 const createDefaultCurrent = (): CurrentProviderState => ({
@@ -110,6 +122,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
   gemini: "gemini-1",
   opencode: "opencode-1",
   omo: "omo-1",
+  "omo-slim": "omo-slim-1",
 });
 
 const createDefaultBackup = (): BackupProviderState => ({
@@ -118,6 +131,7 @@ const createDefaultBackup = (): BackupProviderState => ({
   gemini: null,
   opencode: null,
   omo: null,
+  "omo-slim": null,
 });
 
 const createDefaultSkills = (): SkillsState => [
@@ -259,6 +273,7 @@ let mcpConfigs: McpConfigState = {
   gemini: {},
   opencode: {},
   omo: {},
+  "omo-slim": {},
 };
 const buildUnifiedMcpServers = (configs: McpConfigState): McpServersState => {
   const merged: McpServersState = {};
@@ -352,6 +367,7 @@ export const resetProviderState = () => {
     gemini: {},
     opencode: {},
     omo: {},
+    "omo-slim": {},
   };
   mcpServers = buildUnifiedMcpServers(mcpConfigs);
 };

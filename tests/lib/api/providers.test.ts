@@ -155,6 +155,61 @@ describe("providers API module", () => {
     expect(adapterMocks.invoke).toHaveBeenCalledWith("get_omo_plugin_status");
   });
 
+  it("getOmoSlimPluginStatus invokes slim status command", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce(true);
+
+    const result = await providersApi.getOmoSlimPluginStatus();
+
+    expect(result).toBe(true);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith(
+      "get_omo_slim_plugin_status",
+    );
+  });
+
+  it("disableCurrentOmo invokes disable command", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce(true);
+
+    const result = await providersApi.disableCurrentOmo();
+
+    expect(result).toBe(true);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith("disable_current_omo");
+  });
+
+  it("disableCurrentOmoSlim invokes disable command", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce(true);
+
+    const result = await providersApi.disableCurrentOmoSlim();
+
+    expect(result).toBe(true);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith(
+      "disable_current_omo_slim",
+    );
+  });
+
+  it("readLiveSettings invokes live settings command", async () => {
+    const config = { agents: {} };
+    adapterMocks.invoke.mockResolvedValueOnce(config);
+
+    const result = await providersApi.readLiveSettings("omo");
+
+    expect(result).toBe(config);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith(
+      "read_live_provider_settings",
+      { app: "omo" },
+    );
+  });
+
+  it("getOpenCodeLiveProviderIds invokes live ids command", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce(["openai"]);
+
+    const result = await providersApi.getOpenCodeLiveProviderIds();
+
+    expect(result).toEqual(["openai"]);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith(
+      "get_opencode_live_provider_ids",
+    );
+  });
+
   it("switch triggers web sync when in web mode", async () => {
     adapterMocks.isWeb.mockReturnValue(true);
     adapterMocks.invoke.mockResolvedValueOnce(true);
