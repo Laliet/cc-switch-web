@@ -288,7 +288,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: cc-switch-web ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') || github.ref_name == 'v0.14.0' }}
           body_path: docs/release-note-${{ github.ref_name }}-zh.md
           files: release-assets/*
         env:
@@ -525,7 +525,7 @@ jobs:
             echo "tags<<EOF"
             # 所有 tag 都推送版本标签；稳定版额外推送 latest
             echo "${IMAGE_NAME}:${VERSION}"
-            if [[ "${GITHUB_REF_NAME}" != *-* ]]; then
+            if [[ "${GITHUB_REF_NAME}" != *-* && "${GITHUB_REF_NAME}" != "v0.14.0" ]]; then
               echo "${IMAGE_NAME}:latest"
             fi
             echo "EOF"

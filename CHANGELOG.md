@@ -5,6 +5,22 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-05-30
+
+### Features / 新特性
+
+- Add a full Usage Dashboard for proxy-backed usage analytics, including cost summary, token breakdown, success rate, cache hit rate, app split, and trend visualization
+- Add request logs with filtering, pagination, per-request detail inspection, status/error visibility, latency, streaming, token, and cost fields
+- Add Provider and Model usage statistics so proxy traffic can be analyzed by provider, app type, model, request count, tokens, cost, success rate, and latency
+- Add model pricing management to the Dashboard and connect pricing updates to historical zero-cost proxy log backfill
+- Add desktop Tauri commands and Web/headless `/api/usage/*` routes for usage summaries, trends, request logs, request detail, pricing, limits, data sources, and session-sync status
+- Add Claude, Codex, and Gemini local session log import with incremental sync, cross-source de-duplication, and pricing-based cost calculation
+
+### Notes / 说明
+
+- Usage Dashboard data combines live proxy request logs, retained daily rollups, and imported Claude/Codex/Gemini session logs
+- Session imports de-duplicate against proxy logs to avoid double counting the same request
+
 ## [0.11.1] - 2026-05-16
 
 ### Fixes / 修复

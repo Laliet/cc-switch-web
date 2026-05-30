@@ -15,8 +15,8 @@
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
 
-> 当前推荐稳定版本：[v0.13.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)<br>
-> `v0.13.0` 当前为正式稳定版本
+> 当前预发布版本：[v0.14.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.0)<br>
+> `v0.14.0` 将作为预发布用于最终验证
 
 ---
 
@@ -39,7 +39,17 @@
 
 ## 更新内容
 
-### v0.13.0 - 当前稳定版
+### v0.14.0 - 预发布版
+
+- 新增完整 Usage Dashboard：展示代理请求成本汇总、token 拆分、应用维度占比、趋势图与自动刷新
+- 新增可搜索/分页的 request logs，并支持查看单次请求的 token、延迟、状态、流式信息和成本详情
+- 新增 Provider / Model 使用统计，以及 Dashboard 内模型价格维护面板
+- 模型价格更新后会尝试回填历史零成本代理日志，补齐 pricing/cost 闭环
+- 新增 Claude、Codex、Gemini session log 导入，支持增量同步与跨来源去重
+- 新增桌面端 Tauri commands 与 Web/headless `/api/usage/*` API
+- 更新说明：[v0.14.0](docs/release-note-v0.14.0-zh.md)
+
+### v0.13.0 - 上一个稳定版
 
 - 新增 OMO Slim 专用配置 UI，支持 Slim agents、隐藏分类、本地导入、顶层选项和 Slim 专属对象字段
 - 更新标准 OMO 表单，对齐新版上游 schema，补齐新版 agents、顶层字段和结构化对象编辑器
@@ -139,10 +149,10 @@ _配置供应商_
 
 | 架构                      | 下载链接                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.13.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)
+发布页：[v0.14.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.0)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -257,11 +267,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                        | 说明                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.13.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows.msi)                   | 安装版（当前稳定版）                |
-|             | [CC-Switch-v0.13.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.13.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.13.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.AppImage)             | AppImage（当前稳定版）              |
-|             | [CC-Switch-v0.13.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.14.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Windows.msi)                   | 安装版（预发布）                    |
+|             | [CC-Switch-v0.14.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.14.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.14.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Linux.AppImage)             | AppImage（预发布）                  |
+|             | [CC-Switch-v0.14.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -284,8 +294,8 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 **高级选项**：
 
 ```bash
-# 安装当前稳定版本
-VERSION=v0.13.0 curl -fsSL https://...install.sh | bash
+# 安装当前预发布版本
+VERSION=v0.14.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -394,7 +404,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.13.0 发布说明](docs/release-note-v0.13.0-zh.md) — 当前推荐稳定版本：**v0.13.0**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.14.0 发布说明](docs/release-note-v0.14.0-zh.md) — 当前预发布版本：**v0.14.0**
 
 ---
 

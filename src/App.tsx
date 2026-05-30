@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus, Settings, Edit3 } from "lucide-react";
+import { BarChart3, Plus, Settings, Edit3 } from "lucide-react";
 import type { Provider } from "@/types";
 import type { EnvConflict } from "@/types/env";
 import { useProvidersQuery } from "@/lib/query";
@@ -76,6 +76,7 @@ const SettingsDialog = lazy(() =>
   })),
 );
 const UsageScriptModal = lazy(() => import("@/components/UsageScriptModal"));
+const UsageDashboard = lazy(() => import("@/components/usage/UsageDashboard"));
 const UnifiedMcpPanel = lazy(
   () => import("@/components/mcp/UnifiedMcpPanel"),
 );
@@ -130,6 +131,7 @@ function AppContent() {
   const [isMcpOpen, setIsMcpOpen] = useState(false);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+  const [isUsageDashboardOpen, setIsUsageDashboardOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
@@ -706,6 +708,14 @@ function AppContent() {
                 {t("skills.manage")}
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              onClick={() => setIsUsageDashboardOpen(true)}
+              className="min-w-[92px]"
+            >
+              <BarChart3 className="h-4 w-4" />
+              {t("usage.dashboard", { defaultValue: "用量" })}
+            </Button>
             <Button onClick={() => setIsAddOpen(true)}>
               <Plus className="h-4 w-4" />
               {t("header.addProvider")}
@@ -802,6 +812,29 @@ function AppContent() {
           />
         </Suspense>
       ) : null}
+
+      <Dialog
+        open={isUsageDashboardOpen}
+        onOpenChange={setIsUsageDashboardOpen}
+      >
+        <DialogContent className="max-w-[min(1200px,96vw)]">
+          <DialogHeader>
+            <DialogTitle>
+              {t("usage.title", { defaultValue: "Usage Dashboard" })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("usage.subtitle", {
+                defaultValue: "Request logs, pricing, and cost analytics.",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto px-6 py-5">
+            <Suspense fallback={null}>
+              <UsageDashboard />
+            </Suspense>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {isPromptOpen && promptSupported ? (
         <Suspense fallback={null}>

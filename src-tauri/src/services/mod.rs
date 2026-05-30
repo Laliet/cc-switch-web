@@ -9,7 +9,9 @@ pub mod provider;
 pub mod proxy;
 pub mod skill;
 pub mod speedtest;
+pub mod sql_helpers;
 pub mod stream_check;
+pub mod usage_stats;
 
 pub use config::ConfigService;
 pub use mcp::McpService;

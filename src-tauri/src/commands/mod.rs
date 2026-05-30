@@ -15,6 +15,7 @@ mod proxy;
 mod settings;
 pub mod skill;
 mod stream_check;
+mod usage;
 
 pub use config::*;
 pub use deeplink::*;
@@ -31,3 +32,4 @@ pub use proxy::*;
 pub use settings::*;
 pub use skill::*;
 pub use stream_check::*;
+pub use usage::*;
