@@ -15,8 +15,8 @@
 
 English | [中文](README_ZH.md) | [Legal Notice](LEGAL_NOTICE.md) | [Changelog](CHANGELOG.md)
 
-> Recommended stable release: [v0.11.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.11.1)<br>
-> `v0.11.1` is the current stable release
+> Recommended stable release: [v0.13.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)<br>
+> `v0.13.0` is the current stable release
 
 ## About / 项目简介
 
@@ -29,6 +29,8 @@ Whether you're working locally or in a headless cloud environment, cc-switch-web
 - **Skills marketplace** to browse and install Claude skills from GitHub
 - **System prompt editor** with syntax highlighting
 - **Configuration backup/restore** with version history
+- **OpenCode and OMO configuration UI** with presets, model metadata, and OMO Slim support
+- **Stream health checks** for validating provider streaming responses
 - **Web server mode** for cloud/headless deployment with Basic Auth
 
 ---
@@ -39,12 +41,20 @@ If you have any questions, you can contact me here https://linux.do/t/topic/1217
 
 ## What's New
 
-### v0.11.1 - Current Stable Release
+### v0.13.0 - Current Stable Release
 
-- Hotfix for Docker/Web deployments that could show a blank page after login due to the i18n vendor chunk loading before React
-- Adds regression coverage for Web chunking so `react-i18next` stays in the React vendor chunk
-- Validated with a full Dockerfile build and browser-level container smoke test
-- Release notes: [v0.11.1](docs/release-note-v0.11.1-en.md)
+- Adds complete OMO Slim configuration UI, including Slim agents, hidden categories, local import, top-level options, and Slim-specific object fields
+- Updates the standard OMO form to align with the newer upstream schema, including new agents, top-level fields, and structured object editors
+- Expands OpenCode provider presets with NPM SDK selection, model URL override, model fetch, and preset model metadata merging
+- Adds stream health checks for Claude, Codex, Gemini, and OpenCode providers
+- Adds Amazon Bedrock coverage: preset model import plus Bedrock Runtime ConverseStream health checks signed with AWS SigV4
+- Release notes: [v0.13.0](docs/release-note-v0.13.0-zh.md)
+
+### v0.12.0 - Storage Migration Release Candidate Line
+
+- Migrated the runtime store from legacy JSON snapshots to SQLite
+- Continued Web/headless proxy usage, failover, Universal Provider, and pricing/cost workflows
+- Release candidate notes: [v0.12.0-rc.4](docs/release-note-v0.12.0-rc.4-zh.md)
 
 ### v0.11.0 - Previous Stable Release
 
@@ -105,10 +115,13 @@ _Configure Provider_
 - **Unified MCP Management**: Configure Model Context Protocol servers across Claude/Codex/Gemini/OpenCode
 - **Skills Marketplace**: Browse and install Claude skills from GitHub repositories
 - **Prompt Management**: Create and manage system prompts with a built-in CodeMirror editor
+- **OpenCode Provider Presets**: Select AI SDK packages, import preset models, fetch model lists, and edit model variants/options
+- **OMO / OMO Slim UI**: Manage oh-my-opencode and oh-my-opencode-slim configuration with structured fields
 
 ### Extended Features
 
 - **Backup Auto-failover**: Automatically switch to backup providers when primary fails
+- **Stream Health Check**: Test streaming responses and classify common provider errors
 - **Import/Export**: Backup and restore all configurations with version history
 - **Cross-platform**: Available for Windows, macOS, Linux (desktop) and Web/Docker (server)
 
@@ -128,8 +141,10 @@ Download precompiled server binary—no compilation required:
 
 | Architecture              | Download                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-aarch64) |
+
+Release page: [v0.13.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
@@ -244,11 +259,11 @@ Full-featured desktop app with graphical interface, built with Tauri.
 
 | Platform    | Download                                                                                                                                        | Description                              |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Windows** | [CC-Switch-v0.11.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Windows.msi)                   | Installer (current stable)               |
-|             | [CC-Switch-v0.11.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Windows-Portable.zip) | Portable (no install)                    |
-| **macOS**   | [CC-Switch-v0.11.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
-| **Linux**   | [CC-Switch-v0.11.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Linux.AppImage)             | AppImage (current stable)                |
-|             | [CC-Switch-v0.11.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Linux.deb)                       | Debian/Ubuntu package                    |
+| **Windows** | [CC-Switch-v0.13.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows.msi)                   | Installer (current stable)               |
+|             | [CC-Switch-v0.13.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.13.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.13.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.AppImage)             | AppImage (current stable)                |
+|             | [CC-Switch-v0.13.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -272,7 +287,7 @@ This script will:
 
 ```bash
 # Install current stable version
-VERSION=v0.11.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.13.0 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -330,11 +345,13 @@ NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
 
 CC-Switch manages these configuration files:
 
-| App             | Config Files                                      |
-| --------------- | ------------------------------------------------- |
-| **Claude Code** | `~/.claude.json` (MCP), `~/.claude/settings.json` |
-| **Codex**       | `~/.codex/auth.json`, `~/.codex/config.toml`      |
-| **Gemini**      | `~/.gemini/.env`, `~/.gemini/settings.json`       |
+| App             | Config Files                                                                 |
+| --------------- | ---------------------------------------------------------------------------- |
+| **Claude Code** | `~/.claude.json` (MCP), `~/.claude/settings.json`, `~/.claude/CLAUDE.md`      |
+| **Codex**       | `~/.codex/auth.json`, `~/.codex/config.toml`, `~/.codex/AGENTS.md`            |
+| **Gemini**      | `~/.gemini/.env`, `~/.gemini/settings.json`, `~/.gemini/GEMINI.md`            |
+| **OpenCode**    | `~/.config/opencode/opencode.json`                                            |
+| **OMO**         | OMO / OMO Slim profiles and plugins under the shared OpenCode config location |
 
 CC-Switch's runtime store: `~/.cc-switch/cc-switch.db`
 
@@ -380,7 +397,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) — Recommended stable version: **v0.11.1**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.13.0 release notes](docs/release-note-v0.13.0-zh.md) — Recommended stable version: **v0.13.0**
 
 ---
 

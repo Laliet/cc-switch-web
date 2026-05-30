@@ -15,8 +15,8 @@
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
 
-> 当前推荐稳定版本：[v0.11.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.11.1)<br>
-> `v0.11.1` 当前为正式稳定版本
+> 当前推荐稳定版本：[v0.13.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)<br>
+> `v0.13.0` 当前为正式稳定版本
 
 ---
 
@@ -31,18 +31,28 @@
 - **技能市场** — 从 GitHub 浏览并安装 Claude 技能
 - **提示词编辑器** — 内置语法高亮
 - **配置备份/恢复** — 支持版本历史
+- **OpenCode 与 OMO 配置 UI** — 支持供应商预设、模型元数据和 OMO Slim
+- **流式健康检查** — 验证供应商的流式响应可用性
 - **Web 服务器模式** — 支持 Basic Auth，适用于云端/无头部署
 
 ---
 
 ## 更新内容
 
-### v0.11.1 - 当前稳定版
+### v0.13.0 - 当前稳定版
 
-- 修复 Docker/Web 部署登录后可能出现白屏的问题，原因是 i18n vendor chunk 早于 React 初始化
-- 增加 Web 分包配置回归测试，确保 `react-i18next` 保持在 React vendor chunk 中
-- 已通过完整 Dockerfile 构建与容器浏览器级冒烟测试验证
-- 更新说明：[v0.11.1](docs/release-note-v0.11.1-zh.md)
+- 新增 OMO Slim 专用配置 UI，支持 Slim agents、隐藏分类、本地导入、顶层选项和 Slim 专属对象字段
+- 更新标准 OMO 表单，对齐新版上游 schema，补齐新版 agents、顶层字段和结构化对象编辑器
+- 扩展 OpenCode provider preset，加入 NPM SDK 选择、模型 URL 覆写、模型拉取和推荐模型元数据合并
+- 新增 Claude、Codex、Gemini、OpenCode provider 的流式健康检查
+- 补齐 Amazon Bedrock：支持本地 preset 模型导入，以及 AWS SigV4 签名的 Bedrock Runtime ConverseStream 健康检查
+- 更新说明：[v0.13.0](docs/release-note-v0.13.0-zh.md)
+
+### v0.12.0 - 存储迁移候选版本线
+
+- 将运行时主存储从 legacy JSON snapshot 迁移到 SQLite
+- 继续补齐 Web/headless proxy usage、failover、Universal Provider 和 pricing/cost 工作流
+- 候选版本说明：[v0.12.0-rc.4](docs/release-note-v0.12.0-rc.4-zh.md)
 
 ### v0.11.0 - 上一个稳定版
 
@@ -103,10 +113,13 @@ _配置供应商_
 - **统一 MCP 管理**：跨 Claude/Codex/Gemini/OpenCode 配置 Model Context Protocol 服务器
 - **技能市场**：从 GitHub 仓库浏览并安装 Claude 技能
 - **提示词管理**：内置 CodeMirror 编辑器创建和管理系统提示词
+- **OpenCode 供应商预设**：选择 AI SDK package、导入推荐模型、拉取模型列表、编辑模型变体和选项
+- **OMO / OMO Slim UI**：用结构化字段管理 oh-my-opencode 与 oh-my-opencode-slim 配置
 
 ### 扩展功能
 
 - **备用供应商自动切换**：主供应商失败时自动切换到备用
+- **流式健康检查**：测试流式响应并识别常见供应商错误
 - **导入/导出**：备份和恢复所有配置，支持版本历史
 - **跨平台**：支持 Windows、macOS、Linux（桌面版）和 Web/Docker（服务器版）
 
@@ -126,8 +139,10 @@ _配置供应商_
 
 | 架构                      | 下载链接                                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/cc-switch-server-linux-aarch64) |
+
+发布页：[v0.13.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.13.0)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -242,11 +257,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                        | 说明                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.11.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Windows.msi)                   | 安装版（当前稳定版）                |
-|             | [CC-Switch-v0.11.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.11.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.11.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Linux.AppImage)             | AppImage（当前稳定版）              |
-|             | [CC-Switch-v0.11.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.11.1/CC-Switch-v0.11.1-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.13.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows.msi)                   | 安装版（当前稳定版）                |
+|             | [CC-Switch-v0.13.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.13.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.13.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.AppImage)             | AppImage（当前稳定版）              |
+|             | [CC-Switch-v0.13.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.13.0/CC-Switch-v0.13.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -270,7 +285,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装当前稳定版本
-VERSION=v0.11.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.13.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -328,11 +343,13 @@ NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
 
 CC-Switch 管理以下配置文件：
 
-| 应用            | 配置文件                                           |
-| --------------- | -------------------------------------------------- |
-| **Claude Code** | `~/.claude.json`（MCP）、`~/.claude/settings.json` |
-| **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`       |
-| **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`        |
+| 应用            | 配置文件                                                       |
+| --------------- | -------------------------------------------------------------- |
+| **Claude Code** | `~/.claude.json`（MCP）、`~/.claude/settings.json`、`~/.claude/CLAUDE.md` |
+| **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`、`~/.codex/AGENTS.md`       |
+| **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`、`~/.gemini/GEMINI.md`       |
+| **OpenCode**    | `~/.config/opencode/opencode.json`                             |
+| **OMO**         | OpenCode 共享配置目录下的 OMO / OMO Slim profile 与插件配置    |
 
 CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
 
@@ -377,7 +394,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) — 当前推荐稳定版本：**v0.11.1**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.13.0 发布说明](docs/release-note-v0.13.0-zh.md) — 当前推荐稳定版本：**v0.13.0**
 
 ---
 
