@@ -470,19 +470,23 @@ fn build_bedrock_request(
             "maxTokens": 16
         }
     });
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|err| AppError::Config(err.to_string()))?;
+    let body_bytes = serde_json::to_vec(&body).map_err(|err| AppError::Config(err.to_string()))?;
     let mut headers = json_headers();
-    headers.insert(ACCEPT, HeaderValue::from_static("application/vnd.amazon.eventstream"));
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("application/vnd.amazon.eventstream"),
+    );
     sign_bedrock_request(
-        &url,
-        &region,
-        &access_key_id,
-        &secret_access_key,
-        session_token.as_deref(),
-        &body_bytes,
+        BedrockSigningInput {
+            url: &url,
+            region: &region,
+            access_key_id: &access_key_id,
+            secret_access_key: &secret_access_key,
+            session_token: session_token.as_deref(),
+            body: &body_bytes,
+            now: chrono::Utc::now(),
+        },
         &mut headers,
-        chrono::Utc::now(),
     )?;
 
     Ok(ProbeRequest {
@@ -500,28 +504,32 @@ fn option_string(options: &Map<String, Value>, keys: &[&str]) -> Option<String> 
         .map(str::to_string)
 }
 
-fn sign_bedrock_request(
-    url: &str,
-    region: &str,
-    access_key_id: &str,
-    secret_access_key: &str,
-    session_token: Option<&str>,
-    body: &[u8],
-    headers: &mut HeaderMap,
+struct BedrockSigningInput<'a> {
+    url: &'a str,
+    region: &'a str,
+    access_key_id: &'a str,
+    secret_access_key: &'a str,
+    session_token: Option<&'a str>,
+    body: &'a [u8],
     now: chrono::DateTime<chrono::Utc>,
+}
+
+fn sign_bedrock_request(
+    input: BedrockSigningInput<'_>,
+    headers: &mut HeaderMap,
 ) -> Result<(), AppError> {
-    let parsed = Url::parse(url).map_err(|err| AppError::Config(err.to_string()))?;
+    let parsed = Url::parse(input.url).map_err(|err| AppError::Config(err.to_string()))?;
     let host = parsed
         .host_str()
         .ok_or_else(|| AppError::Config("Missing Bedrock request host".to_string()))?;
-    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-    let date_stamp = now.format("%Y%m%d").to_string();
-    let payload_hash = hex::encode(Sha256::digest(body));
+    let amz_date = input.now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = input.now.format("%Y%m%d").to_string();
+    let payload_hash = hex::encode(Sha256::digest(input.body));
 
     insert_header(headers, HOST.as_str(), host);
     insert_header(headers, "x-amz-date", &amz_date);
     insert_header(headers, "x-amz-content-sha256", &payload_hash);
-    if let Some(token) = session_token {
+    if let Some(token) = input.session_token {
         insert_header(headers, "x-amz-security-token", token);
     }
 
@@ -541,15 +549,15 @@ fn sign_bedrock_request(
     let canonical_request = format!(
         "POST\n{canonical_uri}\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
     );
-    let credential_scope = format!("{date_stamp}/{region}/bedrock/aws4_request");
+    let credential_scope = format!("{date_stamp}/{}/bedrock/aws4_request", input.region);
     let canonical_request_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
-    let string_to_sign = format!(
-        "AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_request_hash}"
-    );
-    let signing_key = bedrock_signing_key(secret_access_key, &date_stamp, region)?;
+    let string_to_sign =
+        format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_request_hash}");
+    let signing_key = bedrock_signing_key(input.secret_access_key, &date_stamp, input.region)?;
     let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes())?);
     let authorization = format!(
-        "AWS4-HMAC-SHA256 Credential={access_key_id}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+        "AWS4-HMAC-SHA256 Credential={}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        input.access_key_id
     );
     insert_header(headers, "authorization", &authorization);
     Ok(())
@@ -881,7 +889,10 @@ mod tests {
         );
         assert_eq!(request.body["messages"][0]["content"][0]["text"], "ping");
         assert_eq!(request.body["inferenceConfig"]["maxTokens"], 16);
-        assert!(request.body_bytes.as_ref().is_some_and(|bytes| !bytes.is_empty()));
+        assert!(request
+            .body_bytes
+            .as_ref()
+            .is_some_and(|bytes| !bytes.is_empty()));
         assert_eq!(
             request.headers.get("x-amz-security-token").unwrap(),
             "session-token"

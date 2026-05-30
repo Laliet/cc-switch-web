@@ -172,6 +172,13 @@ impl Database {
                 PRIMARY KEY (date, app_type, provider_id, model)
             );
 
+            CREATE TABLE IF NOT EXISTS session_log_sync (
+                file_path TEXT PRIMARY KEY,
+                last_modified INTEGER NOT NULL DEFAULT 0,
+                last_line_offset INTEGER NOT NULL DEFAULT 0,
+                last_synced_at INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS model_pricing (
                 model_id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
@@ -212,6 +219,9 @@ impl Database {
         if version < 2 {
             Self::migrate_v1_to_v2(&conn)?;
         }
+        if version < 3 {
+            Self::migrate_v2_to_v3(&conn)?;
+        }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
@@ -231,6 +241,7 @@ impl Database {
             ("provider_type", "TEXT"),
             ("is_streaming", "INTEGER NOT NULL DEFAULT 0"),
             ("cost_multiplier", "TEXT NOT NULL DEFAULT '1.0'"),
+            ("data_source", "TEXT NOT NULL DEFAULT 'proxy'"),
         ] {
             Self::add_column_if_missing(conn, "proxy_request_logs", column, definition)?;
         }
@@ -295,6 +306,26 @@ impl Database {
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_proxy_request_logs_status
              ON proxy_request_logs(status_code)",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn migrate_v2_to_v3(conn: &Connection) -> Result<(), AppError> {
+        Self::add_column_if_missing(
+            conn,
+            "proxy_request_logs",
+            "data_source",
+            "TEXT NOT NULL DEFAULT 'proxy'",
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_log_sync (
+                file_path TEXT PRIMARY KEY,
+                last_modified INTEGER NOT NULL DEFAULT 0,
+                last_line_offset INTEGER NOT NULL DEFAULT 0,
+                last_synced_at INTEGER NOT NULL DEFAULT 0
+            )",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

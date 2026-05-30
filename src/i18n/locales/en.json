@@ -27,7 +27,8 @@
     "formatSuccess": "Formatted successfully",
     "formatError": "Format failed: {{error}}",
     "copy": "Copy",
-    "view": "View"
+    "view": "View",
+    "none": "None"
   },
   "apiKeyInput": {
     "placeholder": "Enter API Key",
@@ -55,6 +56,11 @@
     "switchToEnglish": "Switch to English",
     "enterEditMode": "Enter Edit Mode",
     "exitEditMode": "Exit Edit Mode"
+  },
+  "usage": {
+    "dashboard": "Usage",
+    "title": "Usage Dashboard",
+    "subtitle": "Request logs, model pricing, and cost analytics."
   },
   "provider": {
     "noProviders": "No providers added yet",

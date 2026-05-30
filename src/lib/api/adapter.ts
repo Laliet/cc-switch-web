@@ -260,6 +260,17 @@ export function buildWebApiUrl(path: string): string {
 
 const encode = (value: unknown) => encodeURIComponent(String(value));
 
+const queryString = (entries: Record<string, unknown>): string => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(entries)) {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -1140,6 +1151,100 @@ export function commandToEndpoint(
         url: `${apiBase}/proxy/pricing/models/${encode(modelId)}`,
       };
     }
+    case "get_usage_summary":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/summary${queryString({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          appType: args.appType,
+        })}`,
+      };
+    case "get_usage_summary_by_app":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/summary-by-app${queryString({
+          startDate: args.startDate,
+          endDate: args.endDate,
+        })}`,
+      };
+    case "get_usage_trends":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/trends${queryString({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          appType: args.appType,
+        })}`,
+      };
+    case "get_provider_stats":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/providers${queryString({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          appType: args.appType,
+        })}`,
+      };
+    case "get_model_stats":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/models${queryString({
+          startDate: args.startDate,
+          endDate: args.endDate,
+          appType: args.appType,
+        })}`,
+      };
+    case "get_request_logs":
+      return {
+        method: "POST",
+        url: `${apiBase}/usage/logs`,
+        body: {
+          filters: requireArg(args, "filters", cmd),
+          page: args.page,
+          pageSize: args.pageSize,
+        },
+      };
+    case "get_request_detail": {
+      const requestId = requireArg(args, "requestId", cmd);
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/logs/${encode(requestId)}`,
+      };
+    }
+    case "get_model_pricing":
+      return { method: "GET", url: `${apiBase}/usage/pricing/models` };
+    case "update_model_pricing": {
+      const modelId = requireArg(args, "modelId", cmd);
+      return {
+        method: "PUT",
+        url: `${apiBase}/usage/pricing/models/${encode(modelId)}`,
+        body: {
+          modelId,
+          displayName: requireArg(args, "displayName", cmd),
+          inputCostPerMillion: requireArg(args, "inputCost", cmd),
+          outputCostPerMillion: requireArg(args, "outputCost", cmd),
+          cacheReadCostPerMillion: requireArg(args, "cacheReadCost", cmd),
+          cacheCreationCostPerMillion: requireArg(
+            args,
+            "cacheCreationCost",
+            cmd,
+          ),
+        },
+      };
+    }
+    case "check_provider_limits": {
+      const appType = requireArg(args, "appType", cmd);
+      const providerId = requireArg(args, "providerId", cmd);
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/limits/${encode(appType)}/${encode(providerId)}`,
+      };
+    }
+    case "sync_session_usage":
+      return { method: "POST", url: `${apiBase}/usage/sessions/sync` };
+    case "get_usage_data_sources":
+      return { method: "GET", url: `${apiBase}/usage/data-sources` };
     case "update_web_credentials":
       return {
         method: "PUT",

@@ -280,6 +280,36 @@ export interface ProxyRecentLog {
   error?: string | null;
 }
 
+export interface UsageRequestLog {
+  requestId: string;
+  providerId: string;
+  providerName?: string | null;
+  appType: string;
+  model: string;
+  requestModel?: string | null;
+  costMultiplier: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  inputCostUsd: string;
+  outputCostUsd: string;
+  cacheReadCostUsd: string;
+  cacheCreationCostUsd: string;
+  totalCostUsd: string;
+  isStreaming: boolean;
+  latencyMs: number;
+  firstTokenMs?: number | null;
+  durationMs?: number | null;
+  statusCode: number;
+  errorMessage?: string | null;
+  sessionId?: string | null;
+  providerType?: string | null;
+  createdAt: number;
+  dataSource?: string | null;
+  isUnpriced: boolean;
+}
+
 // MCP 服务器连接参数（宽松：允许扩展字段）
 export interface McpServerSpec {
   // 可选：社区常见 .mcp.json 中 stdio 配置可不写 type

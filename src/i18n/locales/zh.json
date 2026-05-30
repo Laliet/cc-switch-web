@@ -27,7 +27,8 @@
     "formatSuccess": "格式化成功",
     "formatError": "格式化失败：{{error}}",
     "copy": "复制",
-    "view": "查看"
+    "view": "查看",
+    "none": "无"
   },
   "apiKeyInput": {
     "placeholder": "请输入API Key",
@@ -55,6 +56,11 @@
     "switchToEnglish": "切换到英文",
     "enterEditMode": "进入编辑模式",
     "exitEditMode": "退出编辑模式"
+  },
+  "usage": {
+    "dashboard": "用量",
+    "title": "Usage Dashboard",
+    "subtitle": "请求日志、模型定价与成本分析。"
   },
   "provider": {
     "noProviders": "还没有添加任何供应商",

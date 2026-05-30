@@ -8,7 +8,7 @@ use axum::{
 use super::{
     handlers::{
         config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
-        stream_check, system,
+        stream_check, system, usage,
     },
     SharedState,
 };
@@ -22,6 +22,7 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/skills", skill_routes())
         .nest("/settings", settings_routes())
         .nest("/proxy", proxy_routes())
+        .nest("/usage", usage_routes())
         .nest("/config", config_routes())
         .route("/model-fetch", post(model_fetch::fetch_models_for_config))
         .nest("/stream-check", stream_check_routes())
@@ -188,6 +189,25 @@ fn proxy_routes() -> Router<SharedState> {
             "/recover-stale-takeover",
             post(proxy::recover_stale_takeover),
         )
+}
+
+fn usage_routes() -> Router<SharedState> {
+    Router::new()
+        .route("/summary", get(usage::summary))
+        .route("/summary-by-app", get(usage::summary_by_app))
+        .route("/trends", get(usage::trends))
+        .route("/providers", get(usage::providers))
+        .route("/models", get(usage::models))
+        .route("/logs", post(usage::logs))
+        .route("/logs/:request_id", get(usage::detail))
+        .route("/pricing/models", get(usage::pricing))
+        .route(
+            "/pricing/models/:model_id",
+            put(usage::upsert_pricing).delete(usage::delete_pricing),
+        )
+        .route("/limits/:app_type/:provider_id", get(usage::limits))
+        .route("/sessions/sync", post(usage::sync_sessions))
+        .route("/data-sources", get(usage::data_sources))
 }
 
 fn config_routes() -> Router<SharedState> {

@@ -21,6 +21,7 @@ pub mod settings;
 pub mod skills;
 pub mod stream_check;
 pub mod system;
+pub mod usage;
 
 #[derive(Debug)]
 pub struct ApiError {
