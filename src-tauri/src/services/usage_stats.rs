@@ -236,8 +236,7 @@ fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
         provider_type: row.get(23)?,
         created_at: row.get(24)?,
         data_source: row.get(25)?,
-        is_unpriced: status_code >= 200
-            && status_code < 300
+        is_unpriced: (200..300).contains(&status_code)
             && has_tokens
             && multiplier != 0.0
             && total_cost == 0.0,
