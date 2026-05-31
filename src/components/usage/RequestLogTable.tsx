@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { resolveUsageRange } from "@/lib/usageRange";
 import { useRequestLogs } from "@/lib/query/usage";
 import type {
   AppTypeFilter,
@@ -45,19 +44,26 @@ export function RequestLogTable({
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<RequestLog | null>(null);
   const pageSize = 20;
-  const resolved = resolveUsageRange(range);
+  useEffect(() => {
+    setPage(0);
+  }, [appType, range]);
+
   const filters = useMemo<LogFilters>(
     () => ({
-      startDate: resolved.startDate,
-      endDate: resolved.endDate,
       appType: appType === "all" ? undefined : appType,
       providerName: providerName.trim() || undefined,
       model: model.trim() || undefined,
       statusCode: status === "all" ? undefined : Number(status),
     }),
-    [appType, model, providerName, resolved.endDate, resolved.startDate, status],
+    [appType, model, providerName, status],
   );
-  const query = useRequestLogs(filters, page, pageSize, refreshIntervalMs);
+  const query = useRequestLogs(
+    range,
+    filters,
+    page,
+    pageSize,
+    refreshIntervalMs,
+  );
   const total = query.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -140,7 +146,9 @@ export function RequestLogTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <span className={`rounded-md border px-2 py-1 text-xs ${statusTone(log.statusCode)}`}>
+                  <span
+                    className={`rounded-md border px-2 py-1 text-xs ${statusTone(log.statusCode)}`}
+                  >
                     {log.statusCode}
                   </span>
                 </TableCell>
@@ -160,7 +168,10 @@ export function RequestLogTable({
             ))}
             {!query.isLoading && (query.data?.data ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell
+                  colSpan={7}
+                  className="text-center text-muted-foreground"
+                >
                   No request logs in this range
                 </TableCell>
               </TableRow>

@@ -25,8 +25,12 @@ export const usageKeys = {
     [...usageBaseKey, "providers", range, appType] as const,
   models: (range: UsageRangeSelection, appType?: AppTypeFilter) =>
     [...usageBaseKey, "models", range, appType] as const,
-  logs: (filters: LogFilters, page: number, pageSize: number) =>
-    [...usageBaseKey, "logs", filters, page, pageSize] as const,
+  logs: (
+    range: UsageRangeSelection,
+    filters: LogFilters,
+    page: number,
+    pageSize: number,
+  ) => [...usageBaseKey, "logs", range, filters, page, pageSize] as const,
   detail: (requestId: string | null) =>
     [...usageBaseKey, "detail", requestId] as const,
   pricing: [...usageBaseKey, "pricing"] as const,
@@ -38,15 +42,16 @@ export function useUsageSummary(
   appType?: AppTypeFilter,
   refreshIntervalMs = 0,
 ) {
-  const resolved = resolveUsageRange(range);
   return useQuery({
     queryKey: usageKeys.summary(range, appType),
-    queryFn: () =>
-      usageApi.getUsageSummary(
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getUsageSummary(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
-      ),
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }
@@ -55,11 +60,15 @@ export function useUsageSummaryByApp(
   range: UsageRangeSelection,
   refreshIntervalMs = 0,
 ) {
-  const resolved = resolveUsageRange(range);
   return useQuery({
     queryKey: usageKeys.summaryByApp(range),
-    queryFn: () =>
-      usageApi.getUsageSummaryByApp(resolved.startDate, resolved.endDate),
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getUsageSummaryByApp(
+        resolved.startDate,
+        resolved.endDate,
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }
@@ -69,15 +78,16 @@ export function useUsageTrends(
   appType?: AppTypeFilter,
   refreshIntervalMs = 0,
 ) {
-  const resolved = resolveUsageRange(range);
   return useQuery({
     queryKey: usageKeys.trends(range, appType),
-    queryFn: () =>
-      usageApi.getUsageTrends(
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getUsageTrends(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
-      ),
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }
@@ -87,15 +97,16 @@ export function useProviderStats(
   appType?: AppTypeFilter,
   refreshIntervalMs = 0,
 ) {
-  const resolved = resolveUsageRange(range);
   return useQuery({
     queryKey: usageKeys.providers(range, appType),
-    queryFn: () =>
-      usageApi.getProviderStats(
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getProviderStats(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
-      ),
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }
@@ -105,28 +116,41 @@ export function useModelStats(
   appType?: AppTypeFilter,
   refreshIntervalMs = 0,
 ) {
-  const resolved = resolveUsageRange(range);
   return useQuery({
     queryKey: usageKeys.models(range, appType),
-    queryFn: () =>
-      usageApi.getModelStats(
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getModelStats(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
-      ),
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }
 
 export function useRequestLogs(
+  range: UsageRangeSelection,
   filters: LogFilters,
   page: number,
   pageSize: number,
   refreshIntervalMs = 0,
 ) {
   return useQuery({
-    queryKey: usageKeys.logs(filters, page, pageSize),
-    queryFn: () => usageApi.getRequestLogs(filters, page, pageSize),
+    queryKey: usageKeys.logs(range, filters, page, pageSize),
+    queryFn: () => {
+      const resolved = resolveUsageRange(range);
+      return usageApi.getRequestLogs(
+        {
+          ...filters,
+          startDate: resolved.startDate,
+          endDate: resolved.endDate,
+        },
+        page,
+        pageSize,
+      );
+    },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }

@@ -15,8 +15,8 @@
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
 
-> 当前预发布版本：[v0.14.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.0)<br>
-> `v0.14.0` 将作为预发布用于最终验证
+> 当前版本：[v0.14.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)<br>
+> `v0.14.1` 修复 Usage Dashboard 自动刷新、历史 rollup、request logs 分页和模型定价回填匹配问题。
 
 ---
 
@@ -39,7 +39,15 @@
 
 ## 更新内容
 
-### v0.14.0 - 预发布版
+### v0.14.1 - Usage Dashboard 修复版
+
+- 修复 Usage Dashboard 自动刷新时相对时间范围不会前进的问题
+- 修复 request logs 切换全局 App 或时间范围后未重置页码的问题
+- 修复短时间范围只有 daily rollup 历史数据时趋势图为空的问题
+- 收紧模型定价匹配，避免 `gpt-4` 错误匹配 `gpt-4o`
+- 更新说明：[v0.14.1](docs/release-note-v0.14.1-zh.md)
+
+### v0.14.0 - Usage Dashboard 预发布版
 
 - 新增完整 Usage Dashboard：展示代理请求成本汇总、token 拆分、应用维度占比、趋势图与自动刷新
 - 新增可搜索/分页的 request logs，并支持查看单次请求的 token、延迟、状态、流式信息和成本详情
@@ -147,12 +155,12 @@ _配置供应商_
 
 下载预编译的服务器二进制，无需编译：
 
-| 架构                      | 下载链接                                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/cc-switch-server-linux-aarch64) |
+| 架构                      | 下载链接                                                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.14.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.0)
+发布页：[v0.14.1 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -265,13 +273,13 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 功能完整的桌面应用，带图形界面，基于 Tauri 构建。
 
-| 平台        | 下载链接                                                                                                                                        | 说明                                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.14.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Windows.msi)                   | 安装版（预发布）                    |
-|             | [CC-Switch-v0.14.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.14.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.14.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Linux.AppImage)             | AppImage（预发布）                  |
-|             | [CC-Switch-v0.14.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.0/CC-Switch-v0.14.0-Linux.deb)                       | Debian/Ubuntu 包                    |
+| 平台        | 下载链接                                                                                                                                           | 说明                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| **Windows** | [CC-Switch-v0.14.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows.msi)                   | 安装版                              |
+|             | [CC-Switch-v0.14.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.14.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.14.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.AppImage)             | AppImage                            |
+|             | [CC-Switch-v0.14.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -294,8 +302,8 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 **高级选项**：
 
 ```bash
-# 安装当前预发布版本
-VERSION=v0.14.0 curl -fsSL https://...install.sh | bash
+# 安装指定版本
+VERSION=v0.14.1 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -353,13 +361,13 @@ NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
 
 CC-Switch 管理以下配置文件：
 
-| 应用            | 配置文件                                                       |
-| --------------- | -------------------------------------------------------------- |
+| 应用            | 配置文件                                                                  |
+| --------------- | ------------------------------------------------------------------------- |
 | **Claude Code** | `~/.claude.json`（MCP）、`~/.claude/settings.json`、`~/.claude/CLAUDE.md` |
-| **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`、`~/.codex/AGENTS.md`       |
-| **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`、`~/.gemini/GEMINI.md`       |
-| **OpenCode**    | `~/.config/opencode/opencode.json`                             |
-| **OMO**         | OpenCode 共享配置目录下的 OMO / OMO Slim profile 与插件配置    |
+| **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`、`~/.codex/AGENTS.md`        |
+| **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`、`~/.gemini/GEMINI.md`        |
+| **OpenCode**    | `~/.config/opencode/opencode.json`                                        |
+| **OMO**         | OpenCode 共享配置目录下的 OMO / OMO Slim profile 与插件配置               |
 
 CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
 
@@ -404,7 +412,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.14.0 发布说明](docs/release-note-v0.14.0-zh.md) — 当前预发布版本：**v0.14.0**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.14.1 发布说明](docs/release-note-v0.14.1-zh.md) — 当前版本：**v0.14.1**
 
 ---
 

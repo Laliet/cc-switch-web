@@ -1253,16 +1253,30 @@ fn model_matches_pricing_key(model: &str, pricing_key: &str) -> bool {
     if model.is_empty() || pricing_key.is_empty() {
         return false;
     }
-    model == pricing_key
-        || model
-            .rsplit_once('/')
-            .map(|(_, tail)| tail == pricing_key)
-            .unwrap_or(false)
-        || model
-            .split_once(':')
-            .map(|(head, _)| head == pricing_key)
-            .unwrap_or(false)
-        || model.starts_with(&pricing_key)
+    let mut candidates = vec![model.as_str()];
+    if let Some((_, tail)) = model.rsplit_once('/') {
+        candidates.push(tail);
+    }
+    if let Some((head, _)) = model.split_once(':') {
+        candidates.push(head);
+    }
+    if let Some((_, tail)) = model.rsplit_once('/') {
+        if let Some((tail_head, _)) = tail.split_once(':') {
+            candidates.push(tail_head);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .any(|candidate| candidate_matches_pricing_key(candidate, &pricing_key))
+}
+
+fn candidate_matches_pricing_key(candidate: &str, pricing_key: &str) -> bool {
+    candidate == pricing_key
+        || candidate
+            .strip_prefix(pricing_key)
+            .and_then(|suffix| suffix.strip_prefix('-'))
+            .is_some_and(|suffix| !suffix.is_empty())
 }
 
 impl Database {
@@ -1512,7 +1526,7 @@ impl Database {
             stats.push(row.map_err(|err| AppError::Database(err.to_string()))?);
         }
 
-        if !hourly {
+        if !hourly || stats.is_empty() {
             let mut rollup_conditions = Vec::new();
             let mut rollup_params: Vec<Box<dyn ToSql>> = Vec::new();
             push_rollup_filters(
@@ -2262,6 +2276,19 @@ mod tests {
                 params![now],
             )
             .map_err(|err| AppError::Database(err.to_string()))?;
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model,
+                    input_tokens, output_tokens, total_cost_usd,
+                    latency_ms, status_code, created_at
+                 ) VALUES (
+                    'usage-backfill-2', 'p1', 'claude', 'provider/custom-priced-model:extra',
+                    1000000, 1000000, '0',
+                    50, 200, ?1
+                 )",
+                params![now],
+            )
+            .map_err(|err| AppError::Database(err.to_string()))?;
         }
 
         let updated = db.update_model_pricing_and_backfill(&ModelPricingRecord {
@@ -2272,14 +2299,36 @@ mod tests {
             cache_read_cost_per_million: "0".to_string(),
             cache_creation_cost_per_million: "0".to_string(),
         })?;
-        assert_eq!(updated, 1);
+        assert_eq!(updated, 2);
 
         let detail = db
             .get_request_detail("usage-backfill-1")?
             .expect("request detail");
         assert_eq!(detail.total_cost_usd, "3.0");
         assert!(!detail.is_unpriced);
+        let namespaced_detail = db
+            .get_request_detail("usage-backfill-2")?
+            .expect("namespaced request detail");
+        assert_eq!(namespaced_detail.total_cost_usd, "3.0");
+        assert!(!namespaced_detail.is_unpriced);
         Ok(())
+    }
+
+    #[test]
+    fn model_pricing_match_requires_model_boundary() {
+        assert!(model_matches_pricing_key(
+            "claude-sonnet-4-20250514",
+            "claude-sonnet-4"
+        ));
+        assert!(model_matches_pricing_key(
+            "provider/custom-model:extra",
+            "custom-model"
+        ));
+        assert!(model_matches_pricing_key("gpt-4o-mini", "gpt-4o"));
+
+        assert!(!model_matches_pricing_key("gpt-4o", "gpt-4"));
+        assert!(!model_matches_pricing_key("gpt-4.1", "gpt-4"));
+        assert!(!model_matches_pricing_key("provider/gpt-4o:extra", "gpt-4"));
     }
 
     #[test]
@@ -2321,6 +2370,38 @@ mod tests {
         assert_eq!(model.total_tokens, 390);
         assert_eq!(model.total_cost, "0.123456");
         assert_eq!(model.avg_cost_per_request, "0.041152");
+        Ok(())
+    }
+
+    #[test]
+    fn daily_trends_include_rollups_when_log_range_is_empty() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let now = Utc::now().timestamp_millis();
+        let rollup_date = rollup_date_from_millis(now)?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO usage_daily_rollups (
+                    date, app_type, provider_id, model, request_count, success_count,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, avg_latency_ms
+                 ) VALUES (
+                    ?1, 'claude', 'archived-provider', 'claude-sonnet-4-20250514',
+                    2, 2, 200, 80, 20, 10, '0.222222', 200
+                 )",
+                params![rollup_date],
+            )
+            .map_err(|err| AppError::Database(err.to_string()))?;
+        }
+
+        let trends = db.get_daily_trends(Some(now - 1_000), Some(now + 1_000), Some("claude"))?;
+
+        assert_eq!(trends.len(), 1);
+        assert_eq!(trends[0].date, rollup_date);
+        assert_eq!(trends[0].request_count, 2);
+        assert_eq!(trends[0].total_cost, "0.222222");
+        assert_eq!(trends[0].total_input_tokens, 200);
+        assert_eq!(trends[0].total_output_tokens, 80);
         Ok(())
     }
 
