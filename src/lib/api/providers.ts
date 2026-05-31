@@ -14,6 +14,27 @@ export interface ProviderSwitchEvent {
   providerId: string;
 }
 
+export interface ClaudeDesktopDefaultRoute {
+  routeId: string;
+  envKey: string;
+  supports1m: boolean;
+}
+
+export interface ClaudeDesktopStatus {
+  supported: boolean;
+  configured: boolean;
+  appliedId?: string | null;
+  profilePath?: string | null;
+  configLibraryPath?: string | null;
+  mode?: "direct" | "proxy" | null;
+  expectedBaseUrl?: string | null;
+  actualBaseUrl?: string | null;
+  proxyRunning: boolean;
+  staleRawModels: boolean;
+  missingRouteMappings: boolean;
+  gatewayTokenConfigured: boolean;
+}
+
 export const providersApi = {
   async getAll(appId: AppId): Promise<Record<string, Provider>> {
     return await invoke("get_providers", { app: appId });
@@ -97,6 +118,18 @@ export const providersApi = {
 
   async getOpenCodeLiveProviderIds(): Promise<string[]> {
     return await invoke("get_opencode_live_provider_ids");
+  },
+
+  async getClaudeDesktopDefaultRoutes(): Promise<ClaudeDesktopDefaultRoute[]> {
+    return await invoke("get_claude_desktop_default_routes");
+  },
+
+  async getClaudeDesktopStatus(): Promise<ClaudeDesktopStatus> {
+    return await invoke("get_claude_desktop_status");
+  },
+
+  async importClaudeDesktopProvidersFromClaude(): Promise<number> {
+    return await invoke("import_claude_desktop_providers_from_claude");
   },
 
   async getUniversalAll(): Promise<Record<string, UniversalProvider>> {

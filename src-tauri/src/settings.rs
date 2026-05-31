@@ -162,6 +162,18 @@ pub struct ProxySettings {
     pub streaming_idle_timeout: u64,
     #[serde(default = "default_non_streaming_timeout")]
     pub non_streaming_timeout: u64,
+    #[serde(default = "default_proxy_circuit_failure_threshold")]
+    pub circuit_failure_threshold: u64,
+    #[serde(default = "default_proxy_circuit_recovery_threshold")]
+    pub circuit_recovery_threshold: u64,
+    #[serde(default = "default_proxy_circuit_recovery_wait")]
+    pub circuit_recovery_wait_seconds: u64,
+    #[serde(default = "default_proxy_circuit_error_rate_threshold")]
+    pub circuit_error_rate_threshold: f64,
+    #[serde(default)]
+    pub rectify_thinking_signature: bool,
+    #[serde(default)]
+    pub rectify_thinking_budget: bool,
     #[serde(default)]
     pub apps: ProxyAppsSettings,
 }
@@ -206,6 +218,36 @@ pub struct ProxyAppsSettings {
     pub opencode: ProxyAppSettings,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default = "default_webdav_remote_dir")]
+    pub remote_dir: String,
+    #[serde(default = "default_webdav_profile")]
+    pub profile: String,
+}
+
+impl Default for WebDavSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            username: String::new(),
+            password: String::new(),
+            remote_dir: default_webdav_remote_dir(),
+            profile: default_webdav_profile(),
+        }
+    }
+}
+
 fn default_proxy_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -230,6 +272,22 @@ fn default_non_streaming_timeout() -> u64 {
     180
 }
 
+fn default_proxy_circuit_failure_threshold() -> u64 {
+    3
+}
+
+fn default_proxy_circuit_recovery_threshold() -> u64 {
+    2
+}
+
+fn default_proxy_circuit_recovery_wait() -> u64 {
+    60
+}
+
+fn default_proxy_circuit_error_rate_threshold() -> f64 {
+    80.0
+}
+
 fn default_proxy_max_retries() -> u8 {
     0
 }
@@ -240,6 +298,14 @@ fn default_cost_multiplier() -> String {
 
 fn default_pricing_model_source() -> String {
     "response".to_string()
+}
+
+fn default_webdav_remote_dir() -> String {
+    "cc-switch-web".to_string()
+}
+
+fn default_webdav_profile() -> String {
+    "default".to_string()
 }
 
 impl Default for ProxySettings {
@@ -256,6 +322,12 @@ impl Default for ProxySettings {
             streaming_first_byte_timeout: default_streaming_first_byte_timeout(),
             streaming_idle_timeout: default_streaming_idle_timeout(),
             non_streaming_timeout: default_non_streaming_timeout(),
+            circuit_failure_threshold: default_proxy_circuit_failure_threshold(),
+            circuit_recovery_threshold: default_proxy_circuit_recovery_threshold(),
+            circuit_recovery_wait_seconds: default_proxy_circuit_recovery_wait(),
+            circuit_error_rate_threshold: default_proxy_circuit_error_rate_threshold(),
+            rectify_thinking_signature: true,
+            rectify_thinking_budget: true,
             apps: ProxyAppsSettings::default(),
         }
     }
@@ -286,6 +358,8 @@ pub struct AppSettings {
     pub security: Option<SecuritySettings>,
     #[serde(default)]
     pub proxy: ProxySettings,
+    #[serde(default, rename = "webDav")]
+    pub webdav: WebDavSettings,
     /// Claude 自定义端点列表
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints_claude: HashMap<String, CustomEndpoint>,
@@ -315,6 +389,7 @@ impl Default for AppSettings {
             language: None,
             security: None,
             proxy: ProxySettings::default(),
+            webdav: WebDavSettings::default(),
             custom_endpoints_claude: HashMap::new(),
             custom_endpoints_codex: HashMap::new(),
         }

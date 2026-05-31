@@ -103,6 +103,12 @@ impl Database {
                 streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 90,
                 streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
                 non_streaming_timeout INTEGER NOT NULL DEFAULT 180,
+                circuit_failure_threshold INTEGER NOT NULL DEFAULT 3,
+                circuit_recovery_threshold INTEGER NOT NULL DEFAULT 2,
+                circuit_recovery_wait_seconds INTEGER NOT NULL DEFAULT 60,
+                circuit_error_rate_threshold REAL NOT NULL DEFAULT 80,
+                rectify_thinking_signature INTEGER NOT NULL DEFAULT 1,
+                rectify_thinking_budget INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -257,6 +263,19 @@ impl Database {
             "pricing_model_source",
             "TEXT NOT NULL DEFAULT 'response'",
         )?;
+        for (column, definition) in [
+            ("circuit_failure_threshold", "INTEGER NOT NULL DEFAULT 3"),
+            ("circuit_recovery_threshold", "INTEGER NOT NULL DEFAULT 2"),
+            (
+                "circuit_recovery_wait_seconds",
+                "INTEGER NOT NULL DEFAULT 60",
+            ),
+            ("circuit_error_rate_threshold", "REAL NOT NULL DEFAULT 80"),
+            ("rectify_thinking_signature", "INTEGER NOT NULL DEFAULT 1"),
+            ("rectify_thinking_budget", "INTEGER NOT NULL DEFAULT 1"),
+        ] {
+            Self::add_column_if_missing(conn, "proxy_config", column, definition)?;
+        }
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS usage_daily_rollups (

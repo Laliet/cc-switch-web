@@ -21,6 +21,7 @@ pub struct ProviderService;
 
 #[derive(Clone)]
 enum LiveSnapshot {
+    Noop,
     Claude {
         settings: Option<Value>,
     },
@@ -54,6 +55,7 @@ struct PostCommitAction {
 impl LiveSnapshot {
     fn restore(&self) -> Result<(), AppError> {
         match self {
+            LiveSnapshot::Noop => {}
             LiveSnapshot::Claude { settings } => {
                 let path = get_claude_settings_path()?;
                 if let Some(value) = settings {
@@ -588,7 +590,7 @@ impl ProviderService {
     fn apply_post_commit(state: &AppState, action: &PostCommitAction) -> Result<(), AppError> {
         let proxy_takeover_active = Self::proxy_takeover_enabled(&action.app_type);
         if !proxy_takeover_active {
-            Self::write_live_snapshot(&action.app_type, &action.provider)?;
+            Self::write_live_snapshot(state, &action.app_type, &action.provider)?;
         }
         if action.sync_mcp {
             // 使用 v3.7.0 统一的 MCP 同步机制，支持所有应用
@@ -610,7 +612,7 @@ impl ProviderService {
                 AppType::Codex => proxy.apps.codex.enabled,
                 AppType::Gemini => proxy.apps.gemini.enabled,
                 AppType::Opencode => proxy.apps.opencode.enabled,
-                AppType::Omo | AppType::OmoSlim => false,
+                AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
             };
         }
 
@@ -736,6 +738,7 @@ impl ProviderService {
                     Ok(())
                 })?;
             }
+            AppType::ClaudeDesktop => {}
             AppType::Omo | AppType::OmoSlim => {
                 let slim = matches!(app_type, AppType::OmoSlim);
                 let config_path = if slim {
@@ -826,6 +829,7 @@ impl ProviderService {
                 };
                 Ok(LiveSnapshot::Opencode { config })
             }
+            AppType::ClaudeDesktop => Ok(LiveSnapshot::Noop),
             AppType::Omo | AppType::OmoSlim => {
                 let slim = matches!(app_type, AppType::OmoSlim);
                 let path = if slim {
@@ -1128,6 +1132,9 @@ impl ProviderService {
                 })?;
                 return Ok(());
             }
+            AppType::ClaudeDesktop => {
+                return Err(Self::app_not_supported(&app_type));
+            }
             AppType::Omo | AppType::OmoSlim => {
                 let slim = matches!(app_type, AppType::OmoSlim);
                 let config_path = if slim {
@@ -1187,6 +1194,9 @@ impl ProviderService {
             }
             AppType::Omo | AppType::OmoSlim => {
                 return Self::sync_current_provider_from_live(state, app_type, live_settings);
+            }
+            AppType::ClaudeDesktop => {
+                return Err(Self::app_not_supported(&app_type));
             }
             AppType::Claude | AppType::Codex | AppType::Gemini => {}
         }
@@ -1337,6 +1347,7 @@ impl ProviderService {
                 }
                 crate::opencode_config::read_opencode_config()
             }
+            AppType::ClaudeDesktop => Err(Self::app_not_supported(&app_type)),
             AppType::Omo | AppType::OmoSlim => {
                 let slim = matches!(app_type, AppType::OmoSlim);
                 let path = if slim {
@@ -1659,6 +1670,9 @@ impl ProviderService {
                 AppType::Codex => Self::prepare_switch_codex(config, &provider_id_owned)?,
                 AppType::Claude => Self::prepare_switch_claude(config, &provider_id_owned)?,
                 AppType::Gemini => Self::prepare_switch_gemini(config, &provider_id_owned)?,
+                AppType::ClaudeDesktop => {
+                    Self::prepare_switch_claude_desktop(config, &provider_id_owned)?
+                }
                 AppType::Opencode => Self::prepare_switch_opencode(config, &provider_id_owned)?,
                 AppType::Omo | AppType::OmoSlim => {
                     Self::prepare_switch_omo(config, &app_type_clone, &provider_id_owned)?
@@ -1669,8 +1683,8 @@ impl ProviderService {
                 app_type: app_type_clone.clone(),
                 provider,
                 backup,
-                sync_mcp: true, // v3.7.0: 所有应用切换时都同步 MCP，防止配置丢失
-                refresh_snapshot: true,
+                sync_mcp: !matches!(app_type_clone, AppType::ClaudeDesktop),
+                refresh_snapshot: !matches!(app_type_clone, AppType::ClaudeDesktop),
             };
 
             Ok(((), Some(action)))
@@ -1785,6 +1799,32 @@ impl ProviderService {
         Self::backfill_claude_current(config, provider_id)?;
 
         if let Some(manager) = config.get_manager_mut(&AppType::Claude) {
+            manager.current = provider_id.to_string();
+        }
+
+        Ok(provider)
+    }
+
+    fn prepare_switch_claude_desktop(
+        config: &mut MultiAppConfig,
+        provider_id: &str,
+    ) -> Result<Provider, AppError> {
+        let app_type = AppType::ClaudeDesktop;
+        let provider = config
+            .get_manager(&app_type)
+            .ok_or_else(|| Self::app_not_found(&app_type))?
+            .providers
+            .get(provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::localized(
+                    "provider.not_found",
+                    format!("供应商不存在: {provider_id}"),
+                    format!("Provider not found: {provider_id}"),
+                )
+            })?;
+
+        if let Some(manager) = config.get_manager_mut(&app_type) {
             manager.current = provider_id.to_string();
         }
 
@@ -2189,11 +2229,18 @@ impl ProviderService {
         serde_json::Value::Object(live)
     }
 
-    fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
+    fn write_live_snapshot(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Result<(), AppError> {
         match app_type {
             AppType::Codex => Self::write_codex_live(provider),
             AppType::Claude => Self::write_claude_live(provider),
             AppType::Gemini => Self::write_gemini_live(provider), // 新增
+            AppType::ClaudeDesktop => {
+                crate::claude_desktop_config::apply_provider(&state.db, provider)
+            }
             AppType::Opencode => Self::write_opencode_live(provider),
             AppType::Omo => Self::write_omo_live(provider),
             AppType::OmoSlim => Self::write_omo_slim_live(provider),
@@ -2202,6 +2249,9 @@ impl ProviderService {
 
     fn validate_provider_settings(app_type: &AppType, provider: &Provider) -> Result<(), AppError> {
         match app_type {
+            AppType::ClaudeDesktop => {
+                crate::claude_desktop_config::validate_provider(provider)?;
+            }
             AppType::Claude => {
                 if !provider.settings_config.is_object() {
                     return Err(AppError::localized(
@@ -2312,7 +2362,7 @@ impl ProviderService {
         app_type: &AppType,
     ) -> Result<(String, String), AppError> {
         match app_type {
-            AppType::Claude => {
+            AppType::Claude | AppType::ClaudeDesktop => {
                 let env = provider
                     .settings_config
                     .get("env")
@@ -2547,6 +2597,7 @@ impl ProviderService {
             AppType::Gemini => {
                 // Gemini 使用单一的 .env 文件，不需要删除单独的供应商配置文件
             }
+            AppType::ClaudeDesktop => {}
             AppType::Opencode => {
                 crate::opencode_config::remove_provider(provider_id)?;
             }
@@ -2676,7 +2727,10 @@ impl ProviderService {
                         AppType::Claude => format!("universal-claude-{id}"),
                         AppType::Codex => format!("universal-codex-{id}"),
                         AppType::Gemini => format!("universal-gemini-{id}"),
-                        AppType::Opencode | AppType::Omo | AppType::OmoSlim => continue,
+                        AppType::ClaudeDesktop
+                        | AppType::Opencode
+                        | AppType::Omo
+                        | AppType::OmoSlim => continue,
                     },
                 };
                 let manager = config

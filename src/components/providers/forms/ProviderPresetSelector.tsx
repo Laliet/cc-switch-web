@@ -5,11 +5,18 @@ import { Zap, Star } from "lucide-react";
 import type { ProviderPreset } from "@/config/claudeProviderPresets";
 import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
+import type { ClaudeDesktopProviderPreset } from "@/config/claudeDesktopProviderPresets";
+import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
 import type { ProviderCategory } from "@/types";
 
 type PresetEntry = {
   id: string;
-  preset: ProviderPreset | CodexProviderPreset | GeminiProviderPreset;
+  preset:
+    | ProviderPreset
+    | CodexProviderPreset
+    | GeminiProviderPreset
+    | ClaudeDesktopProviderPreset
+    | OpenCodeProviderPreset;
 };
 
 interface ProviderPresetSelectorProps {
@@ -63,7 +70,12 @@ export function ProviderPresetSelector({
 
   // 渲染预设按钮的图标
   const renderPresetIcon = (
-    preset: ProviderPreset | CodexProviderPreset | GeminiProviderPreset,
+    preset:
+      | ProviderPreset
+      | CodexProviderPreset
+      | GeminiProviderPreset
+      | ClaudeDesktopProviderPreset
+      | OpenCodeProviderPreset,
   ) => {
     const iconType = preset.theme?.icon;
     if (!iconType) return null;
@@ -85,7 +97,12 @@ export function ProviderPresetSelector({
   // 获取预设按钮的样式类名
   const getPresetButtonClass = (
     isSelected: boolean,
-    preset: ProviderPreset | CodexProviderPreset | GeminiProviderPreset,
+    preset:
+      | ProviderPreset
+      | CodexProviderPreset
+      | GeminiProviderPreset
+      | ClaudeDesktopProviderPreset
+      | OpenCodeProviderPreset,
   ) => {
     const baseClass =
       "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors";
@@ -105,7 +122,12 @@ export function ProviderPresetSelector({
   // 获取预设按钮的内联样式（用于自定义背景色）
   const getPresetButtonStyle = (
     isSelected: boolean,
-    preset: ProviderPreset | CodexProviderPreset | GeminiProviderPreset,
+    preset:
+      | ProviderPreset
+      | CodexProviderPreset
+      | GeminiProviderPreset
+      | ClaudeDesktopProviderPreset
+      | OpenCodeProviderPreset,
   ) => {
     if (!isSelected || !preset.theme?.backgroundColor) {
       return undefined;

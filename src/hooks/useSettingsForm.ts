@@ -32,6 +32,12 @@ const defaultProxySettings = () => ({
   streamingFirstByteTimeout: 90,
   streamingIdleTimeout: 120,
   nonStreamingTimeout: 180,
+  circuitFailureThreshold: 3,
+  circuitRecoveryThreshold: 2,
+  circuitRecoveryWaitSeconds: 60,
+  circuitErrorRateThreshold: 80,
+  rectifyThinkingSignature: true,
+  rectifyThinkingBudget: true,
   apps: {
     claude: {
       enabled: false,

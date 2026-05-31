@@ -130,12 +130,39 @@ pub struct UsageResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeDesktopMode {
+    Direct,
+    Proxy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeDesktopModelRoute {
+    pub model: String,
+    #[serde(rename = "labelOverride", skip_serializing_if = "Option::is_none")]
+    pub label_override: Option<String>,
+    #[serde(rename = "supports1m", skip_serializing_if = "Option::is_none")]
+    pub supports_1m: Option<bool>,
+}
+
 /// 供应商元数据
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderMeta {
     /// 自定义端点列表（按 URL 去重存储）
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints: HashMap<String, crate::settings::CustomEndpoint>,
+    /// Claude Desktop 3P 写入模式：direct 直连或 proxy 本地路由。
+    #[serde(rename = "claudeDesktopMode", skip_serializing_if = "Option::is_none")]
+    pub claude_desktop_mode: Option<ClaudeDesktopMode>,
+    /// Claude Desktop proxy 模式下，暴露给 Desktop 的安全模型名到真实上游模型的映射。
+    #[serde(
+        default,
+        rename = "claudeDesktopModelRoutes",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
+    pub claude_desktop_model_routes: HashMap<String, ClaudeDesktopModelRoute>,
     /// 用量查询脚本配置
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_script: Option<UsageScript>,
@@ -154,6 +181,27 @@ pub struct ProviderMeta {
     /// Pricing model source for usage accounting: "response" or "request".
     #[serde(rename = "pricingModelSource", skip_serializing_if = "Option::is_none")]
     pub pricing_model_source: Option<String>,
+    /// Claude API 格式：anthropic / openai_chat / openai_responses。
+    #[serde(rename = "apiFormat", skip_serializing_if = "Option::is_none")]
+    pub api_format: Option<String>,
+    /// Claude API key 字段名：ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY。
+    #[serde(rename = "apiKeyField", skip_serializing_if = "Option::is_none")]
+    pub api_key_field: Option<String>,
+    /// 是否将 base_url 视为完整 API endpoint。
+    #[serde(rename = "isFullUrl", skip_serializing_if = "Option::is_none")]
+    pub is_full_url: Option<bool>,
+    /// Responses 兼容端点的 prompt cache key。
+    #[serde(rename = "promptCacheKey", skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    /// Codex OAuth FAST mode 预留字段。
+    #[serde(rename = "codexFastMode", skip_serializing_if = "Option::is_none")]
+    pub codex_fast_mode: Option<bool>,
+    /// 特殊供应商类型标识。
+    #[serde(rename = "providerType", skip_serializing_if = "Option::is_none")]
+    pub provider_type: Option<String>,
+    /// 兼容上游 GitHub Copilot 账号绑定字段。
+    #[serde(rename = "githubAccountId", skip_serializing_if = "Option::is_none")]
+    pub github_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

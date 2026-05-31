@@ -6,7 +6,6 @@ import {
   Plus,
   Play,
   RotateCcw,
-  Save,
   Square,
   TestTube2,
   Trash2,
@@ -27,7 +26,6 @@ import {
 import { providersApi, settingsApi } from "@/lib/api";
 import type {
   FailoverQueueItem,
-  ModelPricingRecord,
   Provider,
   ProxyAppId,
   ProxyRecentLog,
@@ -57,16 +55,6 @@ export function ProxySettingsSection({
   >({});
   const [failoverProviderId, setFailoverProviderId] = useState("");
   const [failoverLoading, setFailoverLoading] = useState(false);
-  const [pricingRows, setPricingRows] = useState<ModelPricingRecord[]>([]);
-  const [pricingDraft, setPricingDraft] = useState<ModelPricingRecord>({
-    modelId: "",
-    displayName: "",
-    inputCostPerMillion: "0",
-    outputCostPerMillion: "0",
-    cacheReadCostPerMillion: "0",
-    cacheCreationCostPerMillion: "0",
-  });
-  const [pricingLoading, setPricingLoading] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<
@@ -78,7 +66,6 @@ export function ProxySettingsSection({
     | "restore"
     | `takeover:${ProxyAppId}`
     | "failover"
-    | "pricing"
     | null
   >(null);
   const takeoverInFlightRef = useRef<Set<ProxyAppId>>(new Set());
@@ -131,22 +118,6 @@ export function ProxySettingsSection({
   useEffect(() => {
     void loadFailoverQueue();
   }, [loadFailoverQueue]);
-
-  const loadPricingRows = useCallback(async () => {
-    setPricingLoading(true);
-    try {
-      setPricingRows(await settingsApi.listModelPricing());
-    } catch (error) {
-      console.warn("Failed to load model pricing", error);
-      setPricingRows([]);
-    } finally {
-      setPricingLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadPricingRows();
-  }, [loadPricingRows]);
 
   const update = (updates: Partial<ProxySettings>) => {
     onChange({ ...value, ...updates });
@@ -471,89 +442,6 @@ export function ProxySettingsSection({
     }
   };
 
-  const validatePricingDraft = () => {
-    if (!pricingDraft.modelId.trim() || !pricingDraft.displayName.trim()) {
-      toast.error(
-        t("settings.proxy.pricingValidationRequired", {
-          defaultValue: "模型 ID 和显示名称不能为空",
-        }),
-      );
-      return false;
-    }
-    for (const value of [
-      pricingDraft.inputCostPerMillion,
-      pricingDraft.outputCostPerMillion,
-      pricingDraft.cacheReadCostPerMillion,
-      pricingDraft.cacheCreationCostPerMillion,
-    ]) {
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        toast.error(
-          t("settings.proxy.pricingValidationInvalid", {
-            defaultValue: "价格必须是非负数字",
-          }),
-        );
-        return false;
-      }
-    }
-    return true;
-  };
-
-  const handleSavePricing = async () => {
-    if (!validatePricingDraft()) return;
-    setBusyAction("pricing");
-    const record: ModelPricingRecord = {
-      ...pricingDraft,
-      modelId: pricingDraft.modelId.trim(),
-      displayName: pricingDraft.displayName.trim(),
-    };
-    try {
-      await settingsApi.upsertModelPricing(record);
-      await loadPricingRows();
-      setPricingDraft({
-        modelId: "",
-        displayName: "",
-        inputCostPerMillion: "0",
-        outputCostPerMillion: "0",
-        cacheReadCostPerMillion: "0",
-        cacheCreationCostPerMillion: "0",
-      });
-      toast.success(
-        t("settings.proxy.pricingSaved", {
-          defaultValue: "模型价格已保存",
-        }),
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(
-        t("settings.proxy.pricingFailed", {
-          defaultValue: "保存模型价格失败",
-        }),
-        { description: message },
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const handleDeletePricing = async (modelId: string) => {
-    setBusyAction("pricing");
-    try {
-      await settingsApi.deleteModelPricing(modelId);
-      await loadPricingRows();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(
-        t("settings.proxy.pricingFailed", {
-          defaultValue: "保存模型价格失败",
-        }),
-        { description: message },
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   const isBusy = busyAction !== null;
   const isRunning = status?.running ?? false;
   const bindAppName = t(`apps.${value.bindApp}`, {
@@ -573,12 +461,12 @@ export function ProxySettingsSection({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-medium">
-            {t("settings.proxy.title", { defaultValue: "本地代理" })}
+            {t("settings.proxy.title", { defaultValue: "Local Routing" })}
           </h3>
           <p className="text-xs text-muted-foreground">
             {t("settings.proxy.description", {
               defaultValue:
-                "为 Web/headless 模式启动本地 HTTP 转发代理，并使用当前供应商凭据转发请求。",
+                "统一管理本地路由、应用接管、自动故障切换和请求整流。",
             })}
           </p>
         </div>
@@ -1118,144 +1006,124 @@ export function ProxySettingsSection({
               })}
             </p>
           </div>
-        </div>
-      </div>
-
-      <div className="space-y-3 rounded-md border p-3">
-        <div>
-          <h4 className="text-sm font-medium">
-            {t("settings.proxy.modelPricing", {
-              defaultValue: "模型价格",
-            })}
-          </h4>
-          <p className="text-xs text-muted-foreground">
-            {t("settings.proxy.modelPricingDescription", {
-              defaultValue:
-                "用量解析会按模型价格、缓存 token 和计费倍率计算请求成本。",
-            })}
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <Input
-            value={pricingDraft.modelId}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                modelId: event.target.value,
-              }))
-            }
-            placeholder="model id"
-          />
-          <Input
-            value={pricingDraft.displayName}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                displayName: event.target.value,
-              }))
-            }
-            placeholder={t("settings.proxy.displayName", {
-              defaultValue: "显示名称",
-            })}
-          />
-          <Input
-            value={pricingDraft.inputCostPerMillion}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                inputCostPerMillion: event.target.value,
-              }))
-            }
-            placeholder="input / 1M"
-          />
-          <Input
-            value={pricingDraft.outputCostPerMillion}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                outputCostPerMillion: event.target.value,
-              }))
-            }
-            placeholder="output / 1M"
-          />
-          <Input
-            value={pricingDraft.cacheReadCostPerMillion}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                cacheReadCostPerMillion: event.target.value,
-              }))
-            }
-            placeholder="cache read / 1M"
-          />
-          <Input
-            value={pricingDraft.cacheCreationCostPerMillion}
-            onChange={(event) =>
-              setPricingDraft((current) => ({
-                ...current,
-                cacheCreationCostPerMillion: event.target.value,
-              }))
-            }
-            placeholder="cache create / 1M"
-          />
-        </div>
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void handleSavePricing()}
-            disabled={isBusy}
-            className="gap-1"
-          >
-            {busyAction === "pricing" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-            {t("common.save", { defaultValue: "保存" })}
-          </Button>
-        </div>
-        {pricingLoading ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {t("common.loading", { defaultValue: "加载中" })}
-          </div>
-        ) : (
-          <div className="max-h-56 space-y-2 overflow-y-auto">
-            {pricingRows.slice(0, 24).map((row) => (
-              <div
-                key={row.modelId}
-                className="grid items-center gap-2 rounded-md border px-3 py-2 text-xs sm:grid-cols-[1fr_auto]"
-              >
-                <button
-                  type="button"
-                  className="min-w-0 text-left"
-                  onClick={() => setPricingDraft(row)}
-                >
-                  <div className="truncate text-sm font-medium">
-                    {row.displayName}
-                  </div>
-                  <div className="truncate text-muted-foreground">
-                    {row.modelId} · in {row.inputCostPerMillion} · out{" "}
-                    {row.outputCostPerMillion} · cache{" "}
-                    {row.cacheReadCostPerMillion}/
-                    {row.cacheCreationCostPerMillion}
-                  </div>
-                </button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleDeletePricing(row.modelId)}
-                  disabled={isBusy}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+          <div className="space-y-2 rounded-md border p-3">
+            <h5 className="text-sm font-medium">
+              {t("settings.proxy.circuitBreaker", {
+                defaultValue: "熔断器",
+              })}
+            </h5>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="cc-switch-proxy-circuit-failure">
+                  {t("settings.proxy.failureThreshold", {
+                    defaultValue: "失败阈值",
+                  })}
+                </Label>
+                <Input
+                  id="cc-switch-proxy-circuit-failure"
+                  type="number"
+                  min={1}
+                  value={value.circuitFailureThreshold}
+                  onChange={(event) =>
+                    update({
+                      circuitFailureThreshold: Number(event.target.value) || 3,
+                    })
+                  }
+                />
               </div>
-            ))}
+              <div className="space-y-1">
+                <Label htmlFor="cc-switch-proxy-circuit-recovery">
+                  {t("settings.proxy.recoveryThreshold", {
+                    defaultValue: "恢复阈值",
+                  })}
+                </Label>
+                <Input
+                  id="cc-switch-proxy-circuit-recovery"
+                  type="number"
+                  min={1}
+                  value={value.circuitRecoveryThreshold}
+                  onChange={(event) =>
+                    update({
+                      circuitRecoveryThreshold: Number(event.target.value) || 2,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="cc-switch-proxy-circuit-wait">
+                  {t("settings.proxy.recoveryWait", {
+                    defaultValue: "恢复等待（秒）",
+                  })}
+                </Label>
+                <Input
+                  id="cc-switch-proxy-circuit-wait"
+                  type="number"
+                  min={1}
+                  value={value.circuitRecoveryWaitSeconds}
+                  onChange={(event) =>
+                    update({
+                      circuitRecoveryWaitSeconds:
+                        Number(event.target.value) || 60,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="cc-switch-proxy-circuit-error-rate">
+                  {t("settings.proxy.errorRateThreshold", {
+                    defaultValue: "错误率阈值（%）",
+                  })}
+                </Label>
+                <Input
+                  id="cc-switch-proxy-circuit-error-rate"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={value.circuitErrorRateThreshold}
+                  onChange={(event) =>
+                    update({
+                      circuitErrorRateThreshold:
+                        Number(event.target.value) || 80,
+                    })
+                  }
+                />
+              </div>
+            </div>
           </div>
-        )}
+          <div className="space-y-2 rounded-md border p-3">
+            <h5 className="text-sm font-medium">
+              {t("settings.proxy.rectifier", {
+                defaultValue: "Rectifier",
+              })}
+            </h5>
+            <label className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                {t("settings.proxy.rectifyThinkingSignature", {
+                  defaultValue: "修复 thinking signature",
+                })}
+              </span>
+              <Switch
+                checked={value.rectifyThinkingSignature}
+                onCheckedChange={(checked) =>
+                  update({ rectifyThinkingSignature: checked })
+                }
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                {t("settings.proxy.rectifyThinkingBudget", {
+                  defaultValue: "修复 thinking budget",
+                })}
+              </span>
+              <Switch
+                checked={value.rectifyThinkingBudget}
+                onCheckedChange={(checked) =>
+                  update({ rectifyThinkingBudget: checked })
+                }
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       {value.host.trim() === "0.0.0.0" ? (

@@ -84,13 +84,19 @@ const createSettings = (
   streamingFirstByteTimeout: 90,
   streamingIdleTimeout: 120,
   nonStreamingTimeout: 180,
+  circuitFailureThreshold: 3,
+  circuitRecoveryThreshold: 2,
+  circuitRecoveryWaitSeconds: 60,
+  circuitErrorRateThreshold: 80,
+  rectifyThinkingSignature: true,
+  rectifyThinkingBudget: true,
   apps: {
     claude: createAppSettings(),
     codex: createAppSettings(),
     gemini: createAppSettings(),
     opencode: createAppSettings(),
   },
-  ...overrides,
+  ...(overrides as Partial<ReturnType<typeof createSettings>>),
 });
 
 const createStatus = (overrides: Partial<ProxyStatus> = {}): ProxyStatus => ({

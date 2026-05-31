@@ -2,11 +2,19 @@ import { useMemo } from "react";
 import type { AppId } from "@/lib/api";
 import type { ProviderPreset } from "@/config/claudeProviderPresets";
 import type { CodexProviderPreset } from "@/config/codexProviderPresets";
+import type { ClaudeDesktopProviderPreset } from "@/config/claudeDesktopProviderPresets";
+import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
+import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
 import type { ProviderMeta, EndpointCandidate } from "@/types";
 
 type PresetEntry = {
   id: string;
-  preset: ProviderPreset | CodexProviderPreset;
+  preset:
+    | ProviderPreset
+    | CodexProviderPreset
+    | ClaudeDesktopProviderPreset
+    | GeminiProviderPreset
+    | OpenCodeProviderPreset;
 };
 
 interface UseSpeedTestEndpointsProps {
@@ -42,7 +50,9 @@ export function useSpeedTestEndpoints({
 }: UseSpeedTestEndpointsProps) {
   const claudeEndpoints = useMemo<EndpointCandidate[]>(() => {
     // Reuse this branch for Claude and Gemini (non-Codex)
-    if (appId !== "claude" && appId !== "gemini") return [];
+    if (appId !== "claude" && appId !== "claude-desktop" && appId !== "gemini") {
+      return [];
+    }
 
     const map = new Map<string, EndpointCandidate>();
     // 候选端点标记为 isCustom: false，表示来自预设或配置
@@ -78,6 +88,7 @@ export function useSpeedTestEndpoints({
       const entry = presetEntries.find((item) => item.id === selectedPresetId);
       if (entry) {
         const preset = entry.preset as ProviderPreset & {
+          baseUrl?: string;
           settingsConfig?: { env?: { GOOGLE_GEMINI_BASE_URL?: string } };
           endpointCandidates?: string[];
         };
@@ -89,6 +100,7 @@ export function useSpeedTestEndpoints({
           };
         };
         const presetUrls = [
+          preset.baseUrl,
           presetEnv?.env?.ANTHROPIC_BASE_URL,
           presetEnv?.env?.GOOGLE_GEMINI_BASE_URL,
         ];

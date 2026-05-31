@@ -22,6 +22,7 @@ impl McpApps {
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
             AppType::Claude => self.claude,
+            AppType::ClaudeDesktop => false,
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::Opencode => self.opencode,
@@ -33,6 +34,7 @@ impl McpApps {
     pub fn set_enabled_for(&mut self, app: &AppType, enabled: bool) {
         match app {
             AppType::Claude => self.claude = enabled,
+            AppType::ClaudeDesktop => {}
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::Opencode => self.opencode = enabled,
@@ -230,6 +232,8 @@ fn is_stale_lock(path: &Path) -> bool {
 #[serde(rename_all = "lowercase")]
 pub enum AppType {
     Claude,
+    #[serde(rename = "claude-desktop")]
+    ClaudeDesktop,
     Codex,
     Gemini,
     Opencode,
@@ -242,6 +246,7 @@ impl AppType {
     pub fn as_str(&self) -> &str {
         match self {
             AppType::Claude => "claude",
+            AppType::ClaudeDesktop => "claude-desktop",
             AppType::Codex => "codex",
             AppType::Gemini => "gemini",
             AppType::Opencode => "opencode",
@@ -253,7 +258,11 @@ impl AppType {
     pub fn is_supported(&self) -> bool {
         matches!(
             self,
-            AppType::Claude | AppType::Codex | AppType::Gemini | AppType::Opencode
+            AppType::Claude
+                | AppType::ClaudeDesktop
+                | AppType::Codex
+                | AppType::Gemini
+                | AppType::Opencode
         )
     }
 
@@ -278,6 +287,13 @@ impl AppType {
         let app = Self::from_str(s)?;
         Ok(match app {
             AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+            AppType::ClaudeDesktop => {
+                return Err(AppError::localized(
+                    "skills.app_not_supported",
+                    "Claude Desktop 暂不支持 Skills 同步。",
+                    "Claude Desktop does not support Skills sync yet.",
+                ))
+            }
             other => {
                 other.ensure_supported()?;
                 other
@@ -293,6 +309,9 @@ impl FromStr for AppType {
         let normalized = s.trim().to_lowercase();
         match normalized.as_str() {
             "claude" => Ok(AppType::Claude),
+            "claude-desktop" | "claude_desktop" | "claudedesktop" => {
+                Ok(AppType::ClaudeDesktop)
+            }
             "codex" => Ok(AppType::Codex),
             "gemini" => Ok(AppType::Gemini),
             "opencode" => Ok(AppType::Opencode),
@@ -301,10 +320,10 @@ impl FromStr for AppType {
             other => Err(AppError::localized(
                 "unsupported_app",
                 format!(
-                    "不支持的应用标识: '{other}'。可选值: claude, codex, gemini, opencode, omo, omo-slim。"
+                    "不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, opencode, omo, omo-slim。"
                 ),
                 format!(
-                    "Unsupported app id: '{other}'. Allowed: claude, codex, gemini, opencode, omo, omo-slim."
+                    "Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, opencode, omo, omo-slim."
                 ),
             )),
         }
@@ -329,6 +348,7 @@ impl CommonConfigSnippets {
     pub fn get(&self, app: &AppType) -> Option<&String> {
         match app {
             AppType::Claude => self.claude.as_ref(),
+            AppType::ClaudeDesktop => None,
             AppType::Codex => self.codex.as_ref(),
             AppType::Gemini => self.gemini.as_ref(),
             AppType::Opencode | AppType::Omo | AppType::OmoSlim => None,
@@ -339,6 +359,7 @@ impl CommonConfigSnippets {
     pub fn set(&mut self, app: &AppType, snippet: Option<String>) {
         match app {
             AppType::Claude => self.claude = snippet,
+            AppType::ClaudeDesktop => {}
             AppType::Codex => self.codex = snippet,
             AppType::Gemini => self.gemini = snippet,
             AppType::Opencode | AppType::Omo | AppType::OmoSlim => {}
@@ -379,6 +400,7 @@ impl Default for MultiAppConfig {
     fn default() -> Self {
         let mut apps = HashMap::new();
         apps.insert("claude".to_string(), ProviderManager::default());
+        apps.insert("claude-desktop".to_string(), ProviderManager::default());
         apps.insert("codex".to_string(), ProviderManager::default());
         apps.insert("gemini".to_string(), ProviderManager::default());
         apps.insert("opencode".to_string(), ProviderManager::default());
@@ -452,7 +474,7 @@ impl MultiAppConfig {
             updated = true;
         }
 
-        for app_id in ["gemini", "opencode", "omo", "omo-slim"] {
+        for app_id in ["claude-desktop", "gemini", "opencode", "omo", "omo-slim"] {
             if !self.apps.contains_key(app_id) {
                 self.apps
                     .insert(app_id.to_string(), ProviderManager::default());
@@ -569,6 +591,7 @@ impl MultiAppConfig {
     pub fn mcp_for(&self, app: &AppType) -> &McpConfig {
         match app {
             AppType::Claude => &self.mcp.claude,
+            AppType::ClaudeDesktop => &self.mcp.claude,
             AppType::Codex => &self.mcp.codex,
             AppType::Gemini => &self.mcp.gemini,
             AppType::Opencode | AppType::Omo | AppType::OmoSlim => &self.mcp.opencode,
@@ -579,6 +602,7 @@ impl MultiAppConfig {
     pub fn mcp_for_mut(&mut self, app: &AppType) -> &mut McpConfig {
         match app {
             AppType::Claude => &mut self.mcp.claude,
+            AppType::ClaudeDesktop => &mut self.mcp.claude,
             AppType::Codex => &mut self.mcp.codex,
             AppType::Gemini => &mut self.mcp.gemini,
             AppType::Opencode | AppType::Omo | AppType::OmoSlim => &mut self.mcp.opencode,
@@ -695,6 +719,7 @@ impl MultiAppConfig {
         // 插入到对应的应用配置中
         let prompts = match app {
             AppType::Claude => &mut config.prompts.claude.prompts,
+            AppType::ClaudeDesktop => return Ok(false),
             AppType::Codex => &mut config.prompts.codex.prompts,
             AppType::Gemini => &mut config.prompts.gemini.prompts,
             AppType::Opencode => &mut config.prompts.opencode.prompts,
@@ -738,7 +763,7 @@ impl MultiAppConfig {
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::Opencode => &self.mcp.opencode.servers,
-                AppType::Omo | AppType::OmoSlim => continue,
+                AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => continue,
             };
 
             for (id, entry) in old_servers {

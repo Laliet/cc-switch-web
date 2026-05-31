@@ -27,6 +27,7 @@ import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
+import { WebDavSettingsSection } from "@/components/settings/WebDavSettingsSection";
 import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
 import { useSettings } from "@/hooks/useSettings";
@@ -350,6 +351,10 @@ export function SettingsDialog({
                       onImport={importConfig}
                       onExport={exportConfig}
                       onClear={clearSelection}
+                    />
+                    <WebDavSettingsSection
+                      value={settings.webDav}
+                      onChange={(webDav) => updateSettings({ webDav })}
                     />
                     {showWebCredentials ? (
                       <UniversalProvidersSection

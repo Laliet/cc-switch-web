@@ -4,9 +4,24 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import type { AppId } from "@/lib/api";
-import type { ProviderCategory, ProviderMeta } from "@/types";
+import type {
+  ClaudeDesktopMode,
+  ClaudeDesktopModelRoute,
+  ProviderCategory,
+  ProviderMeta,
+} from "@/types";
 import {
   providerPresets,
   type ProviderPreset,
@@ -23,6 +38,12 @@ import {
   opencodeProviderPresets,
   type OpenCodeProviderPreset,
 } from "@/config/opencodeProviderPresets";
+import {
+  CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
+  claudeDesktopProviderPresets,
+  type ClaudeDesktopApiFormat,
+  type ClaudeDesktopProviderPreset,
+} from "@/config/claudeDesktopProviderPresets";
 import { applyTemplateValues } from "@/utils/providerConfigUtils";
 import { mergeProviderMeta } from "@/utils/providerMetaUtils";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
@@ -61,6 +82,16 @@ import { useOmoModelSource } from "./hooks/useOmoModelSource";
 import { useOpencodeConfigState } from "./hooks/useOpencodeConfigState";
 
 const CLAUDE_DEFAULT_CONFIG = JSON.stringify({ env: {} }, null, 2);
+const CLAUDE_DESKTOP_DEFAULT_CONFIG = JSON.stringify(
+  {
+    env: {
+      ANTHROPIC_BASE_URL: "",
+      ANTHROPIC_AUTH_TOKEN: "",
+    },
+  },
+  null,
+  2,
+);
 const CODEX_DEFAULT_CONFIG = JSON.stringify({ auth: {}, config: "" }, null, 2);
 const GEMINI_DEFAULT_CONFIG = JSON.stringify(
   {
@@ -86,10 +117,97 @@ type PresetEntry = {
   id: string;
   preset:
     | ProviderPreset
+    | ClaudeDesktopProviderPreset
     | CodexProviderPreset
     | GeminiProviderPreset
     | OpenCodeProviderPreset;
 };
+
+type ClaudeDesktopRouteRole = keyof typeof CLAUDE_DESKTOP_ROLE_ROUTE_IDS;
+
+type ClaudeDesktopRouteRow = {
+  role: ClaudeDesktopRouteRole;
+  routeId: string;
+  model: string;
+  labelOverride: string;
+  supports1m: boolean;
+};
+
+function routeRowsFromMeta(meta?: ProviderMeta): ClaudeDesktopRouteRow[] {
+  const routes = meta?.claudeDesktopModelRoutes ?? {};
+  return (["sonnet", "opus", "haiku"] as ClaudeDesktopRouteRole[]).map(
+    (role) => {
+      const routeId = CLAUDE_DESKTOP_ROLE_ROUTE_IDS[role];
+      const route = routes[routeId];
+      return {
+        role,
+        routeId,
+        model: route?.model ?? "",
+        labelOverride: route?.labelOverride ?? "",
+        supports1m: route?.supports1m ?? false,
+      };
+    },
+  );
+}
+
+function routeMapFromRows(
+  rows: ClaudeDesktopRouteRow[],
+): Record<string, ClaudeDesktopModelRoute> {
+  return rows.reduce<Record<string, ClaudeDesktopModelRoute>>((acc, row) => {
+    const model = row.model.trim();
+    if (!model) return acc;
+    acc[row.routeId] = {
+      model,
+      ...(row.labelOverride.trim()
+        ? { labelOverride: row.labelOverride.trim() }
+        : {}),
+      ...(row.supports1m ? { supports1m: true } : {}),
+    };
+    return acc;
+  }, {});
+}
+
+function buildClaudeDesktopConfig(
+  baseUrl: string,
+  apiKey: string,
+  apiKeyField: string,
+) {
+  return JSON.stringify(
+    {
+      env: {
+        ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+        [apiKeyField]: apiKey.trim(),
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function apiKeyFromConfig(config: string, apiKeyField: string) {
+  try {
+    const parsed = JSON.parse(config || "{}");
+    const env = parsed?.env;
+    if (!env || typeof env !== "object") return "";
+    const value =
+      (env as Record<string, unknown>)[apiKeyField] ??
+      (env as Record<string, unknown>).ANTHROPIC_AUTH_TOKEN ??
+      (env as Record<string, unknown>).ANTHROPIC_API_KEY;
+    return typeof value === "string" ? value : "";
+  } catch {
+    return "";
+  }
+}
+
+function baseUrlFromConfig(config: string) {
+  try {
+    const parsed = JSON.parse(config || "{}");
+    const value = parsed?.env?.ANTHROPIC_BASE_URL;
+    return typeof value === "string" ? value : "";
+  } catch {
+    return "";
+  }
+}
 
 interface ProviderFormProps {
   appId: AppId;
@@ -122,9 +240,27 @@ export function ProviderForm({
   const isOmoApp = appId === "omo" || appId === "omo-slim";
   const supportsPresets =
     appId === "claude" ||
+    appId === "claude-desktop" ||
     appId === "codex" ||
     appId === "gemini" ||
     appId === "opencode";
+  const [claudeDesktopMode, setClaudeDesktopMode] =
+    useState<ClaudeDesktopMode>(
+      initialData?.meta?.claudeDesktopMode ?? "direct",
+    );
+  const [claudeDesktopApiFormat, setClaudeDesktopApiFormat] =
+    useState<ClaudeDesktopApiFormat>(
+      (initialData?.meta?.apiFormat as ClaudeDesktopApiFormat | undefined) ??
+        "anthropic",
+    );
+  const [claudeDesktopApiKeyField, setClaudeDesktopApiKeyField] = useState(
+    initialData?.meta?.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN",
+  );
+  const [claudeDesktopBaseUrl, setClaudeDesktopBaseUrl] = useState("");
+  const [claudeDesktopApiKey, setClaudeDesktopApiKey] = useState("");
+  const [claudeDesktopRoutes, setClaudeDesktopRoutes] = useState<
+    ClaudeDesktopRouteRow[]
+  >(() => routeRowsFromMeta(initialData?.meta));
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     initialData ? null : "custom",
@@ -160,6 +296,23 @@ export function ProviderForm({
   useEffect(() => {
     setSelectedPresetId(initialData ? null : "custom");
     setActivePreset(null);
+    if (appId === "claude-desktop") {
+      const nextMode = initialData?.meta?.claudeDesktopMode ?? "direct";
+      const nextFormat =
+        (initialData?.meta?.apiFormat as ClaudeDesktopApiFormat | undefined) ??
+        "anthropic";
+      const nextField =
+        initialData?.meta?.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN";
+      const nextConfig = initialData?.settingsConfig
+        ? JSON.stringify(initialData.settingsConfig)
+        : CLAUDE_DESKTOP_DEFAULT_CONFIG;
+      setClaudeDesktopMode(nextMode);
+      setClaudeDesktopApiFormat(nextFormat);
+      setClaudeDesktopApiKeyField(nextField);
+      setClaudeDesktopBaseUrl(baseUrlFromConfig(nextConfig));
+      setClaudeDesktopApiKey(apiKeyFromConfig(nextConfig, nextField));
+      setClaudeDesktopRoutes(routeRowsFromMeta(initialData?.meta));
+    }
 
     // 编辑模式不需要恢复 draftCustomEndpoints，端点已通过 API 管理
     if (!initialData) {
@@ -176,13 +329,15 @@ export function ProviderForm({
         ? JSON.stringify(initialData.settingsConfig, null, 2)
         : appId === "codex"
           ? CODEX_DEFAULT_CONFIG
-          : appId === "gemini"
-            ? GEMINI_DEFAULT_CONFIG
-            : appId === "opencode"
-              ? OPENCODE_DEFAULT_CONFIG
-              : appId === "omo" || appId === "omo-slim"
-                ? OMO_DEFAULT_CONFIG
-                : CLAUDE_DEFAULT_CONFIG,
+          : appId === "claude-desktop"
+            ? CLAUDE_DESKTOP_DEFAULT_CONFIG
+            : appId === "gemini"
+              ? GEMINI_DEFAULT_CONFIG
+              : appId === "opencode"
+                ? OPENCODE_DEFAULT_CONFIG
+                : appId === "omo" || appId === "omo-slim"
+                  ? OMO_DEFAULT_CONFIG
+                  : CLAUDE_DEFAULT_CONFIG,
     }),
     [initialData, appId],
   );
@@ -318,6 +473,14 @@ export function ProviderForm({
         preset,
       }));
     }
+    if (appId === "claude-desktop") {
+      return claudeDesktopProviderPresets.map<PresetEntry>(
+        (preset, index) => ({
+          id: `claude-desktop-${index}`,
+          preset,
+        }),
+      );
+    }
     if (appId === "opencode") {
       return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
         id: `opencode-${index}`,
@@ -325,6 +488,18 @@ export function ProviderForm({
       }));
     }
     return [];
+  }, [appId]);
+
+  const templatePresetEntries = useMemo<
+    Array<{ id: string; preset: ProviderPreset | CodexProviderPreset }>
+  >(() => {
+    if (appId !== "claude") {
+      return [];
+    }
+    return providerPresets.map((preset, index) => ({
+      id: `claude-${index}`,
+      preset,
+    }));
   }, [appId]);
 
   // 使用模板变量 hook (仅 Claude 模式)
@@ -336,7 +511,7 @@ export function ProviderForm({
     validateTemplateValues,
   } = useTemplateValues({
     selectedPresetId: appId === "claude" ? selectedPresetId : null,
-    presetEntries: appId === "claude" ? presetEntries : [],
+    presetEntries: templatePresetEntries,
     settingsConfig: settingsConfigValue,
     onConfigChange: (config) => form.setValue("settingsConfig", config),
   });
@@ -486,6 +661,12 @@ export function ProviderForm({
         // 如果解析失败，使用表单中的配置
         settingsConfig = values.settingsConfig.trim();
       }
+    } else if (appId === "claude-desktop") {
+      settingsConfig = buildClaudeDesktopConfig(
+        claudeDesktopBaseUrl,
+        claudeDesktopApiKey,
+        claudeDesktopApiKeyField,
+      );
     } else if (appId === "gemini") {
       // Gemini: 组合 env 和 config
       try {
@@ -571,6 +752,20 @@ export function ProviderForm({
     }
     if (isOmoApp && !payload.presetCategory) {
       payload.presetCategory = appId;
+    }
+    if (appId === "claude-desktop") {
+      payload.meta = {
+        ...(initialData?.meta ?? {}),
+        ...(payload.meta ?? {}),
+        claudeDesktopMode,
+        claudeDesktopModelRoutes: routeMapFromRows(claudeDesktopRoutes),
+        apiFormat: claudeDesktopApiFormat,
+        apiKeyField: claudeDesktopApiKeyField,
+        ...(activePreset?.isPartner ? { isPartner: true } : {}),
+        ...(activePreset?.partnerPromotionKey
+          ? { partnerPromotionKey: activePreset.partnerPromotionKey }
+          : {}),
+      };
     }
 
     // 处理 meta 字段：仅在新建模式下从 draftCustomEndpoints 生成 custom_endpoints
@@ -798,6 +993,43 @@ export function ProviderForm({
       return;
     }
 
+    if (appId === "claude-desktop") {
+      const preset = entry.preset as ClaudeDesktopProviderPreset;
+      const apiKeyField = preset.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN";
+      const rows = routeRowsFromMeta({
+        claudeDesktopModelRoutes: Object.fromEntries(
+          (preset.modelRoutes ?? []).map((route) => [
+            route.routeId,
+            {
+              model: route.upstreamModel,
+              ...(route.labelOverride
+                ? { labelOverride: route.labelOverride }
+                : {}),
+              ...(route.supports1m ? { supports1m: true } : {}),
+            },
+          ]),
+        ),
+      });
+
+      setClaudeDesktopMode(preset.mode);
+      setClaudeDesktopApiFormat(preset.apiFormat ?? "anthropic");
+      setClaudeDesktopApiKeyField(apiKeyField);
+      setClaudeDesktopBaseUrl(preset.baseUrl);
+      setClaudeDesktopApiKey("");
+      setClaudeDesktopRoutes(rows);
+      form.reset({
+        name: preset.name,
+        websiteUrl: preset.websiteUrl ?? "",
+        notes: "",
+        settingsConfig: buildClaudeDesktopConfig(
+          preset.baseUrl,
+          "",
+          apiKeyField,
+        ),
+      });
+      return;
+    }
+
     const preset = entry.preset as ProviderPreset;
     const config = applyTemplateValues(
       preset.settingsConfig,
@@ -865,6 +1097,191 @@ export function ProviderForm({
             onModelChange={handleModelChange}
             speedTestEndpoints={speedTestEndpoints}
           />
+        )}
+
+        {appId === "claude-desktop" && (
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>{t("providerForm.claudeDesktopMode", { defaultValue: "写入模式" })}</Label>
+                <Select
+                  value={claudeDesktopMode}
+                  onValueChange={(value) =>
+                    setClaudeDesktopMode(value as ClaudeDesktopMode)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">Direct</SelectItem>
+                    <SelectItem value="proxy">Local Routing</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("providerForm.apiFormat", { defaultValue: "API 格式" })}</Label>
+                <Select
+                  value={claudeDesktopApiFormat}
+                  onValueChange={(value) =>
+                    setClaudeDesktopApiFormat(value as ClaudeDesktopApiFormat)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="anthropic">Anthropic</SelectItem>
+                    <SelectItem value="openai_chat">OpenAI Chat</SelectItem>
+                    <SelectItem value="openai_responses">
+                      OpenAI Responses
+                    </SelectItem>
+                    <SelectItem value="gemini_native">Gemini Native</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("providerForm.apiKeyField", { defaultValue: "Key 字段" })}</Label>
+                <Select
+                  value={claudeDesktopApiKeyField}
+                  onValueChange={(value) => {
+                    setClaudeDesktopApiKeyField(value);
+                    form.setValue(
+                      "settingsConfig",
+                      buildClaudeDesktopConfig(
+                        claudeDesktopBaseUrl,
+                        claudeDesktopApiKey,
+                        value,
+                      ),
+                    );
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ANTHROPIC_AUTH_TOKEN">
+                      ANTHROPIC_AUTH_TOKEN
+                    </SelectItem>
+                    <SelectItem value="ANTHROPIC_API_KEY">
+                      ANTHROPIC_API_KEY
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="claude-desktop-base-url">
+                {t("providerForm.apiEndpoint", { defaultValue: "API Endpoint" })}
+              </Label>
+              <Input
+                id="claude-desktop-base-url"
+                value={claudeDesktopBaseUrl}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setClaudeDesktopBaseUrl(value);
+                  form.setValue(
+                    "settingsConfig",
+                    buildClaudeDesktopConfig(
+                      value,
+                      claudeDesktopApiKey,
+                      claudeDesktopApiKeyField,
+                    ),
+                  );
+                }}
+                placeholder="https://api.example.com"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="claude-desktop-api-key">API Key</Label>
+              <Input
+                id="claude-desktop-api-key"
+                value={claudeDesktopApiKey}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setClaudeDesktopApiKey(value);
+                  form.setValue(
+                    "settingsConfig",
+                    buildClaudeDesktopConfig(
+                      claudeDesktopBaseUrl,
+                      value,
+                      claudeDesktopApiKeyField,
+                    ),
+                  );
+                }}
+                placeholder="sk-..."
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <Label>
+                {t("providerForm.claudeDesktopRoutes", {
+                  defaultValue: "模型角色映射",
+                })}
+              </Label>
+              <div className="space-y-3">
+                {claudeDesktopRoutes.map((row, index) => (
+                  <div
+                    key={row.routeId}
+                    className="grid gap-3 rounded-md border border-border-default p-3 md:grid-cols-[110px_1fr_1fr_90px]"
+                  >
+                    <div className="text-sm font-medium capitalize leading-9">
+                      {row.role}
+                    </div>
+                    <Input
+                      value={row.model}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setClaudeDesktopRoutes((rows) =>
+                          rows.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, model: value }
+                              : item,
+                          ),
+                        );
+                      }}
+                      placeholder="upstream-model"
+                      autoComplete="off"
+                    />
+                    <Input
+                      value={row.labelOverride}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setClaudeDesktopRoutes((rows) =>
+                          rows.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, labelOverride: value }
+                              : item,
+                          ),
+                        );
+                      }}
+                      placeholder="label"
+                      autoComplete="off"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="text-xs text-muted-foreground">1M</span>
+                      <Switch
+                        checked={row.supports1m}
+                        onCheckedChange={(checked) => {
+                          setClaudeDesktopRoutes((rows) =>
+                            rows.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, supports1m: checked }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Codex 专属字段 */}

@@ -19,6 +19,7 @@ import {
 import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import { geminiProviderPresets } from "@/config/geminiProviderPresets";
+import { claudeDesktopProviderPresets } from "@/config/claudeDesktopProviderPresets";
 
 interface AddProviderDialogProps {
   open: boolean;
@@ -85,6 +86,15 @@ export function AddProviderDialog({
                 preset.endpointCandidates.forEach(addUrl);
               }
             }
+          } else if (appId === "claude-desktop") {
+            const presetIndex = parseInt(
+              values.presetId.replace("claude-desktop-", ""),
+            );
+            const preset = claudeDesktopProviderPresets[presetIndex];
+            if (preset?.endpointCandidates) {
+              preset.endpointCandidates.forEach(addUrl);
+            }
+            addUrl(preset?.baseUrl);
           } else if (appId === "codex") {
             const presets = codexProviderPresets;
             const presetIndex = parseInt(values.presetId.replace("codex-", ""));
@@ -116,7 +126,7 @@ export function AddProviderDialog({
           }
         }
 
-        if (appId === "claude") {
+        if (appId === "claude" || appId === "claude-desktop") {
           const env = parsedConfig.env as Record<string, any> | undefined;
           if (env?.ANTHROPIC_BASE_URL) {
             addUrl(env.ANTHROPIC_BASE_URL);

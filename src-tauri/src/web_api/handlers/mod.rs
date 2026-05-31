@@ -22,6 +22,7 @@ pub mod skills;
 pub mod stream_check;
 pub mod system;
 pub mod usage;
+pub mod webdav;
 
 #[derive(Debug)]
 pub struct ApiError {

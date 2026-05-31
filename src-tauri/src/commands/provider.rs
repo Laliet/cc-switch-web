@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::app_config::AppType;
 use crate::error::AppError;
-use crate::provider::{Provider, UniversalProvider};
+use crate::provider::{ClaudeDesktopMode, Provider, ProviderMeta, UniversalProvider};
 use crate::services::{EndpointLatency, ProviderService, ProviderSortUpdate, SpeedtestService};
 use crate::store::AppState;
 use std::str::FromStr;
@@ -229,6 +229,125 @@ pub fn get_opencode_live_provider_ids() -> Result<Vec<String>, String> {
     crate::opencode_config::get_providers()
         .map(|providers| providers.keys().cloned().collect())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_claude_desktop_default_routes(
+) -> Vec<crate::claude_desktop_config::ClaudeDesktopDefaultRoute> {
+    crate::claude_desktop_config::default_proxy_routes()
+}
+
+#[tauri::command]
+pub async fn get_claude_desktop_status(
+    state: State<'_, AppState>,
+) -> Result<crate::claude_desktop_config::ClaudeDesktopStatus, String> {
+    let state_arc = state.inner().db_state();
+    let proxy = crate::proxy::status_for_state(&state_arc).await;
+    crate::claude_desktop_config::get_status(&state.inner().db, proxy.running)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_claude_desktop_providers_from_claude(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    import_claude_desktop_providers_from_claude_internal(&state).map_err(|e| e.to_string())
+}
+
+pub fn import_claude_desktop_providers_from_claude_internal(
+    state: &AppState,
+) -> Result<usize, AppError> {
+    let mut imported = 0usize;
+    state.update_config(|config| {
+        let claude_providers = config
+            .get_manager(&AppType::Claude)
+            .map(|manager| manager.providers.clone())
+            .unwrap_or_default();
+        let desktop_manager = config
+            .get_manager_mut(&AppType::ClaudeDesktop)
+            .ok_or_else(|| {
+                AppError::localized(
+                    "provider.app.not_found",
+                    "应用配置不存在: claude-desktop",
+                    "App configuration not found: claude-desktop",
+                )
+            })?;
+
+        ensure_claude_desktop_official_provider(desktop_manager);
+        for provider in claude_providers.values() {
+            if desktop_manager.providers.contains_key(&provider.id) {
+                continue;
+            }
+
+            let mut desktop_provider = provider.clone();
+            let meta = desktop_provider
+                .meta
+                .get_or_insert_with(ProviderMeta::default);
+            if crate::claude_desktop_config::is_compatible_direct_provider(provider)
+                && claude_provider_models_are_claude_safe(provider)
+            {
+                meta.claude_desktop_mode = Some(ClaudeDesktopMode::Direct);
+            } else if let Some(routes) =
+                crate::claude_desktop_config::suggested_routes_from_claude_provider(provider)
+            {
+                meta.claude_desktop_mode = Some(ClaudeDesktopMode::Proxy);
+                meta.claude_desktop_model_routes = routes;
+            } else {
+                continue;
+            }
+
+            desktop_manager
+                .providers
+                .insert(desktop_provider.id.clone(), desktop_provider);
+            imported += 1;
+        }
+
+        if desktop_manager.current.is_empty() {
+            desktop_manager.current =
+                crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string();
+        }
+        Ok(())
+    })?;
+    Ok(imported)
+}
+
+fn ensure_claude_desktop_official_provider(manager: &mut crate::provider::ProviderManager) {
+    let official_id = crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID;
+    manager
+        .providers
+        .entry(official_id.to_string())
+        .or_insert_with(|| {
+            let mut provider = Provider::with_id(
+                official_id.to_string(),
+                "Claude Desktop Official".to_string(),
+                serde_json::json!({"env": {}}),
+                Some("https://claude.ai/download".to_string()),
+            );
+            provider.category = Some("official".to_string());
+            provider
+        });
+}
+
+fn claude_provider_models_are_claude_safe(provider: &Provider) -> bool {
+    let Some(env) = provider
+        .settings_config
+        .get("env")
+        .and_then(|value| value.as_object())
+    else {
+        return true;
+    };
+
+    [
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    ]
+    .into_iter()
+    .filter_map(|key| env.get(key).and_then(|value| value.as_str()))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .all(crate::claude_desktop_config::is_claude_safe_model_id)
 }
 
 /// 测试第三方/自定义供应商端点的网络延迟

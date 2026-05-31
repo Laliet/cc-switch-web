@@ -25,6 +25,7 @@ pub(crate) const SETTINGS_CONFIG_VERSION: &str = "config_version";
 pub(crate) const SETTINGS_COMMON_SNIPPETS: &str = "common_config_snippets";
 pub(crate) const SETTINGS_DB_MIGRATED_FROM_JSON: &str = "migrated_from_config_json";
 pub(crate) const SETTINGS_STREAM_CHECK_CONFIG: &str = "stream_check_config";
+pub const CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID: &str = "claude-desktop-official";
 
 macro_rules! lock_conn {
     ($mutex:expr) => {
@@ -127,6 +128,12 @@ mod tests {
         config.streaming_first_byte_timeout = 11;
         config.streaming_idle_timeout = 22;
         config.non_streaming_timeout = 33;
+        config.circuit_failure_threshold = 4;
+        config.circuit_recovery_threshold = 2;
+        config.circuit_recovery_wait_seconds = 45;
+        config.circuit_error_rate_threshold = 65.0;
+        config.rectify_thinking_signature = false;
+        config.rectify_thinking_budget = true;
         config.apps.claude.enabled = true;
         config.apps.claude.auto_failover_enabled = true;
         config.apps.claude.max_retries = 2;
@@ -152,6 +159,12 @@ mod tests {
         assert_eq!(loaded.streaming_first_byte_timeout, 11);
         assert_eq!(loaded.streaming_idle_timeout, 22);
         assert_eq!(loaded.non_streaming_timeout, 33);
+        assert_eq!(loaded.circuit_failure_threshold, 4);
+        assert_eq!(loaded.circuit_recovery_threshold, 2);
+        assert_eq!(loaded.circuit_recovery_wait_seconds, 45);
+        assert_eq!(loaded.circuit_error_rate_threshold, 65.0);
+        assert!(!loaded.rectify_thinking_signature);
+        assert!(loaded.rectify_thinking_budget);
         assert!(loaded.apps.claude.enabled);
         assert!(loaded.apps.claude.auto_failover_enabled);
         assert_eq!(loaded.apps.claude.max_retries, 2);

@@ -78,10 +78,22 @@ export interface UsageResult {
   error?: string;
 }
 
+export type ClaudeDesktopMode = "direct" | "proxy";
+
+export interface ClaudeDesktopModelRoute {
+  model: string;
+  labelOverride?: string;
+  supports1m?: boolean;
+}
+
 // 供应商元数据（字段名与后端一致，保持 snake_case）
 export interface ProviderMeta {
   // 自定义端点：以 URL 为键，值为端点信息
   custom_endpoints?: Record<string, CustomEndpoint>;
+  // Claude Desktop 写入模式：direct 直连 / proxy 本地路由
+  claudeDesktopMode?: ClaudeDesktopMode;
+  // Claude Desktop proxy 模式下，安全模型名到真实上游模型的映射
+  claudeDesktopModelRoutes?: Record<string, ClaudeDesktopModelRoute>;
   // 用量查询脚本配置
   usage_script?: UsageScript;
   // 是否为官方合作伙伴
@@ -92,6 +104,20 @@ export interface ProviderMeta {
   costMultiplier?: string;
   // 计费用模型来源：request 或 response
   pricingModelSource?: string;
+  // Claude/OpenAI 兼容供应商的 API 格式
+  apiFormat?: "anthropic" | "openai_chat" | "openai_responses" | string;
+  // Claude API key 字段名
+  apiKeyField?: "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_API_KEY" | string;
+  // 是否把 baseUrl 视为完整 API endpoint
+  isFullUrl?: boolean;
+  // Responses 兼容端点的 prompt cache key
+  promptCacheKey?: string;
+  // Codex FAST mode 预留
+  codexFastMode?: boolean;
+  // 特殊 provider 类型标识
+  providerType?: string;
+  // 兼容上游 GitHub Copilot 账号绑定字段
+  githubAccountId?: string;
 }
 
 export interface UniversalProviderApps {
@@ -190,6 +216,42 @@ export interface Settings {
     };
   };
   proxy?: ProxySettings;
+  webDav?: WebDavSettings;
+}
+
+export interface WebDavSettings {
+  enabled: boolean;
+  baseUrl: string;
+  username: string;
+  password: string;
+  remoteDir: string;
+  profile: string;
+}
+
+export interface WebDavCompatibilityCheck {
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface WebDavSnapshotPreview {
+  exists: boolean;
+  remotePath: string;
+  sizeBytes?: number;
+  modifiedAt?: string;
+  artifactList: string[];
+  configVersion?: number;
+  schemaVersion?: number;
+  compatible: boolean;
+  checks: WebDavCompatibilityCheck[];
+}
+
+export interface WebDavSyncResult {
+  success: boolean;
+  message: string;
+  remotePath: string;
+  backupId?: string;
+  preview?: WebDavSnapshotPreview;
 }
 
 export interface ProxySettings {
@@ -204,6 +266,12 @@ export interface ProxySettings {
   streamingFirstByteTimeout: number;
   streamingIdleTimeout: number;
   nonStreamingTimeout: number;
+  circuitFailureThreshold: number;
+  circuitRecoveryThreshold: number;
+  circuitRecoveryWaitSeconds: number;
+  circuitErrorRateThreshold: number;
+  rectifyThinkingSignature: boolean;
+  rectifyThinkingBudget: boolean;
   apps: Record<ProxyAppId, ProxyAppSettings>;
 }
 

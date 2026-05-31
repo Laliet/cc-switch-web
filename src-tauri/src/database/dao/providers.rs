@@ -15,6 +15,7 @@ impl Database {
         let mut apps = HashMap::new();
         for app in [
             AppType::Claude,
+            AppType::ClaudeDesktop,
             AppType::Codex,
             AppType::Gemini,
             AppType::Opencode,
@@ -84,9 +85,20 @@ impl Database {
                 notes,
                 meta: Some(meta).filter(|m| {
                     !m.custom_endpoints.is_empty()
+                        || m.claude_desktop_mode.is_some()
+                        || !m.claude_desktop_model_routes.is_empty()
                         || m.usage_script.is_some()
                         || m.is_partner.is_some()
                         || m.partner_promotion_key.is_some()
+                        || m.cost_multiplier.is_some()
+                        || m.pricing_model_source.is_some()
+                        || m.api_format.is_some()
+                        || m.api_key_field.is_some()
+                        || m.is_full_url.is_some()
+                        || m.prompt_cache_key.is_some()
+                        || m.codex_fast_mode.is_some()
+                        || m.provider_type.is_some()
+                        || m.github_account_id.is_some()
                 }),
             };
 

@@ -1,6 +1,7 @@
 mod app_config;
 #[cfg(feature = "desktop")]
 mod app_store;
+mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
@@ -30,6 +31,7 @@ pub mod store;
 mod usage_script;
 #[cfg(feature = "web-server")]
 pub mod web_api;
+mod webdav_sync;
 
 pub use app_config::{AppType, McpApps, McpServer, MultiAppConfig};
 pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
@@ -46,7 +48,9 @@ pub use mcp::{
     sync_single_server_to_gemini, sync_single_server_to_opencode,
 };
 pub use prompt::Prompt;
-pub use provider::{Provider, ProviderMeta, UniversalProvider};
+pub use provider::{
+    ClaudeDesktopMode, ClaudeDesktopModelRoute, Provider, ProviderMeta, UniversalProvider,
+};
 pub use services::{
     ConfigService, EndpointLatency, McpService, PromptService, ProviderService, SkillService,
     SpeedtestService,
@@ -746,6 +750,9 @@ pub fn run() {
             commands::check_provider_limits,
             commands::sync_session_usage,
             commands::get_usage_data_sources,
+            commands::upload_webdav_snapshot,
+            commands::preview_webdav_snapshot,
+            commands::download_webdav_snapshot,
             commands::restart_app,
             commands::check_for_updates,
             commands::check_relay_pulse,
@@ -796,6 +803,9 @@ pub fn run() {
             commands::disable_current_omo,
             commands::disable_current_omo_slim,
             commands::get_opencode_live_provider_ids,
+            commands::get_claude_desktop_default_routes,
+            commands::get_claude_desktop_status,
+            commands::import_claude_desktop_providers_from_claude,
             commands::fetch_models_for_config,
             commands::stream_check_provider,
             commands::stream_check_all_providers,

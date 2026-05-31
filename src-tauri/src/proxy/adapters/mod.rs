@@ -22,7 +22,7 @@ pub trait ProviderAdapter: Send + Sync {
 
 pub fn adapter_for(app: &AppType) -> &'static dyn ProviderAdapter {
     match app {
-        AppType::Claude => &claude::CLAUDE_ADAPTER,
+        AppType::Claude | AppType::ClaudeDesktop => &claude::CLAUDE_ADAPTER,
         AppType::Codex => &codex::CODEX_ADAPTER,
         AppType::Gemini => &gemini::GEMINI_ADAPTER,
         AppType::Opencode | AppType::Omo | AppType::OmoSlim => &opencode::OPENCODE_ADAPTER,

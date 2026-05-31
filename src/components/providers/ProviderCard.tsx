@@ -79,6 +79,25 @@ const extractApiUrl = (provider: Provider, fallbackText: string) => {
   return fallbackText;
 };
 
+const LOCAL_ROUTING_APPS = new Set<AppId>([
+  "claude",
+  "codex",
+  "gemini",
+  "opencode",
+]);
+
+const supportsLocalRouting = (appId: AppId, provider: Provider) => {
+  if (!LOCAL_ROUTING_APPS.has(appId)) {
+    return false;
+  }
+
+  if (appId === "gemini" && provider.category === "official") {
+    return false;
+  }
+
+  return true;
+};
+
 export function ProviderCard({
   provider,
   isCurrent,
@@ -123,6 +142,7 @@ export function ProviderCard({
 
   const usageEnabled = provider.meta?.usage_script?.enabled ?? false;
   const usageSupported = isUsageApp(appId);
+  const routingSupported = supportsLocalRouting(appId, provider);
 
   const handleOpenWebsite = () => {
     if (!isClickableUrl) {
@@ -269,6 +289,18 @@ export function ProviderCard({
                     ⭐
                   </span>
                 )}
+              {routingSupported ? (
+                <span
+                  className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300"
+                  title={t("provider.routingSupportHint", {
+                    defaultValue: "可通过 Local Routing 接管",
+                  })}
+                >
+                  {t("provider.routingSupport", {
+                    defaultValue: "Routing",
+                  })}
+                </span>
+              ) : null}
               <span
                 className={cn(
                   "rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500 dark:text-green-400 transition-opacity duration-200",

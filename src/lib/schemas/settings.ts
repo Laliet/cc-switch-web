@@ -54,6 +54,12 @@ export const settingsSchema = z.object({
       streamingFirstByteTimeout: z.number().int().min(1).max(3600).default(90),
       streamingIdleTimeout: z.number().int().min(1).max(3600).default(120),
       nonStreamingTimeout: z.number().int().min(1).max(3600).default(180),
+      circuitFailureThreshold: z.number().int().min(1).max(100).default(3),
+      circuitRecoveryThreshold: z.number().int().min(1).max(100).default(2),
+      circuitRecoveryWaitSeconds: z.number().int().min(1).max(3600).default(60),
+      circuitErrorRateThreshold: z.number().min(1).max(100).default(80),
+      rectifyThinkingSignature: z.boolean().default(true),
+      rectifyThinkingBudget: z.boolean().default(true),
       apps: z
         .object({
           claude: proxyAppSchema.default(defaultProxyApp),

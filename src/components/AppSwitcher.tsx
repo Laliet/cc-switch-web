@@ -19,7 +19,7 @@ export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
   };
 
   const renderIcon = (appId: string, isActive: boolean) => {
-    if (appId === "claude") {
+    if (appId === "claude" || appId === "claude-desktop") {
       return (
         <ClaudeIcon
           size={16}

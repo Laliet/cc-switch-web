@@ -20,6 +20,7 @@ pub async fn get_config_status(app: String) -> Result<ConfigStatus, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
     match app_type {
         AppType::Claude => config::get_claude_config_status().map_err(|e| e.to_string()),
+        AppType::ClaudeDesktop => config::get_claude_config_status().map_err(|e| e.to_string()),
         AppType::Codex => {
             let auth_path = codex_config::get_codex_auth_path().map_err(|e| e.to_string())?;
             let exists = auth_path.exists();
@@ -77,7 +78,9 @@ pub async fn get_claude_code_config_path() -> Result<String, String> {
 #[tauri::command]
 pub async fn get_config_dir(app: String) -> Result<String, String> {
     let dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => config::get_claude_config_dir().map_err(|e| e.to_string())?,
+        AppType::Claude | AppType::ClaudeDesktop => {
+            config::get_claude_config_dir().map_err(|e| e.to_string())?
+        }
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
         AppType::Opencode => crate::opencode_config::get_opencode_dir(),
@@ -90,7 +93,9 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_config_dir_info(app: String) -> Result<ConfigDirInfo, String> {
     match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => config::get_claude_config_dir_info().map_err(|e| e.to_string()),
+        AppType::Claude | AppType::ClaudeDesktop => {
+            config::get_claude_config_dir_info().map_err(|e| e.to_string())
+        }
         AppType::Codex => codex_config::get_codex_config_dir_info().map_err(|e| e.to_string()),
         AppType::Gemini => crate::gemini_config::get_gemini_dir_info().map_err(|e| e.to_string()),
         AppType::Opencode => {
@@ -106,7 +111,9 @@ pub async fn get_config_dir_info(app: String) -> Result<ConfigDirInfo, String> {
 #[tauri::command]
 pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, String> {
     let config_dir = match AppType::from_str(&app).map_err(|e| e.to_string())? {
-        AppType::Claude => config::get_claude_config_dir().map_err(|e| e.to_string())?,
+        AppType::Claude | AppType::ClaudeDesktop => {
+            config::get_claude_config_dir().map_err(|e| e.to_string())?
+        }
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
         AppType::Opencode => crate::opencode_config::get_opencode_dir(),
@@ -253,7 +260,7 @@ pub async fn set_common_config_snippet(
                 // TOML 格式暂不验证（或可使用 toml crate）
                 // 注意：TOML 验证较为复杂，暂时跳过
             }
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
+            AppType::ClaudeDesktop | AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
                 return Err(format!("应用暂未支持: {}", app.as_str()));
             }
         }

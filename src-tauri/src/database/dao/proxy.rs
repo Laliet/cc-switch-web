@@ -12,7 +12,10 @@ impl Database {
             .query_row(
                 "SELECT enabled, host, port, upstream_proxy, bind_app, auto_start,
                         enable_logging, live_takeover_active, streaming_first_byte_timeout,
-                        streaming_idle_timeout, non_streaming_timeout
+                        streaming_idle_timeout, non_streaming_timeout,
+                        circuit_failure_threshold, circuit_recovery_threshold,
+                        circuit_recovery_wait_seconds, circuit_error_rate_threshold,
+                        rectify_thinking_signature, rectify_thinking_budget
                  FROM proxy_config
                  WHERE app_type = 'global'",
                 [],
@@ -29,6 +32,12 @@ impl Database {
                         streaming_first_byte_timeout: row.get::<_, i64>(8)? as u64,
                         streaming_idle_timeout: row.get::<_, i64>(9)? as u64,
                         non_streaming_timeout: row.get::<_, i64>(10)? as u64,
+                        circuit_failure_threshold: row.get::<_, i64>(11)? as u64,
+                        circuit_recovery_threshold: row.get::<_, i64>(12)? as u64,
+                        circuit_recovery_wait_seconds: row.get::<_, i64>(13)? as u64,
+                        circuit_error_rate_threshold: row.get(14)?,
+                        rectify_thinking_signature: row.get::<_, i64>(15)? != 0,
+                        rectify_thinking_budget: row.get::<_, i64>(16)? != 0,
                         apps: ProxyAppsSettings::default(),
                     })
                 },
@@ -55,9 +64,13 @@ impl Database {
             "INSERT OR REPLACE INTO proxy_config (
                 app_type, enabled, host, port, upstream_proxy, bind_app, auto_start,
                 enable_logging, live_takeover_active, streaming_first_byte_timeout,
-                streaming_idle_timeout, non_streaming_timeout, updated_at
+                streaming_idle_timeout, non_streaming_timeout,
+                circuit_failure_threshold, circuit_recovery_threshold,
+                circuit_recovery_wait_seconds, circuit_error_rate_threshold,
+                rectify_thinking_signature, rectify_thinking_budget, updated_at
             ) VALUES (
-                'global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now')
+                'global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                ?12, ?13, ?14, ?15, ?16, ?17, datetime('now')
             )",
             params![
                 i64::from(config.enabled),
@@ -71,6 +84,12 @@ impl Database {
                 config.streaming_first_byte_timeout as i64,
                 config.streaming_idle_timeout as i64,
                 config.non_streaming_timeout as i64,
+                config.circuit_failure_threshold as i64,
+                config.circuit_recovery_threshold as i64,
+                config.circuit_recovery_wait_seconds as i64,
+                config.circuit_error_rate_threshold,
+                i64::from(config.rectify_thinking_signature),
+                i64::from(config.rectify_thinking_budget),
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

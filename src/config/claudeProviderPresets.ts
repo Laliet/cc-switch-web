@@ -42,6 +42,28 @@ export interface ProviderPreset {
   theme?: PresetTheme;
 }
 
+const claudeRoleModelEnv = (
+  sonnet = "claude-sonnet-4-6",
+  opus = "claude-opus-4-7",
+  haiku = "claude-haiku-4-5",
+) => ({
+  ANTHROPIC_MODEL: sonnet,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: haiku,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: sonnet,
+  ANTHROPIC_DEFAULT_OPUS_MODEL: opus,
+});
+
+const anthropicCompatiblePreset = (
+  baseUrl: string,
+  modelEnv = claudeRoleModelEnv(),
+) => ({
+  env: {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: "",
+    ...modelEnv,
+  },
+});
+
 export const providerPresets: ProviderPreset[] = [
   {
     name: "Claude Official",
@@ -56,6 +78,109 @@ export const providerPresets: ProviderPreset[] = [
       backgroundColor: "#D97757",
       textColor: "#FFFFFF",
     },
+  },
+  {
+    name: "PatewayAI",
+    websiteUrl: "https://api.pateway.ai",
+    apiKeyUrl: "https://api.pateway.ai",
+    settingsConfig: anthropicCompatiblePreset("https://api.pateway.ai"),
+    endpointCandidates: ["https://api.pateway.ai"],
+    category: "third_party",
+    isPartner: true,
+    partnerPromotionKey: "patewayai",
+  },
+  {
+    name: "火山Agentplan",
+    websiteUrl:
+      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
+    apiKeyUrl:
+      "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
+    settingsConfig: anthropicCompatiblePreset(
+      "https://ark.cn-beijing.volces.com/api/coding",
+      claudeRoleModelEnv("ark-code-latest", "ark-code-latest", "ark-code-latest"),
+    ),
+    endpointCandidates: ["https://ark.cn-beijing.volces.com/api/coding"],
+    category: "cn_official",
+    isPartner: true,
+    partnerPromotionKey: "volcengine_agentplan",
+  },
+  {
+    name: "BytePlus",
+    websiteUrl:
+      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
+    apiKeyUrl:
+      "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
+    settingsConfig: anthropicCompatiblePreset(
+      "https://ark.ap-southeast.bytepluses.com/api/coding",
+      claudeRoleModelEnv("ark-code-latest", "ark-code-latest", "ark-code-latest"),
+    ),
+    endpointCandidates: ["https://ark.ap-southeast.bytepluses.com/api/coding"],
+    category: "cn_official",
+    isPartner: true,
+    partnerPromotionKey: "byteplus",
+  },
+  {
+    name: "Baidu Qianfan Coding Plan",
+    websiteUrl: "https://cloud.baidu.com/product/qianfan_modelbuilder",
+    apiKeyUrl: "https://cloud.baidu.com/product/qianfan_modelbuilder",
+    settingsConfig: anthropicCompatiblePreset(
+      "https://qianfan.baidubce.com/anthropic/coding",
+      claudeRoleModelEnv(
+        "qianfan-code-latest",
+        "qianfan-code-latest",
+        "qianfan-code-latest",
+      ),
+    ),
+    endpointCandidates: ["https://qianfan.baidubce.com/anthropic/coding"],
+    category: "cn_official",
+  },
+  {
+    name: "ClaudeAPI",
+    websiteUrl: "https://claudeapi.com",
+    apiKeyUrl: "https://claudeapi.com",
+    settingsConfig: anthropicCompatiblePreset("https://gw.claudeapi.com"),
+    endpointCandidates: ["https://gw.claudeapi.com"],
+    category: "third_party",
+    isPartner: true,
+    partnerPromotionKey: "claudeapi",
+  },
+  {
+    name: "ClaudeCN",
+    websiteUrl: "https://claudecn.top",
+    apiKeyUrl: "https://claudecn.top/register?aff=ccswitch",
+    settingsConfig: anthropicCompatiblePreset("https://claudecn.top"),
+    endpointCandidates: ["https://claudecn.top"],
+    category: "third_party",
+    isPartner: true,
+    partnerPromotionKey: "claudecn",
+  },
+  {
+    name: "RunAPI",
+    websiteUrl: "https://runapi.co",
+    apiKeyUrl: "https://runapi.co",
+    settingsConfig: anthropicCompatiblePreset("https://runapi.co"),
+    endpointCandidates: ["https://runapi.co"],
+    category: "aggregator",
+    isPartner: true,
+    partnerPromotionKey: "runapi",
+  },
+  {
+    name: "RelaxyCode",
+    websiteUrl: "https://www.relaxycode.com",
+    apiKeyUrl: "https://www.relaxycode.com",
+    settingsConfig: anthropicCompatiblePreset("https://www.relaxycode.com"),
+    endpointCandidates: ["https://www.relaxycode.com"],
+    category: "third_party",
+  },
+  {
+    name: "Compshare",
+    websiteUrl: "https://www.compshare.cn",
+    apiKeyUrl: "https://www.compshare.cn",
+    settingsConfig: anthropicCompatiblePreset("https://api.modelverse.cn"),
+    endpointCandidates: ["https://api.modelverse.cn"],
+    category: "aggregator",
+    isPartner: true,
+    partnerPromotionKey: "ucloud",
   },
   {
     name: "DeepSeek",
@@ -385,18 +510,6 @@ export const providerPresets: ProviderPreset[] = [
       },
     },
     endpointCandidates: ["https://apic.cikew.site/api"],
-    category: "third_party",
-  },
-  {
-    name: "ClaudeCN",
-    websiteUrl: "https://claudecn.top",
-    settingsConfig: {
-      env: {
-        ANTHROPIC_BASE_URL: "https://claudecn.top",
-        ANTHROPIC_AUTH_TOKEN: "",
-      },
-    },
-    endpointCandidates: ["https://claudecn.top"],
     category: "third_party",
   },
   {

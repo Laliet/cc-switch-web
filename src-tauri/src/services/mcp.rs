@@ -195,6 +195,13 @@ impl McpService {
             AppType::Opencode => {
                 mcp::sync_single_server_to_opencode(cfg, &server.id, &server.server)?;
             }
+            AppType::ClaudeDesktop => {
+                return Err(AppError::localized(
+                    "mcp.app_not_supported",
+                    "Claude Desktop 暂不支持 MCP 同步。",
+                    "Claude Desktop does not support MCP sync yet.",
+                ));
+            }
             AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::localized(
                     "app_not_supported_yet",
@@ -225,6 +232,7 @@ impl McpService {
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
             AppType::Opencode => mcp::remove_server_from_opencode(id)?,
+            AppType::ClaudeDesktop => {}
             AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::localized(
                     "app_not_supported_yet",

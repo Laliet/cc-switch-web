@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import type { Prompt, AppId } from "@/lib/api";
+import type { PromptAppId } from "@/config/apps";
 
 interface PromptFormModalProps {
   appId: AppId;
@@ -31,15 +32,14 @@ const PromptFormModal: React.FC<PromptFormModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const appName = t(`apps.${appId}`);
-  const filenameMap: Record<AppId, string> = {
+  const filenameMap: Record<PromptAppId, string> = {
     claude: "CLAUDE.md",
     codex: "AGENTS.md",
     gemini: "GEMINI.md",
     opencode: "AGENTS.md",
-    omo: "AGENTS.md",
-    "omo-slim": "AGENTS.md",
   };
-  const filename = filenameMap[appId];
+  const filename =
+    appId in filenameMap ? filenameMap[appId as PromptAppId] : "AGENTS.md";
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [content, setContent] = useState("");

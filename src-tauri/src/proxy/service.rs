@@ -178,7 +178,7 @@ fn set_app_enabled(config: &mut ProxySettings, app: &AppType, enabled: bool) {
         AppType::Codex => config.apps.codex.enabled = enabled,
         AppType::Gemini => config.apps.gemini.enabled = enabled,
         AppType::Opencode => config.apps.opencode.enabled = enabled,
-        AppType::Omo | AppType::OmoSlim => {}
+        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {}
     }
 }
 
@@ -188,7 +188,7 @@ fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
         AppType::Codex => config.apps.codex.enabled,
         AppType::Gemini => config.apps.gemini.enabled,
         AppType::Opencode => config.apps.opencode.enabled,
-        AppType::Omo | AppType::OmoSlim => false,
+        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
     }
 }
 
@@ -205,6 +205,12 @@ fn is_default_proxy_config(config: &ProxySettings) -> bool {
         && config.streaming_first_byte_timeout == default.streaming_first_byte_timeout
         && config.streaming_idle_timeout == default.streaming_idle_timeout
         && config.non_streaming_timeout == default.non_streaming_timeout
+        && config.circuit_failure_threshold == default.circuit_failure_threshold
+        && config.circuit_recovery_threshold == default.circuit_recovery_threshold
+        && config.circuit_recovery_wait_seconds == default.circuit_recovery_wait_seconds
+        && config.circuit_error_rate_threshold == default.circuit_error_rate_threshold
+        && config.rectify_thinking_signature == default.rectify_thinking_signature
+        && config.rectify_thinking_budget == default.rectify_thinking_budget
         && !config.apps.claude.enabled
         && !config.apps.claude.auto_failover_enabled
         && config.apps.claude.max_retries == default.apps.claude.max_retries

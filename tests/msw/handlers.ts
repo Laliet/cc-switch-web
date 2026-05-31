@@ -76,6 +76,8 @@ const getMockConfigDir = (app: AppId): string => {
     case "omo":
     case "omo-slim":
       return "/default/opencode";
+    case "claude-desktop":
+      return "/default/claude-desktop";
   }
 };
 

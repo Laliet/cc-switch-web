@@ -198,7 +198,7 @@ fn build_request(
     config: &StreamCheckConfig,
 ) -> Result<ProbeRequest, AppError> {
     match app_type {
-        AppType::Claude => build_claude_request(provider, config),
+        AppType::Claude | AppType::ClaudeDesktop => build_claude_request(provider, config),
         AppType::Codex => build_openai_chat_request(
             codex_base_url(provider)?,
             codex_api_key(provider)?,

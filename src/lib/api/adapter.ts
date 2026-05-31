@@ -1245,6 +1245,28 @@ export function commandToEndpoint(
       return { method: "POST", url: `${apiBase}/usage/sessions/sync` };
     case "get_usage_data_sources":
       return { method: "GET", url: `${apiBase}/usage/data-sources` };
+    case "upload_webdav_snapshot":
+      return {
+        method: "POST",
+        url: `${apiBase}/webdav/snapshot/upload`,
+        body:
+          args.settings !== undefined ? { settings: args.settings } : undefined,
+      };
+    case "preview_webdav_snapshot":
+      return args.settings !== undefined
+        ? {
+            method: "POST",
+            url: `${apiBase}/webdav/snapshot/preview`,
+            body: { settings: args.settings },
+          }
+        : { method: "GET", url: `${apiBase}/webdav/snapshot/preview` };
+    case "download_webdav_snapshot":
+      return {
+        method: "POST",
+        url: `${apiBase}/webdav/snapshot/download`,
+        body:
+          args.settings !== undefined ? { settings: args.settings } : undefined,
+      };
     case "update_web_credentials":
       return {
         method: "PUT",

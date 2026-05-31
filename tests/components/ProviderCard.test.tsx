@@ -217,6 +217,18 @@ describe("ProviderCard", () => {
     );
   });
 
+  it("shows routing support badge for Local Routing compatible providers", () => {
+    renderProviderCard({}, { appId: "claude" });
+
+    expect(screen.getByText("provider.routingSupport")).toBeInTheDocument();
+  });
+
+  it("does not show routing support badge for Gemini OAuth providers", () => {
+    renderProviderCard({ category: "official" }, { appId: "gemini" });
+
+    expect(screen.queryByText("provider.routingSupport")).not.toBeInTheDocument();
+  });
+
   it("renders health indicator tooltip and availability", () => {
     const healthStatus: ProviderHealth = {
       isHealthy: true,

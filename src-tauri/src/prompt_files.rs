@@ -14,7 +14,7 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Codex => get_base_dir_with_fallback(get_codex_auth_path()?, ".codex")?,
         AppType::Gemini => get_gemini_dir()?,
         AppType::Opencode => get_opencode_dir(),
-        AppType::Omo | AppType::OmoSlim => {
+        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
             return Err(AppError::localized(
                 "app_not_supported_yet",
                 format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
@@ -28,7 +28,9 @@ pub fn prompt_file_path(app: &AppType) -> Result<PathBuf, AppError> {
         AppType::Codex => "AGENTS.md",
         AppType::Gemini => "GEMINI.md",
         AppType::Opencode => "AGENTS.md",
-        AppType::Omo | AppType::OmoSlim => unreachable!("unsupported app should return above"),
+        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
+            unreachable!("unsupported app should return above")
+        }
     };
 
     Ok(base_dir.join(filename))

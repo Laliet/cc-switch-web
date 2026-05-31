@@ -7,6 +7,7 @@ export interface AppDefinition {
 
 export const PROVIDER_APPS = [
   "claude",
+  "claude-desktop",
   "codex",
   "gemini",
   "opencode",

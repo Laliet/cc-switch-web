@@ -8,7 +8,7 @@ use axum::{
 use super::{
     handlers::{
         config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
-        stream_check, system, usage,
+        stream_check, system, usage, webdav,
     },
     SharedState,
 };
@@ -23,6 +23,7 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/settings", settings_routes())
         .nest("/proxy", proxy_routes())
         .nest("/usage", usage_routes())
+        .nest("/webdav", webdav_routes())
         .nest("/config", config_routes())
         .route("/model-fetch", post(model_fetch::fetch_models_for_config))
         .nest("/stream-check", stream_check_routes())
@@ -34,6 +35,16 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/fs/save-file", post(config::save_file_dialog))
         .route("/fs/open-file", post(config::open_file_dialog))
         .with_state(state)
+}
+
+fn webdav_routes() -> Router<SharedState> {
+    Router::new()
+        .route("/snapshot/upload", post(webdav::upload_snapshot))
+        .route(
+            "/snapshot/preview",
+            get(webdav::preview_snapshot).post(webdav::preview_snapshot),
+        )
+        .route("/snapshot/download", post(webdav::download_snapshot))
 }
 
 fn stream_check_routes() -> Router<SharedState> {

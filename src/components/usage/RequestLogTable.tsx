@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Database, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -43,10 +43,15 @@ export function RequestLogTable({
   const [providerName, setProviderName] = useState("");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<RequestLog | null>(null);
+  const [pageInput, setPageInput] = useState("1");
   const pageSize = 20;
   useEffect(() => {
     setPage(0);
   }, [appType, range]);
+
+  useEffect(() => {
+    setPageInput(String(page + 1));
+  }, [page]);
 
   const filters = useMemo<LogFilters>(
     () => ({
@@ -66,6 +71,23 @@ export function RequestLogTable({
   );
   const total = query.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  const jumpToPage = () => {
+    const parsed = Number.parseInt(pageInput, 10);
+    if (!Number.isFinite(parsed)) {
+      setPageInput(String(page + 1));
+      return;
+    }
+    const nextPage = Math.min(Math.max(parsed, 1), pages) - 1;
+    setPage(nextPage);
+  };
+
+  const sourceLabel = (value?: string | null) => {
+    const source = value?.trim() || "proxy";
+    if (source === "session") return "Session";
+    if (source === "proxy") return "Proxy";
+    if (source === "rollup") return "Rollup";
+    return source;
+  };
 
   return (
     <div className="space-y-4">
@@ -117,6 +139,7 @@ export function RequestLogTable({
             <TableRow>
               <TableHead>Time</TableHead>
               <TableHead>Provider</TableHead>
+              <TableHead>Source</TableHead>
               <TableHead>Model</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
@@ -136,6 +159,15 @@ export function RequestLogTable({
                 </TableCell>
                 <TableCell className="max-w-[180px] truncate">
                   {log.providerName || log.providerId}
+                </TableCell>
+                <TableCell>
+                  <span
+                    className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"
+                    title={`Data source: ${sourceLabel(log.dataSource)}`}
+                  >
+                    <Database className="h-3.5 w-3.5" />
+                    {sourceLabel(log.dataSource)}
+                  </span>
                 </TableCell>
                 <TableCell className="max-w-[260px] truncate">
                   <div className="flex items-center gap-1">
@@ -169,7 +201,7 @@ export function RequestLogTable({
             {!query.isLoading && (query.data?.data ?? []).length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center text-muted-foreground"
                 >
                   No request logs in this range
@@ -182,7 +214,7 @@ export function RequestLogTable({
           <span>
             {total} logs, page {page + 1} / {pages}
           </span>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -190,6 +222,20 @@ export function RequestLogTable({
               onClick={() => setPage((value) => Math.max(0, value - 1))}
             >
               Prev
+            </Button>
+            <Input
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  jumpToPage();
+                }
+              }}
+              className="h-8 w-16 text-center"
+              aria-label="Jump to page"
+            />
+            <Button variant="outline" size="sm" onClick={jumpToPage}>
+              Go
             </Button>
             <Button
               variant="outline"

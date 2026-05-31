@@ -11,11 +11,12 @@ import type {
   Settings,
 } from "@/types";
 import type { Skill, SkillRepo, SkillsResponse } from "@/lib/api/skills";
+import { isMcpApp, type McpAppId } from "@/config/apps";
 
 type ProvidersByApp = Record<AppId, Record<string, Provider>>;
 type CurrentProviderState = Record<AppId, string>;
 type BackupProviderState = Record<AppId, string | null>;
-type McpConfigState = Record<AppId, Record<string, McpServer>>;
+type McpConfigState = Record<McpAppId, Record<string, McpServer>>;
 type McpServersState = Record<string, McpServer>;
 type SkillsState = Skill[];
 type SkillReposState = SkillRepo[];
@@ -37,6 +38,19 @@ const createDefaultProviders = (): ProvidersByApp => ({
       category: "custom",
       sortIndex: 1,
       createdAt: Date.now() + 1,
+    },
+  },
+  "claude-desktop": {
+    "claude-desktop-1": {
+      id: "claude-desktop-1",
+      name: "Claude Desktop Default",
+      settingsConfig: {},
+      category: "official",
+      sortIndex: 0,
+      createdAt: Date.now(),
+      meta: {
+        claudeDesktopMode: "direct",
+      },
     },
   },
   codex: {
@@ -118,6 +132,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
 
 const createDefaultCurrent = (): CurrentProviderState => ({
   claude: "claude-1",
+  "claude-desktop": "claude-desktop-1",
   codex: "codex-1",
   gemini: "gemini-1",
   opencode: "opencode-1",
@@ -127,6 +142,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
 
 const createDefaultBackup = (): BackupProviderState => ({
   claude: null,
+  "claude-desktop": null,
   codex: null,
   gemini: null,
   opencode: null,
@@ -192,6 +208,12 @@ const createDefaultProxySettings = (): ProxySettings => ({
   streamingFirstByteTimeout: 90,
   streamingIdleTimeout: 120,
   nonStreamingTimeout: 180,
+  circuitFailureThreshold: 3,
+  circuitRecoveryThreshold: 2,
+  circuitRecoveryWaitSeconds: 60,
+  circuitErrorRateThreshold: 80,
+  rectifyThinkingSignature: true,
+  rectifyThinkingBudget: true,
   apps: {
     claude: createDefaultProxyAppSettings(),
     codex: createDefaultProxyAppSettings(),
@@ -277,7 +299,7 @@ let mcpConfigs: McpConfigState = {
 };
 const buildUnifiedMcpServers = (configs: McpConfigState): McpServersState => {
   const merged: McpServersState = {};
-  (Object.keys(configs) as AppId[]).forEach((app) => {
+  (Object.keys(configs) as McpAppId[]).forEach((app) => {
     const servers = configs[app];
     Object.values(servers).forEach((server) => {
       const existing = merged[server.id];
@@ -655,6 +677,12 @@ export const setAppConfigDirOverrideState = (value: string | null) => {
 };
 
 export const getMcpConfig = (appType: AppId) => {
+  if (!isMcpApp(appType)) {
+    return {
+      configPath: `/mock/${appType}.mcp.json`,
+      servers: {},
+    };
+  }
   const servers = JSON.parse(
     JSON.stringify(mcpConfigs[appType] ?? {}),
   ) as Record<string, McpServer>;
@@ -668,6 +696,7 @@ export const setMcpConfig = (
   appType: AppId,
   value: Record<string, McpServer>,
 ) => {
+  if (!isMcpApp(appType)) return;
   mcpConfigs[appType] = JSON.parse(JSON.stringify(value)) as Record<
     string,
     McpServer
@@ -679,6 +708,7 @@ export const setMcpServerEnabled = (
   id: string,
   enabled: boolean,
 ) => {
+  if (!isMcpApp(appType)) return;
   if (!mcpConfigs[appType]?.[id]) return;
   mcpConfigs[appType][id] = {
     ...mcpConfigs[appType][id],
@@ -691,6 +721,7 @@ export const upsertMcpServer = (
   id: string,
   server: McpServer,
 ) => {
+  if (!isMcpApp(appType)) return;
   if (!mcpConfigs[appType]) {
     mcpConfigs[appType] = {};
   }
@@ -698,6 +729,7 @@ export const upsertMcpServer = (
 };
 
 export const deleteMcpServer = (appType: AppId, id: string) => {
+  if (!isMcpApp(appType)) return;
   if (!mcpConfigs[appType]) return;
   delete mcpConfigs[appType][id];
 };

@@ -94,6 +94,12 @@ describe("useSettingsForm Hook", () => {
       streamingFirstByteTimeout: 90,
       streamingIdleTimeout: 120,
       nonStreamingTimeout: 180,
+      circuitFailureThreshold: 3,
+      circuitRecoveryThreshold: 2,
+      circuitRecoveryWaitSeconds: 60,
+      circuitErrorRateThreshold: 80,
+      rectifyThinkingSignature: true,
+      rectifyThinkingBudget: true,
       apps: {
         claude: { ...proxyAppDefaults, enabled: false },
         codex: { ...proxyAppDefaults, enabled: false },

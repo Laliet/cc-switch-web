@@ -8,6 +8,9 @@ import type {
   ProxyTakeoverResult,
   ProxyTestResult,
   Settings,
+  WebDavSettings,
+  WebDavSnapshotPreview,
+  WebDavSyncResult,
 } from "@/types";
 import { invoke } from "./adapter";
 import type { AppId } from "./types";
@@ -247,5 +250,23 @@ export const settingsApi = {
 
   async deleteModelPricing(modelId: string): Promise<boolean> {
     return await invoke("delete_model_pricing", { modelId });
+  },
+
+  async uploadWebDavSnapshot(
+    settings?: WebDavSettings,
+  ): Promise<WebDavSyncResult> {
+    return await invoke("upload_webdav_snapshot", { settings });
+  },
+
+  async previewWebDavSnapshot(
+    settings?: WebDavSettings,
+  ): Promise<WebDavSnapshotPreview> {
+    return await invoke("preview_webdav_snapshot", { settings });
+  },
+
+  async downloadWebDavSnapshot(
+    settings?: WebDavSettings,
+  ): Promise<WebDavSyncResult> {
+    return await invoke("download_webdav_snapshot", { settings });
   },
 };

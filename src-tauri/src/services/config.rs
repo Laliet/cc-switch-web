@@ -328,6 +328,7 @@ impl ConfigService {
             AppType::Codex => Self::sync_codex_live(config, &current_id, &provider)?,
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
             AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
+            AppType::ClaudeDesktop => {}
             AppType::Opencode => Self::sync_opencode_live(config)?,
             AppType::Omo | AppType::OmoSlim => {
                 Self::sync_omo_live(config, app_type, &current_id, &provider)?

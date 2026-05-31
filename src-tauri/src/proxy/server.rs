@@ -54,8 +54,6 @@ use super::{
 const PROXY_RECENT_LOG_LIMIT: usize = 100;
 const PROXY_LOG_VALUE_LIMIT: usize = 256;
 const PROXY_LOG_PATH_LIMIT: usize = 2048;
-const PROXY_CIRCUIT_OPEN_DURATION: Duration = Duration::from_secs(60);
-
 struct ProxyRuntime {
     handle: Mutex<Option<ProxyHandle>>,
     stats: Arc<RwLock<ProxyStats>>,
@@ -93,6 +91,9 @@ enum ProviderCircuitState {
 struct ProviderRuntimeHealth {
     state: ProviderCircuitState,
     failure_count: u64,
+    recovery_success_count: u64,
+    window_requests: u64,
+    window_failures: u64,
     last_failure_at: Option<Instant>,
     opened_at: Option<Instant>,
 }
@@ -102,6 +103,9 @@ impl Default for ProviderRuntimeHealth {
         Self {
             state: ProviderCircuitState::Healthy,
             failure_count: 0,
+            recovery_success_count: 0,
+            window_requests: 0,
+            window_failures: 0,
             last_failure_at: None,
             opened_at: None,
         }
@@ -267,6 +271,18 @@ fn should_skip_response_header(name: &HeaderName) -> bool {
 
 fn route_app(settings: &ProxySettings, uri: &Uri) -> Result<(AppType, Uri), AppError> {
     let path = uri.path();
+    if path == "/claude-desktop/v1/models" || path == "/claude-desktop/v1/models/" {
+        return Ok((
+            AppType::ClaudeDesktop,
+            strip_prefix(uri, "/claude-desktop")?,
+        ));
+    }
+    if path == "/claude-desktop/v1/messages" || path.starts_with("/claude-desktop/v1/messages/") {
+        return Ok((
+            AppType::ClaudeDesktop,
+            strip_prefix(uri, "/claude-desktop")?,
+        ));
+    }
     if path == "/v1/messages" || path.starts_with("/v1/messages/") {
         return Ok((AppType::Claude, uri.clone()));
     }
@@ -529,6 +545,22 @@ async fn proxy_request(
     let body_bytes = to_bytes(body, PROXY_BODY_LIMIT_BYTES)
         .await
         .map_err(|e| AppError::Config(format!("Failed to read proxy request body: {e}")))?;
+    if matches!(app, AppType::ClaudeDesktop) && routed_uri.path() == "/v1/models" {
+        let payload = crate::claude_desktop_config::model_list_response(&provider)?;
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(payload.to_string()))
+            .map_err(|e| AppError::Config(format!("Failed to build model response: {e}")))?;
+        return Ok(ProxyRequestResult {
+            response,
+            app: log_app,
+            path: log_path,
+            provider_id: provider.id,
+            model: String::new(),
+            usage: ProxyUsageCapture::default(),
+        });
+    }
     let model = extract_request_model(&body_bytes);
 
     let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
@@ -640,11 +672,13 @@ async fn send_with_failover(
         None
     };
     let current_circuit_allows =
-        provider_circuit_allows_request(&state.health, app, &provider.id).await;
+        provider_circuit_allows_request(&state.settings, &state.health, app, &provider.id).await;
 
     if !current_circuit_allows {
         if let Some(backup) = backup.as_ref() {
-            if provider_circuit_allows_request(&state.health, app, &backup.id).await {
+            if provider_circuit_allows_request(&state.settings, &state.health, app, &backup.id)
+                .await
+            {
                 let backup_result = send_upstream_provider(
                     state,
                     app,
@@ -699,7 +733,14 @@ async fn send_with_failover(
                 )
                 .await;
                 if let Some(backup) = backup.as_ref() {
-                    if provider_circuit_allows_request(&state.health, app, &backup.id).await {
+                    if provider_circuit_allows_request(
+                        &state.settings,
+                        &state.health,
+                        app,
+                        &backup.id,
+                    )
+                    .await
+                    {
                         let backup_result = send_upstream_provider(
                             state,
                             app,
@@ -788,7 +829,14 @@ async fn send_with_failover(
                 )
                 .await;
                 if let Some(backup) = backup.as_ref() {
-                    if provider_circuit_allows_request(&state.health, app, &backup.id).await {
+                    if provider_circuit_allows_request(
+                        &state.settings,
+                        &state.health,
+                        app,
+                        &backup.id,
+                    )
+                    .await
+                    {
                         let backup_result = send_upstream_provider(
                             state,
                             app,
@@ -881,7 +929,7 @@ async fn retry_streaming_first_byte_failover(
     let Some(backup) = backup_provider(&state.app_state, app, &failed_provider.id)? else {
         return Ok(None);
     };
-    if !provider_circuit_allows_request(&state.health, app, &backup.id).await {
+    if !provider_circuit_allows_request(&state.settings, &state.health, app, &backup.id).await {
         return Ok(None);
     }
 
@@ -986,6 +1034,19 @@ async fn send_upstream_provider(
     total_timeout: Duration,
 ) -> Result<reqwest::Response, UpstreamAttemptError> {
     let adapter = adapter_for(app);
+    let body_bytes = if matches!(app, AppType::ClaudeDesktop) && routed_uri.path() == "/v1/messages"
+    {
+        let body: serde_json::Value = serde_json::from_slice(body_bytes).map_err(|e| {
+            UpstreamAttemptError::Local(AppError::InvalidInput(format!(
+                "Invalid Claude Desktop request body: {e}"
+            )))
+        })?;
+        let mapped = crate::claude_desktop_config::map_proxy_request_model(body, provider)
+            .map_err(UpstreamAttemptError::Local)?;
+        Bytes::from(mapped.to_string())
+    } else {
+        body_bytes.clone()
+    };
     let base_url = adapter
         .extract_base_url(provider)
         .map_err(UpstreamAttemptError::Local)?;
@@ -1006,7 +1067,7 @@ async fn send_upstream_provider(
             .client
             .request(method.clone(), url)
             .headers(headers)
-            .body(body_bytes.clone())
+            .body(body_bytes)
             .send(),
         "Proxy upstream request timed out",
     )
@@ -1021,6 +1082,7 @@ fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettin
         AppType::Codex => settings.apps.codex.clone(),
         AppType::Gemini => settings.apps.gemini.clone(),
         AppType::Opencode => settings.apps.opencode.clone(),
+        AppType::ClaudeDesktop => settings.apps.claude.clone(),
         AppType::Omo | AppType::OmoSlim => ProxyAppSettings::default(),
     }
 }
@@ -1062,6 +1124,7 @@ fn provider_health_key(app: &AppType, provider_id: &str) -> String {
 }
 
 async fn provider_circuit_allows_request(
+    settings: &ProxySettings,
     health: &Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
     app: &AppType,
     provider_id: &str,
@@ -1078,7 +1141,8 @@ async fn provider_circuit_allows_request(
                 entry.state = ProviderCircuitState::HalfOpen;
                 return true;
             };
-            if opened_at.elapsed() >= PROXY_CIRCUIT_OPEN_DURATION {
+            let wait = Duration::from_secs(settings.circuit_recovery_wait_seconds.max(1));
+            if opened_at.elapsed() >= wait {
                 entry.state = ProviderCircuitState::HalfOpen;
                 true
             } else {
@@ -1095,10 +1159,25 @@ async fn record_provider_success(
     provider_id: &str,
 ) {
     let key = provider_health_key(app, provider_id);
-    health
-        .write()
-        .await
-        .insert(key, ProviderRuntimeHealth::default());
+    let mut guard = health.write().await;
+    let entry = guard.entry(key).or_default();
+    entry.window_requests = entry.window_requests.saturating_add(1);
+    entry.failure_count = 0;
+    entry.last_failure_at = None;
+    match entry.state {
+        ProviderCircuitState::HalfOpen => {
+            entry.recovery_success_count = entry.recovery_success_count.saturating_add(1);
+            if entry.recovery_success_count >= state.settings.circuit_recovery_threshold.max(1) {
+                *entry = ProviderRuntimeHealth::default();
+            }
+        }
+        ProviderCircuitState::Open => {}
+        ProviderCircuitState::Healthy => {
+            entry.recovery_success_count = 0;
+            entry.opened_at = None;
+        }
+    }
+    drop(guard);
     if let Err(err) = state
         .app_state
         .db
@@ -1117,12 +1196,28 @@ async fn record_provider_failure(
     error: Option<&str>,
 ) {
     let key = provider_health_key(app, provider_id);
-    let threshold = u64::from(max_retries).saturating_add(1).max(2);
+    let threshold = state
+        .settings
+        .circuit_failure_threshold
+        .max(u64::from(max_retries).saturating_add(1))
+        .max(1);
     let mut guard = health.write().await;
     let entry = guard.entry(key).or_default();
+    entry.window_requests = entry.window_requests.saturating_add(1);
+    entry.window_failures = entry.window_failures.saturating_add(1);
     entry.failure_count = entry.failure_count.saturating_add(1);
+    entry.recovery_success_count = 0;
     entry.last_failure_at = Some(Instant::now());
-    if entry.failure_count >= threshold || entry.state == ProviderCircuitState::HalfOpen {
+    let error_rate = if entry.window_requests == 0 {
+        0.0
+    } else {
+        entry.window_failures as f64 / entry.window_requests as f64 * 100.0
+    };
+    if entry.failure_count >= threshold
+        || (entry.window_requests >= threshold
+            && error_rate >= state.settings.circuit_error_rate_threshold)
+        || entry.state == ProviderCircuitState::HalfOpen
+    {
         entry.state = ProviderCircuitState::Open;
         entry.opened_at = Some(Instant::now());
     }
