@@ -154,7 +154,9 @@ pub async fn get_config_dir_info(
 ) -> ApiResult<crate::config::ConfigDirInfo> {
     let app_type = parse_config_app_type(&app)?;
     let info = match app_type {
-        AppType::Claude => crate::config::get_claude_config_dir_info().map_err(ApiError::from)?,
+        AppType::Claude | AppType::ClaudeDesktop => {
+            crate::config::get_claude_config_dir_info().map_err(ApiError::from)?
+        }
         AppType::Codex => codex_config::get_codex_config_dir_info().map_err(ApiError::from)?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir_info().map_err(ApiError::from)?,
         AppType::Opencode => {
@@ -178,7 +180,9 @@ pub async fn open_config_folder(Path(app): Path<String>) -> ApiResult<bool> {
 
 fn get_supported_config_dir(app_type: AppType) -> Result<std::path::PathBuf, ApiError> {
     match app_type {
-        AppType::Claude => crate::config::get_claude_config_dir().map_err(ApiError::from),
+        AppType::Claude | AppType::ClaudeDesktop => {
+            crate::config::get_claude_config_dir().map_err(ApiError::from)
+        }
         AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from),
         AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from),
         AppType::Opencode => Ok(crate::opencode_config::get_opencode_dir()),
@@ -271,7 +275,7 @@ pub async fn set_common_config_snippet(
                     .map_err(|e| ApiError::bad_request(format!("无效的 JSON 格式: {e}")))?;
             }
             AppType::Codex => { /* 不验证 TOML */ }
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
+            AppType::ClaudeDesktop | AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
                 return Err(ApiError::bad_request(format!(
                     "应用 '{}' 暂未支持，敬请期待。",
                     app_type.as_str()
