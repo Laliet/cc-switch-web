@@ -1,3 +1,5 @@
+#![cfg(feature = "desktop")]
+
 use serde_json::json;
 use std::{collections::HashMap, path::PathBuf};
 

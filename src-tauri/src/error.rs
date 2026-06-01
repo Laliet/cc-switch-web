@@ -11,6 +11,8 @@ pub enum AppError {
     Database(String),
     #[error("无效输入: {0}")]
     InvalidInput(String),
+    #[error("未授权: {0}")]
+    Unauthorized(String),
     #[error("IO 错误: {path}: {source}")]
     Io {
         path: String,

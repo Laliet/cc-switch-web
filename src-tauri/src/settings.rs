@@ -170,9 +170,9 @@ pub struct ProxySettings {
     pub circuit_recovery_wait_seconds: u64,
     #[serde(default = "default_proxy_circuit_error_rate_threshold")]
     pub circuit_error_rate_threshold: f64,
-    #[serde(default)]
+    #[serde(default = "default_rectifier_enabled")]
     pub rectify_thinking_signature: bool,
-    #[serde(default)]
+    #[serde(default = "default_rectifier_enabled")]
     pub rectify_thinking_budget: bool,
     #[serde(default)]
     pub apps: ProxyAppsSettings,
@@ -288,6 +288,10 @@ fn default_proxy_circuit_error_rate_threshold() -> f64 {
     80.0
 }
 
+fn default_rectifier_enabled() -> bool {
+    true
+}
+
 fn default_proxy_max_retries() -> u8 {
     0
 }
@@ -326,8 +330,8 @@ impl Default for ProxySettings {
             circuit_recovery_threshold: default_proxy_circuit_recovery_threshold(),
             circuit_recovery_wait_seconds: default_proxy_circuit_recovery_wait(),
             circuit_error_rate_threshold: default_proxy_circuit_error_rate_threshold(),
-            rectify_thinking_signature: true,
-            rectify_thinking_budget: true,
+            rectify_thinking_signature: default_rectifier_enabled(),
+            rectify_thinking_budget: default_rectifier_enabled(),
             apps: ProxyAppsSettings::default(),
         }
     }
@@ -685,6 +689,28 @@ mod tests {
         let expected = PathBuf::from("/root").join(".codex");
         let expected = expected.to_string_lossy().to_string();
         assert_eq!(migrated.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn defaults_missing_rectifier_flags_to_enabled() {
+        let loaded: AppSettings = serde_json::from_value(json!({
+            "showInTray": true,
+            "minimizeToTrayOnClose": true,
+            "proxy": {
+                "enabled": false,
+                "host": "127.0.0.1",
+                "port": 3456,
+                "bindApp": "claude",
+                "autoStart": false,
+                "enableLogging": false,
+                "liveTakeoverActive": false,
+                "apps": {}
+            }
+        }))
+        .expect("settings should deserialize");
+
+        assert!(loaded.proxy.rectify_thinking_signature);
+        assert!(loaded.proxy.rectify_thinking_budget);
     }
 
     #[test]

@@ -39,6 +39,15 @@ impl ProxyService {
         state.db.get_proxy_config()
     }
 
+    pub async fn save_config_and_update_runtime(
+        state: &AppState,
+        config: ProxySettings,
+    ) -> Result<ProxySettings, AppError> {
+        let config = Self::save_config(state, config)?;
+        server::update_runtime_settings(config.clone()).await;
+        Ok(config)
+    }
+
     pub async fn start(
         state: Arc<AppState>,
         mut config: ProxySettings,
@@ -120,7 +129,7 @@ impl ProxyService {
             return Err(err);
         }
         state.db.save_proxy_config(&app_settings.proxy)?;
-        server::update_runtime_settings(app_settings.proxy.clone()).await;
+        server::update_runtime_takeover_settings(app_settings.proxy.clone()).await;
 
         Ok(ProxyTakeoverResult {
             app: app.as_str().to_string(),
@@ -135,7 +144,7 @@ impl ProxyService {
         let mut app_settings = settings::get_settings();
         app_settings.proxy = config.clone();
         settings::update_settings(app_settings)?;
-        server::update_runtime_settings(config).await;
+        server::update_runtime_takeover_settings(config).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }
@@ -146,7 +155,7 @@ impl ProxyService {
         let mut app_settings = settings::get_settings();
         app_settings.proxy = config.clone();
         settings::update_settings(app_settings)?;
-        server::update_runtime_settings(config).await;
+        server::update_runtime_takeover_settings(config).await;
         server::clear_recent_logs().await;
         Ok(server::status_for_state(&state).await)
     }

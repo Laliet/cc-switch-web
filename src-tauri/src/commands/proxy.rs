@@ -85,19 +85,23 @@ pub fn proxy_config(state: State<'_, AppState>) -> Result<ProxySettings, String>
 }
 
 #[tauri::command]
-pub fn save_proxy_config(
+pub async fn save_proxy_config(
     state: State<'_, AppState>,
     settings: ProxySettings,
 ) -> Result<ProxySettings, String> {
-    ProxyService::save_config(state.inner(), settings).map_err(|e| e.to_string())
+    ProxyService::save_config_and_update_runtime(state.inner(), settings)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn save_proxy_settings(
+pub async fn save_proxy_settings(
     state: State<'_, AppState>,
     settings: ProxySettings,
 ) -> Result<bool, String> {
-    ProxyService::save_config(state.inner(), settings).map_err(|e| e.to_string())?;
+    ProxyService::save_config_and_update_runtime(state.inner(), settings)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(true)
 }
 

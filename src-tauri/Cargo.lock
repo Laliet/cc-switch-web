@@ -689,15 +689,17 @@ dependencies = [
 
 [[package]]
 name = "cc-switch"
-version = "0.15.0-rc.2"
+version = "0.15.0-rc.3"
 dependencies = [
  "anyhow",
  "axum",
  "base64 0.22.1",
  "chrono",
+ "constant_time_eq",
  "dirs 5.0.1",
  "env_logger",
  "futures",
+ "getrandom 0.2.16",
  "hex",
  "hmac",
  "json5",

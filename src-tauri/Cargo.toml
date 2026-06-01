@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "0.15.0-rc.2"
+version = "0.15.0-rc.3"
 description = "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
@@ -15,6 +15,7 @@ autobins = false
 [[bin]]
 name = "cc-switch"
 path = "src/main.rs"
+required-features = ["desktop"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -61,6 +62,8 @@ chrono = { version = "0.4", features = ["serde"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+getrandom = "0.2"
+constant_time_eq = "0.3"
 tauri = { version = "2.8.2", features = ["tray-icon", "protocol-asset"], optional = true }
 tauri-plugin-log = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }

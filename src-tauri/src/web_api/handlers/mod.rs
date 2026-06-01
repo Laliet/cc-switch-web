@@ -46,6 +46,7 @@ impl ApiError {
 impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         let status = match err {
+            AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             AppError::InvalidInput(_)
             | AppError::Config(_)
             | AppError::McpValidation(_)

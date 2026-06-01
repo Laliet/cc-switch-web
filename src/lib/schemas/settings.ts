@@ -30,6 +30,15 @@ const defaultProxyApps = () => ({
   opencode: defaultProxyApp(),
 });
 
+const webDavSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseUrl: z.string().trim().default(""),
+  username: z.string().trim().default(""),
+  password: z.string().default(""),
+  remoteDir: z.string().trim().min(1).default("cc-switch-web"),
+  profile: z.string().trim().min(1).default("default"),
+});
+
 export const settingsSchema = z.object({
   showInTray: z.boolean(),
   minimizeToTrayOnClose: z.boolean(),
@@ -41,6 +50,7 @@ export const settingsSchema = z.object({
   language: z.enum(["en", "zh"]).optional(),
   customEndpointsClaude: z.record(z.string(), z.unknown()).optional(),
   customEndpointsCodex: z.record(z.string(), z.unknown()).optional(),
+  webDav: webDavSchema.optional(),
   proxy: z
     .object({
       enabled: z.boolean(),

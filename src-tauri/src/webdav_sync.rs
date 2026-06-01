@@ -3,6 +3,7 @@ use crate::{
     settings::WebDavSettings, store::AppState,
 };
 use chrono::Utc;
+use futures::StreamExt;
 use reqwest::{Client, Method, RequestBuilder, StatusCode, Url};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -10,6 +11,8 @@ use std::time::Duration;
 
 const SNAPSHOT_KIND: &str = "cc-switch-web-snapshot";
 const SNAPSHOT_FILE_EXT: &str = "json";
+const MAX_SNAPSHOT_BYTES: usize = 10 * 1024 * 1024;
+const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -362,7 +365,7 @@ async fn download_snapshot_bytes(
         .get(reqwest::header::LAST_MODIFIED)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let bytes = response.bytes().await.map_err(reqwest_error)?;
+    let bytes = read_limited_response_body(response, MAX_SNAPSHOT_BYTES, "WebDAV snapshot").await?;
     let value = serde_json::from_slice::<Value>(&bytes)
         .map_err(|e| AppError::Config(format!("Invalid WebDAV snapshot JSON: {e}")))?;
     Ok(Some(DownloadedSnapshot {
@@ -538,9 +541,65 @@ fn reqwest_error(err: reqwest::Error) -> AppError {
     AppError::Message(format!("WebDAV request failed: {err}"))
 }
 
+async fn read_limited_response_body(
+    response: reqwest::Response,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, AppError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(AppError::InvalidInput(format!(
+            "{label} exceeds the {max_bytes} byte limit"
+        )));
+    }
+
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(reqwest_error)?;
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(AppError::InvalidInput(format!(
+                "{label} exceeds the {max_bytes} byte limit"
+            )));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+async fn response_body_preview(response: reqwest::Response, max_bytes: usize) -> String {
+    let mut bytes = Vec::new();
+    let mut truncated = response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64);
+    let mut stream = response.bytes_stream();
+    while bytes.len() < max_bytes {
+        let Some(chunk) = stream.next().await else {
+            break;
+        };
+        let Ok(chunk) = chunk else {
+            break;
+        };
+        let remaining = max_bytes.saturating_sub(bytes.len());
+        if chunk.len() > remaining {
+            bytes.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let mut body = String::from_utf8_lossy(&bytes).to_string();
+    if truncated {
+        body.push_str("...");
+    }
+    body
+}
+
 async fn status_error(context: &str, response: reqwest::Response) -> AppError {
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
+    let body = response_body_preview(response, MAX_ERROR_BODY_BYTES).await;
     let detail = body.trim();
     if detail.is_empty() {
         AppError::Message(format!("{context}: HTTP {status}"))
@@ -591,6 +650,37 @@ mod tests {
         let err = remote_target(&settings).unwrap_err();
 
         assert!(err.to_string().contains("relative path"));
+    }
+
+    #[tokio::test]
+    async fn read_limited_response_body_rejects_oversized_body() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("test server addr");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept test client");
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buffer = [0u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            let body = b"0123456789abcdef";
+            let response = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len());
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write headers");
+            socket.write_all(body).await.expect("write body");
+        });
+
+        let response = reqwest::get(format!("http://{addr}/snapshot.json"))
+            .await
+            .expect("fetch response");
+        let err = read_limited_response_body(response, 8, "WebDAV snapshot")
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("exceeds"));
+        server.await.expect("server join");
     }
 
     #[test]

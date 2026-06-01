@@ -36,7 +36,9 @@ pub async fn save_config(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ProxySettingsPayload>,
 ) -> ApiResult<ProxySettings> {
-    let config = ProxyService::save_config(&state, payload.settings).map_err(ApiError::from)?;
+    let config = ProxyService::save_config_and_update_runtime(&state, payload.settings)
+        .await
+        .map_err(ApiError::from)?;
     if !config.enable_logging {
         proxy::clear_recent_logs().await;
     }
@@ -47,7 +49,9 @@ pub async fn save_settings(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ProxySettingsPayload>,
 ) -> ApiResult<bool> {
-    let config = ProxyService::save_config(&state, payload.settings).map_err(ApiError::from)?;
+    let config = ProxyService::save_config_and_update_runtime(&state, payload.settings)
+        .await
+        .map_err(ApiError::from)?;
     if !config.enable_logging {
         proxy::clear_recent_logs().await;
     }

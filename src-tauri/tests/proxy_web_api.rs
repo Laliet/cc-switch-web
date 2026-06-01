@@ -1,6 +1,6 @@
 #![cfg(feature = "web-server")]
 
-use std::{env, ffi::OsString, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, ffi::OsString, sync::Arc, time::Duration};
 
 use axum::{
     body::{to_bytes, Body, Bytes},
@@ -12,7 +12,8 @@ use axum::{
 };
 use base64::Engine;
 use cc_switch_lib::{
-    web_api, AppState, AppType, MultiAppConfig, Provider, ProviderMeta, UniversalProvider,
+    web_api, AppState, AppType, ClaudeDesktopMode, ClaudeDesktopModelRoute, MultiAppConfig,
+    Provider, ProviderMeta, UniversalProvider,
 };
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
@@ -96,6 +97,30 @@ fn make_app_with_claude_provider_and_state(
     env::set_var("WEB_CSRF_TOKEN", csrf);
     let mut config = MultiAppConfig::default();
     add_claude_provider_value(&mut config, claude_provider);
+    add_gemini_provider(&mut config, generic_gemini_provider());
+
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+    (
+        web_api::create_router(state.clone(), password.to_string()),
+        state,
+    )
+}
+
+fn make_app_with_claude_desktop_provider_and_state(
+    password: &str,
+    csrf: &str,
+    claude_desktop_provider: Provider,
+) -> (axum::Router, Arc<AppState>) {
+    env::set_var("WEB_CSRF_TOKEN", csrf);
+    let mut config = MultiAppConfig::default();
+    config.ensure_app(&AppType::ClaudeDesktop);
+    let manager = config
+        .get_manager_mut(&AppType::ClaudeDesktop)
+        .expect("claude desktop manager");
+    manager.current = claude_desktop_provider.id.clone();
+    manager
+        .providers
+        .insert(claude_desktop_provider.id.clone(), claude_desktop_provider);
     add_gemini_provider(&mut config, generic_gemini_provider());
 
     let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
@@ -269,6 +294,50 @@ fn claude_provider_with_id_base_url(id: &str, name: &str, base_url: &str) -> Pro
     )
 }
 
+fn claude_desktop_proxy_provider_with_base_url(base_url: &str) -> Provider {
+    let mut provider =
+        claude_provider_with_id_base_url("claude-desktop-local", "Claude Desktop Local", base_url);
+    provider.meta = Some(ProviderMeta {
+        claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+        claude_desktop_model_routes: HashMap::from([(
+            "claude-sonnet-4-6".to_string(),
+            ClaudeDesktopModelRoute {
+                model: "upstream-sonnet".to_string(),
+                label_override: None,
+                supports_1m: Some(false),
+            },
+        )]),
+        ..ProviderMeta::default()
+    });
+    provider
+}
+
+fn claude_desktop_proxy_provider_without_auth(base_url: &str) -> Provider {
+    let mut provider = Provider::with_id(
+        "claude-desktop-local".to_string(),
+        "Claude Desktop Local".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url
+            }
+        }),
+        None,
+    );
+    provider.meta = Some(ProviderMeta {
+        claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+        claude_desktop_model_routes: HashMap::from([(
+            "claude-sonnet-4-6".to_string(),
+            ClaudeDesktopModelRoute {
+                model: "upstream-sonnet".to_string(),
+                label_override: None,
+                supports_1m: Some(false),
+            },
+        )]),
+        ..ProviderMeta::default()
+    });
+    provider
+}
+
 fn free_tcp_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind free port");
     listener.local_addr().expect("local addr").port()
@@ -292,6 +361,59 @@ async fn spawn_json_upstream() -> (String, tokio::task::JoinHandle<()>) {
         let _ = axum::serve(listener, app).await;
     });
     (format!("http://{addr}"), handle)
+}
+
+async fn spawn_authorization_capture_upstream() -> (
+    String,
+    tokio::task::JoinHandle<()>,
+    tokio::sync::oneshot::Receiver<Option<String>>,
+) {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind upstream");
+    let addr = listener.local_addr().expect("upstream addr");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let tx = Arc::new(tokio::sync::Mutex::new(Some(tx)));
+    let app = axum::Router::new()
+        .route(
+            "/",
+            axum::routing::any({
+                let tx = tx.clone();
+                move |headers: axum::http::HeaderMap| {
+                    let tx = tx.clone();
+                    async move {
+                        if let Some(tx) = tx.lock().await.take() {
+                            let auth = headers
+                                .get(AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(ToString::to_string);
+                            let _ = tx.send(auth);
+                        }
+                        Json(json!({ "ok": true }))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/*path",
+            axum::routing::any(move |headers: axum::http::HeaderMap| {
+                let tx = tx.clone();
+                async move {
+                    if let Some(tx) = tx.lock().await.take() {
+                        let auth = headers
+                            .get(AUTHORIZATION)
+                            .and_then(|value| value.to_str().ok())
+                            .map(ToString::to_string);
+                        let _ = tx.send(auth);
+                    }
+                    Json(json!({ "ok": true }))
+                }
+            }),
+        );
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}"), handle, rx)
 }
 
 async fn spawn_text_upstream(
@@ -1154,6 +1276,133 @@ async fn proxy_recent_logs_are_empty_when_logging_is_disabled() {
     assert_eq!(res.status(), StatusCode::OK);
     let logs: Value = json_body(res).await;
     assert_eq!(logs, json!([]));
+}
+
+#[tokio::test]
+#[serial]
+async fn claude_desktop_gateway_requires_configured_bearer_token() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle) = spawn_json_upstream().await;
+    let proxy_port = free_tcp_port();
+    let (app, state) = make_app_with_claude_desktop_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_desktop_proxy_provider_with_base_url(&upstream_base),
+    );
+    state
+        .db
+        .set_setting("claude_desktop_gateway_token", "desktop-gateway-token")
+        .expect("store gateway token");
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude",
+                    "enableLogging": true
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+    let client = reqwest::Client::new();
+    let models_url = format!("{listen_url}/claude-desktop/v1/models");
+
+    let missing = client
+        .get(&models_url)
+        .send()
+        .await
+        .expect("missing token request");
+    assert_eq!(missing.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let wrong = client
+        .get(&models_url)
+        .bearer_auth("wrong-token")
+        .send()
+        .await
+        .expect("wrong token request");
+    assert_eq!(wrong.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let ok = client
+        .get(&models_url)
+        .header(AUTHORIZATION, "bearer desktop-gateway-token")
+        .send()
+        .await
+        .expect("authorized request");
+    assert_eq!(ok.status(), reqwest::StatusCode::OK);
+    let body: Value = ok.json().await.expect("model list body");
+    assert_eq!(body["data"][0]["id"], json!("claude-sonnet-4-6"));
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn claude_desktop_gateway_bearer_token_is_not_forwarded_upstream() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, upstream_auth) =
+        spawn_authorization_capture_upstream().await;
+    let proxy_port = free_tcp_port();
+    let (app, state) = make_app_with_claude_desktop_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_desktop_proxy_provider_without_auth(&upstream_base),
+    );
+    state
+        .db
+        .set_setting("claude_desktop_gateway_token", "desktop-gateway-token")
+        .expect("store gateway token");
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": "claude"
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    let listen_url = status["listenUrl"].as_str().expect("listen URL");
+
+    let proxy_response = reqwest::Client::new()
+        .post(format!("{listen_url}/claude-desktop/v1/messages"))
+        .bearer_auth("desktop-gateway-token")
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "messages": []
+        }))
+        .send()
+        .await
+        .expect("proxy request");
+    assert_eq!(proxy_response.status(), reqwest::StatusCode::OK);
+
+    let forwarded_auth = tokio::time::timeout(Duration::from_secs(2), upstream_auth)
+        .await
+        .expect("upstream should receive request")
+        .expect("upstream auth sender should complete");
+    assert_eq!(forwarded_auth, None);
+
+    let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    upstream_handle.abort();
 }
 
 #[tokio::test]

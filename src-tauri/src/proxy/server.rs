@@ -54,8 +54,10 @@ use super::{
 const PROXY_RECENT_LOG_LIMIT: usize = 100;
 const PROXY_LOG_VALUE_LIMIT: usize = 256;
 const PROXY_LOG_PATH_LIMIT: usize = 2048;
+const PROXY_RESPONSE_LIMIT_BYTES: usize = PROXY_BODY_LIMIT_BYTES;
 struct ProxyRuntime {
     handle: Mutex<Option<ProxyHandle>>,
+    settings: Arc<RwLock<ProxySettings>>,
     stats: Arc<RwLock<ProxyStats>>,
     recent_logs: Arc<RwLock<VecDeque<ProxyRecentLog>>>,
     health: Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
@@ -74,7 +76,7 @@ struct ProxyHandle {
 struct ProxyHandlerState {
     app_state: Arc<AppState>,
     client: Client,
-    settings: ProxySettings,
+    settings: Arc<RwLock<ProxySettings>>,
     stats: Arc<RwLock<ProxyStats>>,
     recent_logs: Arc<RwLock<VecDeque<ProxyRecentLog>>>,
     health: Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
@@ -120,6 +122,7 @@ fn runtime() -> Arc<ProxyRuntime> {
         .get_or_init(|| {
             Arc::new(ProxyRuntime {
                 handle: Mutex::new(None),
+                settings: Arc::new(RwLock::new(ProxySettings::default())),
                 stats: Arc::new(RwLock::new(ProxyStats::default())),
                 recent_logs: Arc::new(RwLock::new(VecDeque::new())),
                 health: Arc::new(RwLock::new(HashMap::new())),
@@ -411,7 +414,8 @@ async fn proxy_handler(
             stats.last_error = Some(error.clone());
         }
     }
-    if state.settings.enable_logging {
+    let log_settings = state.settings.read().await.clone();
+    if log_settings.enable_logging {
         let duration_ms = started_at
             .elapsed()
             .as_millis()
@@ -462,12 +466,20 @@ async fn proxy_handler(
     match result {
         Ok(result) => result.response,
         Err(err) => Response::builder()
-            .status(StatusCode::BAD_GATEWAY)
+            .status(proxy_error_status(&err))
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
                 serde_json::json!({ "error": err.to_string() }).to_string(),
             ))
             .unwrap_or_else(|_| Response::new(Body::empty())),
+    }
+}
+
+fn proxy_error_status(err: &AppError) -> StatusCode {
+    match err {
+        AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+        AppError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+        _ => StatusCode::BAD_GATEWAY,
     }
 }
 
@@ -537,10 +549,14 @@ async fn proxy_request(
     body: Body,
     request_id: String,
 ) -> Result<ProxyRequestResult, AppError> {
-    let (app, routed_uri) = route_app(&state.settings, &uri)?;
+    let settings = state.settings.read().await.clone();
+    let (app, routed_uri) = route_app(&settings, &uri)?;
     let log_app = app.as_str().to_string();
     let log_path = sanitize_uri_for_log(&routed_uri);
     let request_accepts_stream = accepts_event_stream(&headers);
+    if matches!(app, AppType::ClaudeDesktop) {
+        validate_claude_desktop_gateway_request(&state, &headers)?;
+    }
     let provider = current_provider(&state.app_state, &app)?;
     let body_bytes = to_bytes(body, PROXY_BODY_LIMIT_BYTES)
         .await
@@ -570,6 +586,9 @@ async fn proxy_request(
         if should_skip_request_header(name) {
             continue;
         }
+        if matches!(app, AppType::ClaudeDesktop) && name == header::AUTHORIZATION {
+            continue;
+        }
         if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()) {
             if let Ok(header_value) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
                 request_headers.insert(header_name, header_value);
@@ -578,9 +597,10 @@ async fn proxy_request(
     }
 
     let request_started_at = Instant::now();
-    let total_timeout = Duration::from_secs(state.settings.non_streaming_timeout.max(1));
+    let total_timeout = Duration::from_secs(settings.non_streaming_timeout.max(1));
     let upstream = send_with_failover(
         &state,
+        &settings,
         &app,
         &provider,
         &routed_uri,
@@ -594,7 +614,7 @@ async fn proxy_request(
     let (response, usage) = if request_accepts_stream || is_streaming_response(&upstream.response) {
         match build_streaming_response(
             upstream.response,
-            &state.settings,
+            &settings,
             app.as_str(),
             request_started_at,
             build_stream_usage_context(
@@ -614,6 +634,7 @@ async fn proxy_request(
                 }
                 if let Some(response) = retry_streaming_first_byte_failover(
                     &state,
+                    &settings,
                     &app,
                     &provider,
                     &routed_uri,
@@ -656,6 +677,7 @@ async fn proxy_request(
 #[allow(clippy::too_many_arguments)]
 async fn send_with_failover(
     state: &ProxyHandlerState,
+    settings: &ProxySettings,
     app: &AppType,
     provider: &Provider,
     routed_uri: &Uri,
@@ -664,7 +686,7 @@ async fn send_with_failover(
     body_bytes: Bytes,
     total_timeout: Duration,
 ) -> Result<UpstreamResponse, AppError> {
-    let app_settings = proxy_app_settings(&state.settings, app);
+    let app_settings = proxy_app_settings(settings, app);
     let failover_enabled = app_settings.auto_failover_enabled && app_settings.max_retries > 0;
     let backup = if failover_enabled {
         backup_provider(&state.app_state, app, &provider.id)?
@@ -672,13 +694,11 @@ async fn send_with_failover(
         None
     };
     let current_circuit_allows =
-        provider_circuit_allows_request(&state.settings, &state.health, app, &provider.id).await;
+        provider_circuit_allows_request(settings, &state.health, app, &provider.id).await;
 
     if !current_circuit_allows {
         if let Some(backup) = backup.as_ref() {
-            if provider_circuit_allows_request(&state.settings, &state.health, app, &backup.id)
-                .await
-            {
+            if provider_circuit_allows_request(settings, &state.health, app, &backup.id).await {
                 let backup_result = send_upstream_provider(
                     state,
                     app,
@@ -692,7 +712,8 @@ async fn send_with_failover(
                 .await;
                 if let Ok(response) = backup_result {
                     if !is_failover_status(response.status()) {
-                        record_provider_success(state, &state.health, app, &backup.id).await;
+                        record_provider_success(state, settings, &state.health, app, &backup.id)
+                            .await;
                         switch_to_failover_provider(state, app, provider, backup).await?;
                         return Ok(UpstreamResponse {
                             provider: backup.clone(),
@@ -725,6 +746,7 @@ async fn send_with_failover(
             if failover_enabled && is_failover_status(response.status()) {
                 record_provider_failure(
                     state,
+                    settings,
                     &state.health,
                     app,
                     &provider.id,
@@ -733,13 +755,8 @@ async fn send_with_failover(
                 )
                 .await;
                 if let Some(backup) = backup.as_ref() {
-                    if provider_circuit_allows_request(
-                        &state.settings,
-                        &state.health,
-                        app,
-                        &backup.id,
-                    )
-                    .await
+                    if provider_circuit_allows_request(settings, &state.health, app, &backup.id)
+                        .await
                     {
                         let backup_result = send_upstream_provider(
                             state,
@@ -757,8 +774,14 @@ async fn send_with_failover(
                             Ok(backup_response)
                                 if !is_failover_status(backup_response.status()) =>
                             {
-                                record_provider_success(state, &state.health, app, &backup.id)
-                                    .await;
+                                record_provider_success(
+                                    state,
+                                    settings,
+                                    &state.health,
+                                    app,
+                                    &backup.id,
+                                )
+                                .await;
                                 switch_to_failover_provider(state, app, provider, backup).await?;
                                 return Ok(UpstreamResponse {
                                     provider: backup.clone(),
@@ -768,6 +791,7 @@ async fn send_with_failover(
                             Ok(_backup_response) => {
                                 record_provider_failure(
                                     state,
+                                    settings,
                                     &state.health,
                                     app,
                                     &backup.id,
@@ -787,6 +811,7 @@ async fn send_with_failover(
                                 let err = err.to_string();
                                 record_provider_failure(
                                     state,
+                                    settings,
                                     &state.health,
                                     app,
                                     &backup.id,
@@ -809,7 +834,7 @@ async fn send_with_failover(
                     }
                 }
             } else {
-                record_provider_success(state, &state.health, app, &provider.id).await;
+                record_provider_success(state, settings, &state.health, app, &provider.id).await;
             }
             Ok(UpstreamResponse {
                 provider: provider.clone(),
@@ -821,6 +846,7 @@ async fn send_with_failover(
                 let error = err.to_string();
                 record_provider_failure(
                     state,
+                    settings,
                     &state.health,
                     app,
                     &provider.id,
@@ -829,13 +855,8 @@ async fn send_with_failover(
                 )
                 .await;
                 if let Some(backup) = backup.as_ref() {
-                    if provider_circuit_allows_request(
-                        &state.settings,
-                        &state.health,
-                        app,
-                        &backup.id,
-                    )
-                    .await
+                    if provider_circuit_allows_request(settings, &state.health, app, &backup.id)
+                        .await
                     {
                         let backup_result = send_upstream_provider(
                             state,
@@ -852,8 +873,14 @@ async fn send_with_failover(
                             Ok(backup_response)
                                 if !is_failover_status(backup_response.status()) =>
                             {
-                                record_provider_success(state, &state.health, app, &backup.id)
-                                    .await;
+                                record_provider_success(
+                                    state,
+                                    settings,
+                                    &state.health,
+                                    app,
+                                    &backup.id,
+                                )
+                                .await;
                                 switch_to_failover_provider(state, app, provider, backup).await?;
                                 return Ok(UpstreamResponse {
                                     provider: backup.clone(),
@@ -863,6 +890,7 @@ async fn send_with_failover(
                             Ok(backup_response) => {
                                 record_provider_failure(
                                     state,
+                                    settings,
                                     &state.health,
                                     app,
                                     &backup.id,
@@ -878,6 +906,7 @@ async fn send_with_failover(
                                 let err = err.to_string();
                                 record_provider_failure(
                                     state,
+                                    settings,
                                     &state.health,
                                     app,
                                     &backup.id,
@@ -900,6 +929,7 @@ async fn send_with_failover(
 #[allow(clippy::too_many_arguments)]
 async fn retry_streaming_first_byte_failover(
     state: &ProxyHandlerState,
+    settings: &ProxySettings,
     app: &AppType,
     failed_provider: &Provider,
     routed_uri: &Uri,
@@ -911,13 +941,14 @@ async fn retry_streaming_first_byte_failover(
     request_accepts_stream: bool,
     request_id: &str,
 ) -> Result<Option<(Response, ProxyUsageCapture)>, AppError> {
-    let app_settings = proxy_app_settings(&state.settings, app);
+    let app_settings = proxy_app_settings(settings, app);
     if !app_settings.auto_failover_enabled || app_settings.max_retries == 0 {
         return Ok(None);
     }
 
     record_provider_failure(
         state,
+        settings,
         &state.health,
         app,
         &failed_provider.id,
@@ -929,7 +960,7 @@ async fn retry_streaming_first_byte_failover(
     let Some(backup) = backup_provider(&state.app_state, app, &failed_provider.id)? else {
         return Ok(None);
     };
-    if !provider_circuit_allows_request(&state.settings, &state.health, app, &backup.id).await {
+    if !provider_circuit_allows_request(settings, &state.health, app, &backup.id).await {
         return Ok(None);
     }
 
@@ -950,6 +981,7 @@ async fn retry_streaming_first_byte_failover(
         Ok(response) => {
             record_provider_failure(
                 state,
+                settings,
                 &state.health,
                 app,
                 &backup.id,
@@ -963,6 +995,7 @@ async fn retry_streaming_first_byte_failover(
             let err = err.to_string();
             record_provider_failure(
                 state,
+                settings,
                 &state.health,
                 app,
                 &backup.id,
@@ -979,7 +1012,7 @@ async fn retry_streaming_first_byte_failover(
     let response = if should_stream {
         match build_streaming_response(
             backup_response,
-            &state.settings,
+            settings,
             app.as_str(),
             request_started_at,
             build_stream_usage_context(
@@ -996,6 +1029,7 @@ async fn retry_streaming_first_byte_failover(
             Err(StreamingResponseError::FirstByte(_)) => {
                 record_provider_failure(
                     state,
+                    settings,
                     &state.health,
                     app,
                     &backup.id,
@@ -1017,7 +1051,7 @@ async fn retry_streaming_first_byte_failover(
         .await?
     };
 
-    record_provider_success(state, &state.health, app, &backup.id).await;
+    record_provider_success(state, settings, &state.health, app, &backup.id).await;
     switch_to_failover_provider(state, app, failed_provider, &backup).await?;
     Ok(Some(response))
 }
@@ -1154,6 +1188,7 @@ async fn provider_circuit_allows_request(
 
 async fn record_provider_success(
     state: &ProxyHandlerState,
+    settings: &ProxySettings,
     health: &Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
     app: &AppType,
     provider_id: &str,
@@ -1167,7 +1202,7 @@ async fn record_provider_success(
     match entry.state {
         ProviderCircuitState::HalfOpen => {
             entry.recovery_success_count = entry.recovery_success_count.saturating_add(1);
-            if entry.recovery_success_count >= state.settings.circuit_recovery_threshold.max(1) {
+            if entry.recovery_success_count >= settings.circuit_recovery_threshold.max(1) {
                 *entry = ProviderRuntimeHealth::default();
             }
         }
@@ -1189,6 +1224,7 @@ async fn record_provider_success(
 
 async fn record_provider_failure(
     state: &ProxyHandlerState,
+    settings: &ProxySettings,
     health: &Arc<RwLock<HashMap<String, ProviderRuntimeHealth>>>,
     app: &AppType,
     provider_id: &str,
@@ -1196,8 +1232,7 @@ async fn record_provider_failure(
     error: Option<&str>,
 ) {
     let key = provider_health_key(app, provider_id);
-    let threshold = state
-        .settings
+    let threshold = settings
         .circuit_failure_threshold
         .max(u64::from(max_retries).saturating_add(1))
         .max(1);
@@ -1215,7 +1250,7 @@ async fn record_provider_failure(
     };
     if entry.failure_count >= threshold
         || (entry.window_requests >= threshold
-            && error_rate >= state.settings.circuit_error_rate_threshold)
+            && error_rate >= settings.circuit_error_rate_threshold)
         || entry.state == ProviderCircuitState::HalfOpen
     {
         entry.state = ProviderCircuitState::Open;
@@ -1268,11 +1303,10 @@ async fn build_buffered_response(
     }
     let bytes = timeout_app_error(
         remaining_timeout(total_timeout, request_started_at),
-        upstream.bytes(),
+        read_limited_upstream_body(upstream, PROXY_RESPONSE_LIMIT_BYTES),
         "Proxy upstream response body timed out",
     )
-    .await?
-    .map_err(|e| AppError::Config(format!("Failed to read upstream response: {e}")))?;
+    .await??;
     let usage = parse_json_usage(app_type, &bytes);
     let response = builder
         .body(Body::from(bytes))
@@ -1285,6 +1319,44 @@ async fn build_buffered_response(
             is_streaming: false,
         },
     ))
+}
+
+async fn read_limited_upstream_body(
+    upstream: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Bytes, AppError> {
+    if upstream
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(AppError::Config(format!(
+            "Proxy upstream response exceeds the {max_bytes} byte limit"
+        )));
+    }
+
+    let mut buffer = Vec::new();
+    let mut stream = upstream.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk
+            .map_err(|e| AppError::Config(format!("Failed to read upstream response: {e}")))?;
+        if buffer.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(AppError::Config(format!(
+                "Proxy upstream response exceeds the {max_bytes} byte limit"
+            )));
+        }
+        buffer.extend_from_slice(&chunk);
+    }
+    Ok(Bytes::from(buffer))
+}
+
+fn validate_claude_desktop_gateway_request(
+    state: &ProxyHandlerState,
+    headers: &HeaderMap,
+) -> Result<(), AppError> {
+    let authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok());
+    crate::claude_desktop_config::validate_gateway_bearer_token(&state.app_state.db, authorization)
 }
 
 async fn build_streaming_response(
@@ -1446,10 +1518,12 @@ pub async fn start_proxy(
         applied_takeovers.push(app);
     }
 
+    *rt.settings.write().await = settings.clone();
+
     let handler_state = ProxyHandlerState {
         app_state: state.clone(),
         client,
-        settings: settings.clone(),
+        settings: rt.settings.clone(),
         stats: rt.stats.clone(),
         recent_logs: rt.recent_logs.clone(),
         health: rt.health.clone(),
@@ -1527,13 +1601,69 @@ pub async fn clear_recent_logs() {
 }
 
 pub async fn update_runtime_settings(settings: ProxySettings) {
+    update_runtime_settings_with(settings, false).await;
+}
+
+pub async fn update_runtime_takeover_settings(settings: ProxySettings) {
+    update_runtime_settings_with(settings, true).await;
+}
+
+async fn update_runtime_settings_with(settings: ProxySettings, include_takeover: bool) {
     let rt = runtime();
     let mut guard = rt.handle.lock().await;
     if let Some(handle) = guard.as_mut() {
         if !handle.join.is_finished() {
-            handle.settings = settings;
+            let runtime_settings =
+                merge_runtime_settings(&handle.settings, settings, include_takeover);
+            handle.settings = runtime_settings.clone();
+            *rt.settings.write().await = runtime_settings;
         }
     }
+}
+
+fn merge_runtime_settings(
+    current: &ProxySettings,
+    saved: ProxySettings,
+    include_takeover: bool,
+) -> ProxySettings {
+    let mut runtime = current.clone();
+    runtime.enable_logging = saved.enable_logging;
+    runtime.bind_app = saved.bind_app;
+    runtime.streaming_first_byte_timeout = saved.streaming_first_byte_timeout;
+    runtime.streaming_idle_timeout = saved.streaming_idle_timeout;
+    runtime.non_streaming_timeout = saved.non_streaming_timeout;
+    runtime.circuit_failure_threshold = saved.circuit_failure_threshold;
+    runtime.circuit_recovery_threshold = saved.circuit_recovery_threshold;
+    runtime.circuit_recovery_wait_seconds = saved.circuit_recovery_wait_seconds;
+    runtime.circuit_error_rate_threshold = saved.circuit_error_rate_threshold;
+    runtime.rectify_thinking_signature = saved.rectify_thinking_signature;
+    runtime.rectify_thinking_budget = saved.rectify_thinking_budget;
+    runtime.apps.claude.auto_failover_enabled = saved.apps.claude.auto_failover_enabled;
+    runtime.apps.claude.max_retries = saved.apps.claude.max_retries;
+    runtime.apps.claude.default_cost_multiplier = saved.apps.claude.default_cost_multiplier;
+    runtime.apps.claude.pricing_model_source = saved.apps.claude.pricing_model_source;
+    runtime.apps.codex.auto_failover_enabled = saved.apps.codex.auto_failover_enabled;
+    runtime.apps.codex.max_retries = saved.apps.codex.max_retries;
+    runtime.apps.codex.default_cost_multiplier = saved.apps.codex.default_cost_multiplier;
+    runtime.apps.codex.pricing_model_source = saved.apps.codex.pricing_model_source;
+    runtime.apps.gemini.auto_failover_enabled = saved.apps.gemini.auto_failover_enabled;
+    runtime.apps.gemini.max_retries = saved.apps.gemini.max_retries;
+    runtime.apps.gemini.default_cost_multiplier = saved.apps.gemini.default_cost_multiplier;
+    runtime.apps.gemini.pricing_model_source = saved.apps.gemini.pricing_model_source;
+    runtime.apps.opencode.auto_failover_enabled = saved.apps.opencode.auto_failover_enabled;
+    runtime.apps.opencode.max_retries = saved.apps.opencode.max_retries;
+    runtime.apps.opencode.default_cost_multiplier = saved.apps.opencode.default_cost_multiplier;
+    runtime.apps.opencode.pricing_model_source = saved.apps.opencode.pricing_model_source;
+
+    if include_takeover {
+        runtime.live_takeover_active = saved.live_takeover_active;
+        runtime.apps.claude.enabled = saved.apps.claude.enabled;
+        runtime.apps.codex.enabled = saved.apps.codex.enabled;
+        runtime.apps.gemini.enabled = saved.apps.gemini.enabled;
+        runtime.apps.opencode.enabled = saved.apps.opencode.enabled;
+    }
+
+    runtime
 }
 
 pub async fn status() -> ProxyStatus {
@@ -2071,7 +2201,11 @@ fn truncate_for_log(value: &str, limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{takeover_apps, AppType, ProxySettings};
+    use super::{
+        merge_runtime_settings, proxy_error_status, read_limited_upstream_body, takeover_apps,
+        AppError, AppType, ProxySettings,
+    };
+    use axum::http::StatusCode;
 
     #[test]
     fn takeover_apps_does_not_duplicate_claude() {
@@ -2079,5 +2213,111 @@ mod tests {
         settings.apps.claude.enabled = true;
 
         assert_eq!(takeover_apps(&settings), vec![AppType::Claude]);
+    }
+
+    #[test]
+    fn proxy_error_status_maps_client_errors() {
+        assert_eq!(
+            proxy_error_status(&AppError::Unauthorized("missing token".into())),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            proxy_error_status(&AppError::InvalidInput("bad request".into())),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            proxy_error_status(&AppError::Config("upstream failed".into())),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[tokio::test]
+    async fn read_limited_upstream_body_rejects_oversized_body() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("test server addr");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept test client");
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buffer = [0u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            let body = b"0123456789abcdef";
+            let response = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len());
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write headers");
+            socket.write_all(body).await.expect("write body");
+        });
+
+        let response = reqwest::get(format!("http://{addr}/upstream"))
+            .await
+            .expect("fetch response");
+        let err = read_limited_upstream_body(response, 8).await.unwrap_err();
+
+        assert!(err.to_string().contains("exceeds"));
+        server.await.expect("server join");
+    }
+
+    #[test]
+    fn merge_runtime_settings_preserves_listener_client_and_takeover_fields_for_plain_save() {
+        let mut current = ProxySettings {
+            host: "127.0.0.1".to_string(),
+            port: 3456,
+            upstream_proxy: Some("http://127.0.0.1:8080".to_string()),
+            auto_start: true,
+            live_takeover_active: true,
+            ..ProxySettings::default()
+        };
+        current.apps.claude.enabled = true;
+        current.apps.claude.auto_failover_enabled = false;
+        current.apps.claude.max_retries = 0;
+
+        let mut saved = current.clone();
+        saved.host = "0.0.0.0".to_string();
+        saved.port = 4567;
+        saved.upstream_proxy = Some("http://127.0.0.1:9090".to_string());
+        saved.auto_start = false;
+        saved.live_takeover_active = false;
+        saved.apps.claude.enabled = false;
+        saved.enable_logging = true;
+        saved.streaming_idle_timeout = 30;
+        saved.apps.claude.auto_failover_enabled = true;
+        saved.apps.claude.max_retries = 2;
+
+        let merged = merge_runtime_settings(&current, saved, false);
+
+        assert_eq!(merged.host, "127.0.0.1");
+        assert_eq!(merged.port, 3456);
+        assert_eq!(
+            merged.upstream_proxy.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert!(merged.auto_start);
+        assert!(merged.live_takeover_active);
+        assert!(merged.apps.claude.enabled);
+        assert!(merged.enable_logging);
+        assert_eq!(merged.streaming_idle_timeout, 30);
+        assert!(merged.apps.claude.auto_failover_enabled);
+        assert_eq!(merged.apps.claude.max_retries, 2);
+    }
+
+    #[test]
+    fn merge_runtime_settings_can_include_applied_takeover_fields() {
+        let mut current = ProxySettings {
+            live_takeover_active: true,
+            ..ProxySettings::default()
+        };
+        current.apps.claude.enabled = true;
+
+        let mut saved = current.clone();
+        saved.live_takeover_active = false;
+        saved.apps.claude.enabled = false;
+
+        let merged = merge_runtime_settings(&current, saved, true);
+
+        assert!(!merged.live_takeover_active);
+        assert!(!merged.apps.claude.enabled);
     }
 }

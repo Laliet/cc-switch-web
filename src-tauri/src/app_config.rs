@@ -896,6 +896,7 @@ mod tests {
             env::set_var("HOME", dir.path());
             env::set_var("USERPROFILE", dir.path());
             // 重置依赖 HOME/USERPROFILE 的缓存，避免跨平台测试读取旧目录
+            #[cfg(feature = "desktop")]
             crate::app_store::set_app_config_dir_override_standalone(None)
                 .expect("reset app config override");
             update_settings(AppSettings::default()).expect("reset settings cache");

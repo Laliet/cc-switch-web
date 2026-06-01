@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -763,7 +764,46 @@ fn build_gateway_profile(
     profile
 }
 
-fn get_or_create_gateway_token(db: &Database) -> Result<String, AppError> {
+pub fn gateway_token_from_db(db: &Database) -> Result<Option<String>, AppError> {
+    Ok(db
+        .get_setting(GATEWAY_TOKEN_SETTING_KEY)?
+        .and_then(|token| {
+            let trimmed = token.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }))
+}
+
+pub fn validate_gateway_bearer_token(
+    db: &Database,
+    authorization: Option<&str>,
+) -> Result<(), AppError> {
+    let expected = gateway_token_from_db(db)?.ok_or_else(|| {
+        AppError::Unauthorized("Claude Desktop gateway token is not configured".to_string())
+    })?;
+    let provided = authorization.and_then(parse_bearer_token).ok_or_else(|| {
+        AppError::Unauthorized("Missing Claude Desktop gateway bearer token".to_string())
+    })?;
+
+    if constant_time_eq::constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+        Ok(())
+    } else {
+        Err(AppError::Unauthorized(
+            "Invalid Claude Desktop gateway bearer token".to_string(),
+        ))
+    }
+}
+
+fn parse_bearer_token(value: &str) -> Option<&str> {
+    let mut parts = value.split_whitespace();
+    let scheme = parts.next()?;
+    let token = parts.next()?;
+    if parts.next().is_some() || !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    Some(token)
+}
+
+pub fn get_or_create_gateway_token(db: &Database) -> Result<String, AppError> {
     if let Some(token) = db.get_setting(GATEWAY_TOKEN_SETTING_KEY)? {
         let trimmed = token.trim();
         if !trimmed.is_empty() {
@@ -771,11 +811,10 @@ fn get_or_create_gateway_token(db: &Database) -> Result<String, AppError> {
         }
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let token = format!("ccs-{now:x}{:x}", std::process::id());
+    let mut random = [0u8; 32];
+    getrandom::getrandom(&mut random)
+        .map_err(|e| AppError::Config(format!("Failed to generate gateway token: {e}")))?;
+    let token = format!("ccs-{}", URL_SAFE_NO_PAD.encode(random));
     db.set_setting(GATEWAY_TOKEN_SETTING_KEY, &token)?;
     Ok(token)
 }
