@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AppId } from "@/lib/api";
 import { AppSwitcher } from "@/components/AppSwitcher";
+import { SWITCHER_APPS } from "@/config/apps";
 
 const renderAppSwitcher = (activeApp: AppId, onSwitch = vi.fn()) => {
   const renderResult = render(
@@ -27,13 +28,10 @@ describe("AppSwitcher", () => {
   it("renders supported and upcoming app buttons", () => {
     renderAppSwitcher("claude");
 
-    expect(getButton("apps.claude")).toBeInTheDocument();
-    expect(getButton("apps.codex")).toBeInTheDocument();
-    expect(getButton("apps.gemini")).toBeInTheDocument();
-    expect(getButton("apps.opencode")).toBeInTheDocument();
-    expect(getButton("apps.omo")).toBeInTheDocument();
-    expect(getButton("apps.omo-slim")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(6);
+    for (const app of SWITCHER_APPS) {
+      expect(getButton(app.labelKey)).toBeInTheDocument();
+    }
+    expect(screen.getAllByRole("button")).toHaveLength(SWITCHER_APPS.length);
   });
 
   it("calls onSwitch when clicking different buttons", async () => {
@@ -41,18 +39,16 @@ describe("AppSwitcher", () => {
     const onSwitch = vi.fn();
     renderAppSwitcher("claude", onSwitch);
 
-    await user.click(getButton("apps.codex"));
-    await user.click(getButton("apps.gemini"));
-    await user.click(getButton("apps.opencode"));
-    await user.click(getButton("apps.omo"));
-    await user.click(getButton("apps.omo-slim"));
+    const inactiveApps = SWITCHER_APPS.filter((app) => app.id !== "claude");
 
-    expect(onSwitch).toHaveBeenCalledTimes(5);
-    expect(onSwitch).toHaveBeenNthCalledWith(1, "codex");
-    expect(onSwitch).toHaveBeenNthCalledWith(2, "gemini");
-    expect(onSwitch).toHaveBeenNthCalledWith(3, "opencode");
-    expect(onSwitch).toHaveBeenNthCalledWith(4, "omo");
-    expect(onSwitch).toHaveBeenNthCalledWith(5, "omo-slim");
+    for (const app of inactiveApps) {
+      await user.click(getButton(app.labelKey));
+    }
+
+    expect(onSwitch).toHaveBeenCalledTimes(inactiveApps.length);
+    inactiveApps.forEach((app, index) => {
+      expect(onSwitch).toHaveBeenNthCalledWith(index + 1, app.id);
+    });
   });
 
   it("does not call onSwitch when clicking active button", async () => {
