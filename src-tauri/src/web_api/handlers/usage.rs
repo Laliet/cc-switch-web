@@ -12,7 +12,8 @@ use crate::{
     database::ModelPricingRecord,
     services::usage_stats::{
         DailyStats, DataSourceSummary, LogFilters, ModelStats, PaginatedLogs, ProviderLimitStatus,
-        ProviderStats, RequestLogDetail, SessionSyncResult, UsageSummary, UsageSummaryByApp,
+        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageSummary,
+        UsageSummaryByApp,
     },
     store::AppState,
 };
@@ -192,5 +193,17 @@ pub async fn sync_sessions(State(state): State<Arc<AppState>>) -> ApiResult<Sess
 pub async fn data_sources(State(state): State<Arc<AppState>>) -> ApiResult<Vec<DataSourceSummary>> {
     Ok(Json(
         state.db.get_usage_data_sources().map_err(ApiError::from)?,
+    ))
+}
+
+pub async fn data_extent(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<UsageQuery>,
+) -> ApiResult<UsageDataExtent> {
+    Ok(Json(
+        state
+            .db
+            .get_usage_data_extent(query.app_type.as_deref())
+            .map_err(ApiError::from)?,
     ))
 }

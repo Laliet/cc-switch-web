@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     http::{header::AUTHORIZATION, header::CONTENT_TYPE, HeaderValue, Method, Request, StatusCode},
 };
 use base64::Engine;
@@ -90,6 +90,38 @@ async fn test_basic_auth_invalid_user() {
 
     let res = dispatch(app, req).await;
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_missing_api_route_returns_json_404() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let app = make_app("password", "csrf-token");
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/api/not-a-real-endpoint")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .body(Body::empty())
+        .unwrap();
+
+    let res = dispatch(app, req).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        res.headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+
+    let bytes = to_bytes(res.into_body(), usize::MAX)
+        .await
+        .expect("read response body");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("json response");
+    assert_eq!(value["code"], "NOT_FOUND");
 }
 
 #[tokio::test]

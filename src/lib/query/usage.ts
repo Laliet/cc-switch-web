@@ -35,6 +35,8 @@ export const usageKeys = {
     [...usageBaseKey, "detail", requestId] as const,
   pricing: [...usageBaseKey, "pricing"] as const,
   dataSources: [...usageBaseKey, "data-sources"] as const,
+  dataExtent: (appType?: AppTypeFilter) =>
+    [...usageBaseKey, "data-extent", appType] as const,
 };
 
 export function useUsageSummary(
@@ -174,6 +176,17 @@ export function useDataSources(refreshIntervalMs = 0) {
   return useQuery({
     queryKey: usageKeys.dataSources,
     queryFn: usageApi.getDataSourceBreakdown,
+    refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
+  });
+}
+
+export function useUsageDataExtent(
+  appType?: AppTypeFilter,
+  refreshIntervalMs = 0,
+) {
+  return useQuery({
+    queryKey: usageKeys.dataExtent(appType),
+    queryFn: () => usageApi.getUsageDataExtent(effectiveApp(appType)),
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
   });
 }

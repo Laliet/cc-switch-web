@@ -219,6 +219,7 @@ fn usage_routes() -> Router<SharedState> {
         .route("/limits/:app_type/:provider_id", get(usage::limits))
         .route("/sessions/sync", post(usage::sync_sessions))
         .route("/data-sources", get(usage::data_sources))
+        .route("/data-extent", get(usage::data_extent))
 }
 
 fn config_routes() -> Router<SharedState> {

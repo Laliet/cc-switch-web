@@ -1060,6 +1060,21 @@ describe("invoke (web mode)", () => {
     });
   });
 
+  it("reports html error responses as api failures", async () => {
+    const { invoke } = await importAdapter();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+      text: async () => "<!doctype html><html><body>SPA shell</body></html>",
+    } as Response);
+
+    await expect(invoke("get_app_config_path")).rejects.toMatchObject({
+      message: "API returned HTML 404: SPA shell",
+      status: 404,
+    });
+  });
+
   it("returns undefined for 204 responses", async () => {
     const { invoke } = await importAdapter();
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
@@ -1081,6 +1096,21 @@ describe("invoke (web mode)", () => {
     await expect(invoke("get_app_config_path")).resolves.toBe("plain");
   });
 
+  it("rejects html success responses instead of returning the spa shell", async () => {
+    const { invoke } = await importAdapter();
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/html" }),
+      text: async () => "<!doctype html><html></html>",
+    } as Response);
+
+    await expect(invoke("get_app_config_path")).rejects.toMatchObject({
+      message: "API returned HTML instead of JSON",
+      status: 200,
+    });
+  });
+
   it("retries once on network errors for GET", async () => {
     vi.useFakeTimers();
     const { invoke } = await importAdapter();
@@ -1095,6 +1125,22 @@ describe("invoke (web mode)", () => {
 
     await expect(promise).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("normalizes network failures after retries", async () => {
+    vi.useFakeTimers();
+    const { invoke } = await importAdapter();
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+
+    const promise = invoke("get_app_config_path");
+    const assertion = expect(promise).rejects.toThrow(
+      "API connection failed. Check whether the cc-switch web server is running.",
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    await assertion;
   });
 
   it("open_external opens safe urls and blocks unsafe ones", async () => {

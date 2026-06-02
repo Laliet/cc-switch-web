@@ -87,6 +87,15 @@ async fn serve_static(
 ) -> impl IntoResponse {
     let requested_path = path.map(|Path(p)| p).unwrap_or_default();
     let requested_path = requested_path.trim_start_matches('/');
+    let normalized_api_prefix = api_base.trim_start_matches('/');
+    if !normalized_api_prefix.is_empty()
+        && (requested_path == normalized_api_prefix
+            || requested_path
+                .strip_prefix(normalized_api_prefix)
+                .is_some_and(|rest| rest.starts_with('/')))
+    {
+        return api_not_found().await.into_response();
+    }
     let target_path = if requested_path.is_empty() {
         "index.html"
     } else {
@@ -584,8 +593,16 @@ pub fn create_router_with_auth_state(state: SharedState, auth_state: SharedWebAu
     root
 }
 
-async fn api_not_found() -> StatusCode {
-    StatusCode::NOT_FOUND
+async fn api_not_found() -> Response {
+    let body = serde_json::json!({
+        "error": "API endpoint not found",
+        "code": "NOT_FOUND"
+    });
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap_or_else(|_| StatusCode::NOT_FOUND.into_response())
 }
 
 #[derive(Clone)]

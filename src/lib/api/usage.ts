@@ -13,6 +13,7 @@ import type {
   ProviderStats,
   RequestLog,
   SessionSyncResult,
+  UsageDataExtent,
   UsageSummary,
   UsageSummaryByApp,
 } from "@/types/usage";
@@ -160,5 +161,9 @@ export const usageApi = {
 
   async getDataSourceBreakdown(): Promise<DataSourceSummary[]> {
     return await invoke("get_usage_data_sources");
+  },
+
+  async getUsageDataExtent(appType?: string): Promise<UsageDataExtent> {
+    return await invoke("get_usage_data_extent", { appType });
   },
 };

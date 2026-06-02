@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Coins, FileText, RefreshCw, Server } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -9,13 +10,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useUsageDataExtent, useUsageSummary } from "@/lib/query/usage";
 import {
   AppTypeFilter,
   KNOWN_USAGE_APP_TYPES,
   UsageRangePreset,
   UsageRangeSelection,
 } from "@/types/usage";
-import { usageRangeLabel } from "@/lib/usageRange";
+import {
+  startOfToday,
+  usageRangeAroundLatestData,
+  usageRangeLabel,
+} from "@/lib/usageRange";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
 import { RequestLogTable } from "./RequestLogTable";
@@ -24,13 +30,34 @@ import { ModelStatsTable } from "./ModelStatsTable";
 import { PricingConfigPanel } from "./PricingConfigPanel";
 import { DataSourceBar } from "./DataSourceBar";
 
-const RANGE_PRESETS: UsageRangePreset[] = ["today", "1d", "7d", "14d", "30d"];
+const RANGE_PRESETS: UsageRangePreset[] = [
+  "today",
+  "1d",
+  "7d",
+  "14d",
+  "30d",
+  "all",
+];
 const APP_FILTERS: AppTypeFilter[] = ["all", ...KNOWN_USAGE_APP_TYPES];
 
 export function UsageDashboard() {
   const [range, setRange] = useState<UsageRangeSelection>({ preset: "today" });
   const [appType, setAppType] = useState<AppTypeFilter>("all");
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(30_000);
+  const [rangeWasSelected, setRangeWasSelected] = useState(false);
+  const [autoRangeApplied, setAutoRangeApplied] = useState(false);
+  const todaySummary = useUsageSummary(
+    { preset: "today" },
+    appType,
+    refreshIntervalMs,
+  );
+  const dataExtent = useUsageDataExtent(appType, refreshIntervalMs);
+  const usageLoadError =
+    todaySummary.error instanceof Error
+      ? todaySummary.error.message
+      : dataExtent.error instanceof Error
+        ? dataExtent.error.message
+        : null;
 
   const refreshLabel = useMemo(
     () => (refreshIntervalMs > 0 ? `${refreshIntervalMs / 1000}s` : "Off"),
@@ -43,11 +70,39 @@ export function UsageDashboard() {
     setRefreshIntervalMs(values[(index + 1) % values.length] ?? 30000);
   };
 
+  useEffect(() => {
+    const extent = dataExtent.data;
+    const summary = todaySummary.data;
+    if (
+      rangeWasSelected ||
+      autoRangeApplied ||
+      range.preset !== "today" ||
+      !extent?.lastSeenAt ||
+      extent.requestCount <= 0 ||
+      !summary ||
+      summary.totalRequests > 0 ||
+      extent.lastSeenAt >= startOfToday()
+    ) {
+      return;
+    }
+
+    setRange(usageRangeAroundLatestData(extent.lastSeenAt, 7));
+    setAutoRangeApplied(true);
+  }, [
+    autoRangeApplied,
+    dataExtent.data,
+    range.preset,
+    rangeWasSelected,
+    todaySummary.data,
+  ]);
+
   return (
     <div className="space-y-5 pb-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-normal">Usage Dashboard</h2>
+          <h2 className="text-2xl font-semibold tracking-normal">
+            Usage Dashboard
+          </h2>
           <p className="text-sm text-muted-foreground">
             Proxy request logs, token usage, model pricing, and cost allocation.
           </p>
@@ -55,9 +110,10 @@ export function UsageDashboard() {
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={range.preset}
-            onValueChange={(value) =>
-              setRange({ preset: value as UsageRangePreset })
-            }
+            onValueChange={(value) => {
+              setRangeWasSelected(true);
+              setRange({ preset: value as UsageRangePreset });
+            }}
           >
             <SelectTrigger className="w-[120px]">
               <SelectValue />
@@ -68,6 +124,9 @@ export function UsageDashboard() {
                   {usageRangeLabel(preset)}
                 </SelectItem>
               ))}
+              {range.preset === "custom" ? (
+                <SelectItem value="custom">Recent data</SelectItem>
+              ) : null}
             </SelectContent>
           </Select>
           <Select
@@ -93,7 +152,18 @@ export function UsageDashboard() {
       </div>
 
       <DataSourceBar refreshIntervalMs={refreshIntervalMs} />
-      <UsageHero range={range} appType={appType} refreshIntervalMs={refreshIntervalMs} />
+      {usageLoadError ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            Usage data failed to load: {usageLoadError}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <UsageHero
+        range={range}
+        appType={appType}
+        refreshIntervalMs={refreshIntervalMs}
+      />
       <UsageTrendChart
         range={range}
         appType={appType}

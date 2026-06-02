@@ -750,6 +750,7 @@ pub fn run() {
             commands::check_provider_limits,
             commands::sync_session_usage,
             commands::get_usage_data_sources,
+            commands::get_usage_data_extent,
             commands::upload_webdav_snapshot,
             commands::preview_webdav_snapshot,
             commands::download_webdav_snapshot,

@@ -390,6 +390,66 @@ const getErrorMessage = (payload: unknown): string => {
   return "";
 };
 
+const htmlSnippet = (value: string): string => {
+  const text = value.replace(/<script[\s\S]*?<\/script>/gi, " ");
+  const withoutTags = text
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return withoutTags.slice(0, 180);
+};
+
+const webApiError = (
+  message: string,
+  status?: number,
+  payload?: unknown,
+): Error => {
+  const error = new Error(message);
+  if (status !== undefined) {
+    (error as any).status = status;
+  }
+  if (payload !== undefined) {
+    (error as any).payload = payload;
+  }
+  return error;
+};
+
+const responseErrorMessage = (
+  response: Response,
+  contentType: string,
+  rawText: string,
+  errorPayload?: unknown,
+): string => {
+  if (errorPayload !== undefined) {
+    return (
+      getErrorMessage(errorPayload) ||
+      `API request failed with status ${response.status}`
+    );
+  }
+  if (contentType.includes("text/html")) {
+    const snippet = htmlSnippet(rawText);
+    return snippet
+      ? `API returned HTML ${response.status}: ${snippet}`
+      : `API returned HTML ${response.status}`;
+  }
+  return rawText.trim()
+    ? rawText.trim()
+    : `API request failed with status ${response.status}`;
+};
+
+const normalizeFetchError = (error: unknown): Error => {
+  if ((error as any)?.name === "AbortError") {
+    return webApiError("API request timed out");
+  }
+  if (error instanceof TypeError) {
+    return webApiError(
+      "API connection failed. Check whether the cc-switch web server is running.",
+    );
+  }
+  return error instanceof Error ? error : webApiError(String(error));
+};
+
 /**
  * Base64 encode a UTF-8 string, with fallbacks for different environments.
  * Exported for reuse across modules.
@@ -1245,6 +1305,13 @@ export function commandToEndpoint(
       return { method: "POST", url: `${apiBase}/usage/sessions/sync` };
     case "get_usage_data_sources":
       return { method: "GET", url: `${apiBase}/usage/data-sources` };
+    case "get_usage_data_extent":
+      return {
+        method: "GET",
+        url: `${apiBase}/usage/data-extent${queryString({
+          appType: args.appType,
+        })}`,
+      };
     case "upload_webdav_snapshot":
       return {
         method: "POST",
@@ -1498,21 +1565,11 @@ export async function invoke<T>(
             errorPayload = undefined;
           }
         }
-        if (errorPayload !== undefined) {
-          const message =
-            getErrorMessage(errorPayload) ||
-            `Request failed with status ${response.status}`;
-          const error = new Error(message);
-          (error as any).payload = errorPayload;
-          (error as any).status = response.status;
-          throw error;
-        }
-        const message = rawText.trim()
-          ? rawText
-          : `Request failed with status ${response.status}`;
-        const error = new Error(message);
-        (error as any).status = response.status;
-        throw error;
+        throw webApiError(
+          responseErrorMessage(response, contentType, rawText, errorPayload),
+          response.status,
+          errorPayload,
+        );
       }
 
       if (response.status === 204) {
@@ -1525,6 +1582,12 @@ export async function invoke<T>(
       }
 
       const text = await response.text();
+      if (
+        contentType.includes("text/html") ||
+        /^\s*<!doctype html/i.test(text)
+      ) {
+        throw webApiError("API returned HTML instead of JSON", response.status);
+      }
       return text as unknown as T;
     } catch (error) {
       const errorName = (error as any)?.name;
@@ -1534,7 +1597,7 @@ export async function invoke<T>(
         canRetry && attempt < maxRetries && (isAbortError || isNetworkError);
 
       if (!shouldRetry) {
-        throw error;
+        throw normalizeFetchError(error);
       }
 
       if (WEB_FETCH_RETRY_DELAY_MS > 0) {

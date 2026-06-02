@@ -11,6 +11,32 @@ export function startOfToday(now = new Date()): number {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 }
 
+export function endOfDay(timeMs: number): number {
+  const day = new Date(timeMs);
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    23,
+    59,
+    59,
+    999,
+  ).getTime();
+}
+
+export function usageRangeAroundLatestData(
+  latestDataAt: number,
+  days = 7,
+): UsageRangeSelection {
+  const safeDays = Math.max(1, Math.floor(days));
+  const latestDayStart = startOfToday(new Date(latestDataAt));
+  return {
+    preset: "custom",
+    customStartDate: latestDayStart - (safeDays - 1) * DAY_MS,
+    customEndDate: endOfDay(latestDataAt),
+  };
+}
+
 export function resolveUsageRange(
   selection: UsageRangeSelection,
 ): ResolvedUsageRange {
@@ -23,6 +49,9 @@ export function resolveUsageRange(
   }
   if (selection.preset === "today") {
     return { startDate: startOfToday(), endDate: now };
+  }
+  if (selection.preset === "all") {
+    return { startDate: 0, endDate: now };
   }
   const days = Number.parseInt(selection.preset, 10);
   return {
@@ -43,6 +72,8 @@ export function usageRangeLabel(preset: UsageRangePreset): string {
       return "14d";
     case "30d":
       return "30d";
+    case "all":
+      return "All time";
     case "custom":
       return "Custom";
   }

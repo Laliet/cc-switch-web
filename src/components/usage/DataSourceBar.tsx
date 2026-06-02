@@ -24,24 +24,29 @@ export function DataSourceBar({ refreshIntervalMs }: DataSourceBarProps) {
         toast.success(`Imported ${result.imported} session logs`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Session sync failed");
+      toast.error(
+        error instanceof Error ? error.message : "Session sync failed",
+      );
     }
   };
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border-default bg-card px-4 py-3 text-sm">
       <Database className="h-4 w-4 text-muted-foreground" />
-      <span className="font-medium">Data sources</span>
-      {(query.data ?? [{ dataSource: "proxy", requestCount: 0, totalCostUsd: "0" }]).map(
-        (item) => (
-          <span
-            key={item.dataSource}
-            className="rounded-md bg-muted/50 px-2 py-1 text-xs"
-          >
-            {item.dataSource}: {item.requestCount} / {formatUsd(item.totalCostUsd)}
-          </span>
-        ),
-      )}
+      <span className="font-medium">All-time data sources</span>
+      {(
+        query.data ?? [
+          { dataSource: "proxy", requestCount: 0, totalCostUsd: "0" },
+        ]
+      ).map((item) => (
+        <span
+          key={item.dataSource}
+          className="rounded-md bg-muted/50 px-2 py-1 text-xs"
+        >
+          {item.dataSource}: {item.requestCount} /{" "}
+          {formatUsd(item.totalCostUsd)}
+        </span>
+      ))}
       <Button
         type="button"
         variant="ghost"

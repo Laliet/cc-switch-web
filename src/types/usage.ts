@@ -124,7 +124,20 @@ export interface DataSourceSummary {
   totalCostUsd: string;
 }
 
-export type UsageRangePreset = "today" | "1d" | "7d" | "14d" | "30d" | "custom";
+export interface UsageDataExtent {
+  firstSeenAt?: number | null;
+  lastSeenAt?: number | null;
+  requestCount: number;
+}
+
+export type UsageRangePreset =
+  | "today"
+  | "1d"
+  | "7d"
+  | "14d"
+  | "30d"
+  | "all"
+  | "custom";
 
 export interface UsageRangeSelection {
   preset: UsageRangePreset;

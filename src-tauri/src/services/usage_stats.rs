@@ -137,6 +137,14 @@ pub struct DataSourceSummary {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UsageDataExtent {
+    pub first_seen_at: Option<i64>,
+    pub last_seen_at: Option<i64>,
+    pub request_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderLimitStatus {
     pub provider_id: String,
     pub app_type: String,
@@ -902,17 +910,8 @@ fn normalize_codex_model(raw: &str) -> String {
     if let Some(pos) = name.rfind('/') {
         name = name[pos + 1..].to_string();
     }
-    if name.len() > 11 {
-        let suffix = &name[name.len() - 11..];
-        if suffix.as_bytes()[0] == b'-'
-            && suffix[1..5].chars().all(|c| c.is_ascii_digit())
-            && suffix.as_bytes()[5] == b'-'
-            && suffix[6..8].chars().all(|c| c.is_ascii_digit())
-            && suffix.as_bytes()[8] == b'-'
-            && suffix[9..11].chars().all(|c| c.is_ascii_digit())
-        {
-            name.truncate(name.len() - 11);
-        }
+    if let Some(base) = strip_ascii_date_suffix(&name, "-0000-00-00") {
+        name = base.to_string();
     }
     if let Some((base, suffix)) = name.rsplit_once('-') {
         if suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
@@ -920,6 +919,28 @@ fn normalize_codex_model(raw: &str) -> String {
         }
     }
     name
+}
+
+fn strip_ascii_date_suffix<'a>(value: &'a str, pattern: &str) -> Option<&'a str> {
+    let value_bytes = value.as_bytes();
+    let pattern_bytes = pattern.as_bytes();
+    if value_bytes.len() < pattern_bytes.len() {
+        return None;
+    }
+    let start = value_bytes.len() - pattern_bytes.len();
+    let suffix = &value_bytes[start..];
+    let matches = suffix
+        .iter()
+        .zip(pattern_bytes)
+        .all(|(value, pattern)| match pattern {
+            b'0' => value.is_ascii_digit(),
+            marker => value == marker,
+        });
+    if matches && value.is_char_boundary(start) {
+        Some(&value[..start])
+    } else {
+        None
+    }
 }
 
 fn parse_cumulative_tokens(total_usage: &serde_json::Value) -> Option<CumulativeTokens> {
@@ -1933,6 +1954,33 @@ impl Database {
         Ok(data)
     }
 
+    pub fn get_usage_data_extent(
+        &self,
+        app_type: Option<&str>,
+    ) -> Result<UsageDataExtent, AppError> {
+        let conn = lock_conn!(self.conn);
+        let mut sql =
+            "SELECT MIN(created_at), MAX(created_at), COUNT(*) FROM proxy_request_logs".to_string();
+        let mut params_vec: Vec<Box<dyn ToSql>> = Vec::new();
+        if let Some(app_type) = app_type.filter(|value| !value.is_empty()) {
+            sql.push_str(" WHERE app_type = ?");
+            params_vec.push(Box::new(app_type.to_string()));
+        }
+        let params_refs = params_vec
+            .iter()
+            .map(|value| value.as_ref() as &dyn ToSql)
+            .collect::<Vec<_>>();
+
+        conn.query_row(&sql, params_refs.as_slice(), |row| {
+            Ok(UsageDataExtent {
+                first_seen_at: row.get(0)?,
+                last_seen_at: row.get(1)?,
+                request_count: row.get::<_, i64>(2)?.max(0) as u64,
+            })
+        })
+        .map_err(|err| AppError::Database(err.to_string()))
+    }
+
     pub fn check_provider_limits(
         &self,
         provider_id: &str,
@@ -2255,6 +2303,55 @@ mod tests {
         assert_eq!(summary.total_cache_read_tokens, 600);
         assert_eq!(summary.real_total_tokens, 1050);
         Ok(())
+    }
+
+    #[test]
+    fn usage_data_extent_reports_latest_data_by_app() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let claude_at = 1_760_000_000_000i64;
+        let codex_first = 1_770_000_000_000i64;
+        let codex_last = 1_780_000_000_000i64;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model,
+                    input_tokens, output_tokens, total_cost_usd,
+                    latency_ms, status_code, created_at
+                 ) VALUES
+                    ('usage-extent-claude', 'p1', 'claude', 'claude-sonnet-4', 1, 1, '0', 1, 200, ?1),
+                    ('usage-extent-codex-1', 'p1', 'codex', 'gpt-5-mini', 1, 1, '0', 1, 200, ?2),
+                    ('usage-extent-codex-2', 'p1', 'codex', 'gpt-5-mini', 1, 1, '0', 1, 200, ?3)",
+                params![claude_at, codex_first, codex_last],
+            )
+            .map_err(|err| AppError::Database(err.to_string()))?;
+        }
+
+        let all = db.get_usage_data_extent(None)?;
+        assert_eq!(all.first_seen_at, Some(claude_at));
+        assert_eq!(all.last_seen_at, Some(codex_last));
+        assert_eq!(all.request_count, 3);
+
+        let codex = db.get_usage_data_extent(Some("codex"))?;
+        assert_eq!(codex.first_seen_at, Some(codex_first));
+        assert_eq!(codex.last_seen_at, Some(codex_last));
+        assert_eq!(codex.request_count, 2);
+
+        let gemini = db.get_usage_data_extent(Some("gemini"))?;
+        assert_eq!(gemini.first_seen_at, None);
+        assert_eq!(gemini.last_seen_at, None);
+        assert_eq!(gemini.request_count, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn codex_model_normalization_handles_multibyte_names() {
+        assert_eq!(
+            normalize_codex_model("provider/模型始-gpt-5-2025-12-27"),
+            "模型始-gpt-5"
+        );
+        assert_eq!(normalize_codex_model("供应商/始模型-20251227"), "始模型");
+        assert_eq!(normalize_codex_model("始-gpt-5"), "始-gpt-5");
     }
 
     #[test]

@@ -4,7 +4,8 @@ use crate::{
     database::ModelPricingRecord,
     services::usage_stats::{
         DailyStats, DataSourceSummary, LogFilters, ModelStats, PaginatedLogs, ProviderLimitStatus,
-        ProviderStats, RequestLogDetail, SessionSyncResult, UsageSummary, UsageSummaryByApp,
+        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageSummary,
+        UsageSummaryByApp,
     },
     store::AppState,
 };
@@ -150,5 +151,16 @@ pub fn get_usage_data_sources(
     state
         .db
         .get_usage_data_sources()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn get_usage_data_extent(
+    state: State<'_, AppState>,
+    app_type: Option<String>,
+) -> Result<UsageDataExtent, String> {
+    state
+        .db
+        .get_usage_data_extent(app_type.as_deref())
         .map_err(|err| err.to_string())
 }
