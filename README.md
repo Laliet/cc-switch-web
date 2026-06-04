@@ -15,8 +15,8 @@
 
 English | [中文](README_ZH.md) | [Legal Notice](LEGAL_NOTICE.md) | [Changelog](CHANGELOG.md)
 
-> Current release: [v0.14.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)<br>
-> `v0.14.1` ships Usage Dashboard fixes for auto-refresh ranges, historical rollups, request-log pagination, and pricing backfill matching.
+> Current release: [v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
+> `v0.15.0` ships Local Routing, Claude Desktop alignment, Usage Dashboard visibility fixes, Web-mode JSON 404 handling, and clearer API error feedback.
 
 ## About / 项目简介
 
@@ -40,6 +40,16 @@ Whether you're working locally or in a headless cloud environment, cc-switch-web
 If you have any questions, you can contact me here https://linux.do/t/topic/1217545
 
 ## What's New
+
+### v0.15.0 - Local Routing + Claude Desktop Alignment
+
+- Adds the stable Local Routing and Claude Desktop alignment release line
+- Improves Usage Dashboard first-load behavior with automatic Recent data range selection when Today has no requests
+- Adds the `All time` usage range and clarifies all-time data source statistics
+- Adds usage data extent APIs for desktop and Web/headless mode
+- Fixes Web-mode unmatched `/api/*` routes so they return JSON 404 responses instead of SPA HTML fallback
+- Adds clearer frontend API failure toasts and inline Usage Dashboard error states
+- Release notes: [v0.15.0](docs/release-note-v0.15.0-zh.md)
 
 ### v0.14.1 - Usage Dashboard Patch
 
@@ -105,23 +115,21 @@ If you have any questions, you can contact me here https://linux.do/t/topic/1217
 
 ## Screenshots
 
-![Main Interface](pic/界面展示.png)
-_Main Interface_
+| Provider Switching + Local Routing | Usage Dashboard |
+| --- | --- |
+| ![Provider Switching + Local Routing](assets/screenshots/v0.15.0-main.png) | ![Usage Dashboard](assets/screenshots/v0.15.0-usage-dashboard.png) |
 
-![Prompt Management](pic/提示词管理展示.png)
-_Prompt Management_
+| MCP Server Management | Prompt Management |
+| --- | --- |
+| ![MCP Server Management](assets/screenshots/v0.15.0-mcp.png) | ![Prompt Management](assets/screenshots/v0.15.0-prompts.png) |
 
-![MCP Server Management](pic/MCP服务器管理展示.png)
-_MCP Server Management_
+| Skills Marketplace | Add Provider |
+| --- | --- |
+| ![Skills Marketplace](assets/screenshots/v0.15.0-skills.png) | ![Add Provider](assets/screenshots/v0.15.0-add-provider.png) |
 
-![Skills Marketplace](pic/skills商店管理展示.png)
-_Skills Marketplace_
-
-![Extended Provider List](pic/扩展的中转服务商列表.png)
-_Extended Provider List_
-
-![Configure Provider](pic/配置中转服务商展示.png)
-_Configure Provider_
+| Configure Provider |
+| --- |
+| ![Configure Provider](assets/screenshots/v0.15.0-config-provider.png) |
 
 ---
 
@@ -159,10 +167,10 @@ Download precompiled server binary—no compilation required:
 
 | Architecture              | Download                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-aarch64) |
 
-Release page: [v0.14.1 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)
+Release page: [v0.15.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
@@ -277,11 +285,11 @@ Full-featured desktop app with graphical interface, built with Tauri.
 
 | Platform    | Download                                                                                                                                           | Description                              |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Windows** | [CC-Switch-v0.14.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows.msi)                   | Installer                                |
-|             | [CC-Switch-v0.14.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows-Portable.zip) | Portable (no install)                    |
-| **macOS**   | [CC-Switch-v0.14.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
-| **Linux**   | [CC-Switch-v0.14.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.AppImage)             | AppImage                                 |
-|             | [CC-Switch-v0.14.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.deb)                       | Debian/Ubuntu package                    |
+| **Windows** | [CC-Switch-v0.15.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows.msi)                   | Installer                                |
+|             | [CC-Switch-v0.15.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.15.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.15.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.AppImage)             | AppImage                                 |
+|             | [CC-Switch-v0.15.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -305,7 +313,7 @@ This script will:
 
 ```bash
 # Install a specific release version
-VERSION=v0.14.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.15.0 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -415,7 +423,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) and [v0.14.1 release notes](docs/release-note-v0.14.1-zh.md) — Current release: **v0.14.1**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.15.0 release notes](docs/release-note-v0.15.0-zh.md) — Current release: **v0.15.0**
 
 ---
 

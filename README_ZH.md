@@ -15,8 +15,8 @@
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
 
-> 当前版本：[v0.14.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)<br>
-> `v0.14.1` 修复 Usage Dashboard 自动刷新、历史 rollup、request logs 分页和模型定价回填匹配问题。
+> 当前版本：[v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
+> `v0.15.0` 是 Local Routing + Claude Desktop 对齐版，补齐本地路由、用量统计可见性、Web 模式 JSON 404 与 API 错误反馈。
 
 ---
 
@@ -38,6 +38,16 @@
 ---
 
 ## 更新内容
+
+### v0.15.0 - Local Routing + Claude Desktop 对齐版
+
+- 发布 Local Routing + Claude Desktop 对齐正式版本
+- 用量 Dashboard 首次打开时，如果 Today 没有请求但存在历史用量，会自动切到最新用量所在的 Recent data 窗口
+- 时间范围新增 `All time`，并将 Data sources 明确为全量来源统计
+- 新增用量数据范围接口，Web/headless 端提供 `/api/usage/data-extent`
+- 修复 Web 模式不存在的 `/api/*` 路径返回 HTML 200 的问题，现在返回 JSON 404
+- 增加全局 API 失败 toast 与 Usage Dashboard 内联错误态
+- 更新说明：[v0.15.0](docs/release-note-v0.15.0-zh.md)
 
 ### v0.14.1 - Usage Dashboard 修复版
 
@@ -103,23 +113,21 @@
 
 ## 界面展示
 
-![主界面](pic/界面展示.png)
-_主界面_
+| 供应商切换与 Local Routing | 用量 Dashboard |
+| --- | --- |
+| ![供应商切换与 Local Routing](assets/screenshots/v0.15.0-main.png) | ![用量 Dashboard](assets/screenshots/v0.15.0-usage-dashboard.png) |
 
-![提示词管理](pic/提示词管理展示.png)
-_提示词管理_
+| MCP 服务器管理 | 提示词管理 |
+| --- | --- |
+| ![MCP 服务器管理](assets/screenshots/v0.15.0-mcp.png) | ![提示词管理](assets/screenshots/v0.15.0-prompts.png) |
 
-![MCP服务器管理](pic/MCP服务器管理展示.png)
-_MCP服务器管理_
+| 技能商店 | 添加供应商 |
+| --- | --- |
+| ![技能商店](assets/screenshots/v0.15.0-skills.png) | ![添加供应商](assets/screenshots/v0.15.0-add-provider.png) |
 
-![技能商店](pic/skills商店管理展示.png)
-_技能商店_
-
-![扩展供应商列表](pic/扩展的中转服务商列表.png)
-_扩展供应商列表_
-
-![配置供应商](pic/配置中转服务商展示.png)
-_配置供应商_
+| 配置供应商 |
+| --- |
+| ![配置供应商](assets/screenshots/v0.15.0-config-provider.png) |
 
 ---
 
@@ -157,10 +165,10 @@ _配置供应商_
 
 | 架构                      | 下载链接                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.14.1 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.14.1)
+发布页：[v0.15.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -275,11 +283,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                           | 说明                                |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.14.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows.msi)                   | 安装版                              |
-|             | [CC-Switch-v0.14.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.14.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.14.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.AppImage)             | AppImage                            |
-|             | [CC-Switch-v0.14.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.14.1/CC-Switch-v0.14.1-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.15.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows.msi)                   | 安装版                              |
+|             | [CC-Switch-v0.15.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.15.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.15.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.AppImage)             | AppImage                            |
+|             | [CC-Switch-v0.15.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -303,7 +311,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装指定版本
-VERSION=v0.14.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.15.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -412,7 +420,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.14.1 发布说明](docs/release-note-v0.14.1-zh.md) — 当前版本：**v0.14.1**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.15.0 发布说明](docs/release-note-v0.15.0-zh.md) — 当前版本：**v0.15.0**
 
 ---
 
