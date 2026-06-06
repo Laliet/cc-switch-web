@@ -4,7 +4,7 @@
 
 <sub>🙏 This project is a fork of [farion1231/cc-switch](https://github.com/farion1231/cc-switch) by Jason Young. Thanks to the original author for the excellent work. This fork adds Web Server mode for cloud/headless deployment.</sub>
 
-[![Release](https://img.shields.io/github/v/release/Laliet/cc-switch-web?style=flat-square&logo=github&label=Release)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.15.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -14,9 +14,6 @@
 **Cross-platform web-based All-in-One assistant for Claude Code, Codex, Gemini CLI, OpenCode & OMO**
 
 English | [中文](README_ZH.md) | [Legal Notice](LEGAL_NOTICE.md) | [Changelog](CHANGELOG.md)
-
-> Current release: [v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
-> `v0.15.0` ships Local Routing, Claude Desktop alignment, Usage Dashboard visibility fixes, Web-mode JSON 404 handling, and clearer API error feedback.
 
 ## About / 项目简介
 
@@ -38,80 +35,6 @@ Whether you're working locally or in a headless cloud environment, cc-switch-web
 ## Contact /联系
 
 If you have any questions, you can contact me here https://linux.do/t/topic/1217545
-
-## What's New
-
-### v0.15.0 - Local Routing + Claude Desktop Alignment
-
-- Adds the stable Local Routing and Claude Desktop alignment release line
-- Improves Usage Dashboard first-load behavior with automatic Recent data range selection when Today has no requests
-- Adds the `All time` usage range and clarifies all-time data source statistics
-- Adds usage data extent APIs for desktop and Web/headless mode
-- Fixes Web-mode unmatched `/api/*` routes so they return JSON 404 responses instead of SPA HTML fallback
-- Adds clearer frontend API failure toasts and inline Usage Dashboard error states
-- Release notes: [v0.15.0](docs/release-note-v0.15.0-zh.md)
-
-### v0.14.1 - Usage Dashboard Patch
-
-- Fixes Usage Dashboard auto-refresh so relative time ranges recompute on each refetch
-- Fixes request logs pagination reset when changing the global app or time range
-- Fixes short historical trend queries that only have daily rollup data
-- Tightens model-pricing matching so broad prefixes such as `gpt-4` do not misprice `gpt-4o`
-- Release notes: [v0.14.1](docs/release-note-v0.14.1-zh.md)
-
-### v0.14.0 - Usage Dashboard Prerelease
-
-- Adds a full Usage Dashboard for proxy-backed requests, with cost summary, token breakdown, app split, trend chart, and refresh controls
-- Adds searchable/paginated request logs with per-request token, latency, status, streaming, and cost detail
-- Adds Provider and Model usage statistics plus a Dashboard pricing editor for model cost configuration
-- Connects pricing updates to historical zero-cost proxy logs so newly configured model prices can backfill costs
-- Adds Claude, Codex, and Gemini session log import with incremental sync and cross-source de-duplication
-- Adds desktop and Web/headless Usage APIs under Tauri commands and `/api/usage/*`
-- Release notes: [v0.14.0](docs/release-note-v0.14.0-zh.md)
-
-### v0.13.0 - Previous Stable Release
-
-- Adds complete OMO Slim configuration UI, including Slim agents, hidden categories, local import, top-level options, and Slim-specific object fields
-- Updates the standard OMO form to align with the newer upstream schema, including new agents, top-level fields, and structured object editors
-- Expands OpenCode provider presets with NPM SDK selection, model URL override, model fetch, and preset model metadata merging
-- Adds stream health checks for Claude, Codex, Gemini, and OpenCode providers
-- Adds Amazon Bedrock coverage: preset model import plus Bedrock Runtime ConverseStream health checks signed with AWS SigV4
-- Release notes: [v0.13.0](docs/release-note-v0.13.0-zh.md)
-
-### v0.12.0 - Storage Migration Release Candidate Line
-
-- Migrated the runtime store from legacy JSON snapshots to SQLite
-- Continued Web/headless proxy usage, failover, Universal Provider, and pricing/cost workflows
-- Release candidate notes: [v0.12.0-rc.4](docs/release-note-v0.12.0-rc.4-zh.md)
-
-### v0.11.0 - Previous Stable Release
-
-- Stable release of the Web/headless local HTTP forward proxy workflow
-- Add Settings controls for proxy start, stop, status, test, auto-start, logs, and per-client takeover/restore
-- Support proxy takeover for Claude Code, Codex, Gemini CLI, and experimental OpenCode
-- Fix Claude provider JSON formatting so the outer `env` object is preserved
-- Fix the default Anthropic Skills repository scan path to avoid `skills/skills/*` installs
-- Improve OMO MCP / Skills entry points and clarify that OMO Skills reuse OpenCode storage
-- Release notes: [v0.11.0](docs/release-note-v0.11.0-en.md)
-
-### v0.10.1 - Previous Stable Release
-
-- Previous stable version before the Web/headless proxy stable release
-- Download previous stable builds from: [v0.10.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.10.1)
-
-### v0.10.0 - Prerelease Milestone
-
-- Add OpenCode provider management and automatic OpenCode config writing
-- Add oh-my-opencode (OMO) configuration management and plugin sync support
-- Allow updating Web-mode login username/password directly from Settings
-- Improve rollback safety for OMO/OpenCode linked writes and current-provider edits
-- `v0.10.0` was the verification prerelease milestone for this release line
-
-### v0.8.0 - Previous Stable Baseline
-
-- Web mode defaults to same-origin CORS
-- `ALLOW_LAN_CORS=1` / `CC_SWITCH_LAN_CORS=1` for private LAN auto-allow
-- Safer default behavior for remote deployments
 
 ## Screenshots
 
@@ -418,6 +341,41 @@ pnpm test:unit
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, TanStack Query, Radix UI, CodeMirror
 - **Backend**: Rust, Tauri 2.x, Axum (web server mode), tower-http
 - **Tooling**: pnpm, Vitest, MSW
+
+---
+
+## What's New
+
+> Current release: [v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
+> `v0.15.0` ships Local Routing, Claude Desktop alignment, Usage Dashboard visibility fixes, Web-mode JSON 404 handling, and clearer API error feedback.
+
+### v0.15.0 - Local Routing + Claude Desktop Alignment
+
+- Adds the stable Local Routing and Claude Desktop alignment release line
+- Improves Usage Dashboard first-load behavior with automatic Recent data range selection when Today has no requests
+- Adds the `All time` usage range and clarifies all-time data source statistics
+- Adds usage data extent APIs for desktop and Web/headless mode
+- Fixes Web-mode unmatched `/api/*` routes so they return JSON 404 responses instead of SPA HTML fallback
+- Adds clearer frontend API failure toasts and inline Usage Dashboard error states
+- Release notes: [v0.15.0](docs/release-note-v0.15.0-zh.md)
+
+### v0.14.1 - Usage Dashboard Patch
+
+- Fixes Usage Dashboard auto-refresh so relative time ranges recompute on each refetch
+- Fixes request logs pagination reset when changing the global app or time range
+- Fixes short historical trend queries that only have daily rollup data
+- Tightens model-pricing matching so broad prefixes such as `gpt-4` do not misprice `gpt-4o`
+- Release notes: [v0.14.1](docs/release-note-v0.14.1-zh.md)
+
+### v0.14.0 - Usage Dashboard Prerelease
+
+- Adds a full Usage Dashboard for proxy-backed requests, with cost summary, token breakdown, app split, trend chart, and refresh controls
+- Adds searchable/paginated request logs with per-request token, latency, status, streaming, and cost detail
+- Adds Provider and Model usage statistics plus a Dashboard pricing editor for model cost configuration
+- Connects pricing updates to historical zero-cost proxy logs so newly configured model prices can backfill costs
+- Adds Claude, Codex, and Gemini session log import with incremental sync and cross-source de-duplication
+- Adds desktop and Web/headless Usage APIs under Tauri commands and `/api/usage/*`
+- Release notes: [v0.14.0](docs/release-note-v0.14.0-zh.md)
 
 ---
 

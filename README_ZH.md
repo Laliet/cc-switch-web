@@ -4,7 +4,7 @@
 
 <sub>🙏 本项目是 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)（Jason Young）的 fork 版本。感谢原作者的出色工作。本 fork 添加了 Web 服务器模式，支持云端/无头部署。</sub>
 
-[![Release](https://img.shields.io/github/v/release/Laliet/cc-switch-web?style=flat-square&logo=github&label=Release)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.15.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -14,11 +14,6 @@
 **面向 Claude Code / Codex / Gemini CLI / OpenCode / OMO 的跨平台 Web 版一站式助手**
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
-
-> 当前版本：[v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
-> `v0.15.0` 是 Local Routing + Claude Desktop 对齐版，补齐本地路由、用量统计可见性、Web 模式 JSON 404 与 API 错误反馈。
-
----
 
 ## 项目简介
 
@@ -36,80 +31,6 @@
 - **Web 服务器模式** — 支持 Basic Auth，适用于云端/无头部署
 
 ---
-
-## 更新内容
-
-### v0.15.0 - Local Routing + Claude Desktop 对齐版
-
-- 发布 Local Routing + Claude Desktop 对齐正式版本
-- 用量 Dashboard 首次打开时，如果 Today 没有请求但存在历史用量，会自动切到最新用量所在的 Recent data 窗口
-- 时间范围新增 `All time`，并将 Data sources 明确为全量来源统计
-- 新增用量数据范围接口，Web/headless 端提供 `/api/usage/data-extent`
-- 修复 Web 模式不存在的 `/api/*` 路径返回 HTML 200 的问题，现在返回 JSON 404
-- 增加全局 API 失败 toast 与 Usage Dashboard 内联错误态
-- 更新说明：[v0.15.0](docs/release-note-v0.15.0-zh.md)
-
-### v0.14.1 - Usage Dashboard 修复版
-
-- 修复 Usage Dashboard 自动刷新时相对时间范围不会前进的问题
-- 修复 request logs 切换全局 App 或时间范围后未重置页码的问题
-- 修复短时间范围只有 daily rollup 历史数据时趋势图为空的问题
-- 收紧模型定价匹配，避免 `gpt-4` 错误匹配 `gpt-4o`
-- 更新说明：[v0.14.1](docs/release-note-v0.14.1-zh.md)
-
-### v0.14.0 - Usage Dashboard 预发布版
-
-- 新增完整 Usage Dashboard：展示代理请求成本汇总、token 拆分、应用维度占比、趋势图与自动刷新
-- 新增可搜索/分页的 request logs，并支持查看单次请求的 token、延迟、状态、流式信息和成本详情
-- 新增 Provider / Model 使用统计，以及 Dashboard 内模型价格维护面板
-- 模型价格更新后会尝试回填历史零成本代理日志，补齐 pricing/cost 闭环
-- 新增 Claude、Codex、Gemini session log 导入，支持增量同步与跨来源去重
-- 新增桌面端 Tauri commands 与 Web/headless `/api/usage/*` API
-- 更新说明：[v0.14.0](docs/release-note-v0.14.0-zh.md)
-
-### v0.13.0 - 上一个稳定版
-
-- 新增 OMO Slim 专用配置 UI，支持 Slim agents、隐藏分类、本地导入、顶层选项和 Slim 专属对象字段
-- 更新标准 OMO 表单，对齐新版上游 schema，补齐新版 agents、顶层字段和结构化对象编辑器
-- 扩展 OpenCode provider preset，加入 NPM SDK 选择、模型 URL 覆写、模型拉取和推荐模型元数据合并
-- 新增 Claude、Codex、Gemini、OpenCode provider 的流式健康检查
-- 补齐 Amazon Bedrock：支持本地 preset 模型导入，以及 AWS SigV4 签名的 Bedrock Runtime ConverseStream 健康检查
-- 更新说明：[v0.13.0](docs/release-note-v0.13.0-zh.md)
-
-### v0.12.0 - 存储迁移候选版本线
-
-- 将运行时主存储从 legacy JSON snapshot 迁移到 SQLite
-- 继续补齐 Web/headless proxy usage、failover、Universal Provider 和 pricing/cost 工作流
-- 候选版本说明：[v0.12.0-rc.4](docs/release-note-v0.12.0-rc.4-zh.md)
-
-### v0.11.0 - 上一个稳定版
-
-- Web/headless 本地 HTTP 转发代理工作流的稳定版
-- 设置页支持代理启动、停止、状态查看、测试、自动启动、日志与逐客户端接管/恢复
-- 支持 Claude Code、Codex、Gemini CLI 与实验性 OpenCode 的代理接管
-- 修复 Claude provider JSON 格式化丢失 `env` 外层的问题
-- 修复 Anthropic Skills 默认仓库扫描路径，避免安装到 `skills/skills/*`
-- 改进 OMO 下 MCP / Skills 入口与说明，Skills 明确复用 OpenCode 存储
-- 更新说明：[v0.11.0](docs/release-note-v0.11.0-zh.md)
-
-### v0.10.1 - 上一个稳定版
-
-- Web/headless 代理稳定版之前的上一个稳定版本
-- 上一个稳定版下载地址：[v0.10.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.10.1)
-
-### v0.10.0 - 预发布里程碑
-
-- 新增 OpenCode 供应商管理与自动写入 OpenCode 配置
-- 新增 oh-my-opencode（OMO）配置管理与插件联动支持
-- 支持在设置页直接修改 Web 模式登录用户名和密码
-- 改进 OMO / OpenCode 联动写入与当前供应商编辑时的回滚安全性
-- `v0.10.0` 是本发布线在正式稳定前使用的验证预发布版本
-
-### v0.8.0 - 之前的稳定基线
-
-- Web 模式默认同源 CORS
-- 支持通过 `ALLOW_LAN_CORS=1` / `CC_SWITCH_LAN_CORS=1` 放行私有局域网来源
-- 云端部署默认策略更安全
 
 ## 界面展示
 
@@ -415,6 +336,41 @@ pnpm test:unit
 - **前端**：React 18、TypeScript、Vite、Tailwind CSS、TanStack Query、Radix UI、CodeMirror
 - **后端**：Rust、Tauri 2.x、Axum（Web 服务器模式）、tower-http
 - **工具链**：pnpm、Vitest、MSW
+
+---
+
+## 更新内容
+
+> 当前版本：[v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
+> `v0.15.0` 是 Local Routing + Claude Desktop 对齐版，补齐本地路由、用量统计可见性、Web 模式 JSON 404 与 API 错误反馈。
+
+### v0.15.0 - Local Routing + Claude Desktop 对齐版
+
+- 发布 Local Routing + Claude Desktop 对齐正式版本
+- 用量 Dashboard 首次打开时，如果 Today 没有请求但存在历史用量，会自动切到最新用量所在的 Recent data 窗口
+- 时间范围新增 `All time`，并将 Data sources 明确为全量来源统计
+- 新增用量数据范围接口，Web/headless 端提供 `/api/usage/data-extent`
+- 修复 Web 模式不存在的 `/api/*` 路径返回 HTML 200 的问题，现在返回 JSON 404
+- 增加全局 API 失败 toast 与 Usage Dashboard 内联错误态
+- 更新说明：[v0.15.0](docs/release-note-v0.15.0-zh.md)
+
+### v0.14.1 - Usage Dashboard 修复版
+
+- 修复 Usage Dashboard 自动刷新时相对时间范围不会前进的问题
+- 修复 request logs 切换全局 App 或时间范围后未重置页码的问题
+- 修复短时间范围只有 daily rollup 历史数据时趋势图为空的问题
+- 收紧模型定价匹配，避免 `gpt-4` 错误匹配 `gpt-4o`
+- 更新说明：[v0.14.1](docs/release-note-v0.14.1-zh.md)
+
+### v0.14.0 - Usage Dashboard 预发布版
+
+- 新增完整 Usage Dashboard：展示代理请求成本汇总、token 拆分、应用维度占比、趋势图与自动刷新
+- 新增可搜索/分页的 request logs，并支持查看单次请求的 token、延迟、状态、流式信息和成本详情
+- 新增 Provider / Model 使用统计，以及 Dashboard 内模型价格维护面板
+- 模型价格更新后会尝试回填历史零成本代理日志，补齐 pricing/cost 闭环
+- 新增 Claude、Codex、Gemini session log 导入，支持增量同步与跨来源去重
+- 新增桌面端 Tauri commands 与 Web/headless `/api/usage/*` API
+- 更新说明：[v0.14.0](docs/release-note-v0.14.0-zh.md)
 
 ---
 
