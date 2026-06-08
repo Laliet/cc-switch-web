@@ -15,8 +15,22 @@ import type {
   SessionSyncResult,
   UsageDataExtent,
   UsageSummary,
+  UsageStatsFilters,
   UsageSummaryByApp,
 } from "@/types/usage";
+
+const statsArgs = (
+  startDate?: number,
+  endDate?: number,
+  appType?: string,
+  filters?: UsageStatsFilters,
+) => ({
+  startDate,
+  endDate,
+  appType,
+  providerId: filters?.providerId,
+  model: filters?.model,
+});
 
 export const usageApi = {
   async query(providerId: string, appId: AppId): Promise<UsageResult> {
@@ -82,8 +96,12 @@ export const usageApi = {
     startDate?: number,
     endDate?: number,
     appType?: string,
+    filters?: UsageStatsFilters,
   ): Promise<UsageSummary> {
-    return await invoke("get_usage_summary", { startDate, endDate, appType });
+    return await invoke(
+      "get_usage_summary",
+      statsArgs(startDate, endDate, appType, filters),
+    );
   },
 
   async getUsageSummaryByApp(
@@ -97,24 +115,36 @@ export const usageApi = {
     startDate?: number,
     endDate?: number,
     appType?: string,
+    filters?: UsageStatsFilters,
   ): Promise<DailyStats[]> {
-    return await invoke("get_usage_trends", { startDate, endDate, appType });
+    return await invoke(
+      "get_usage_trends",
+      statsArgs(startDate, endDate, appType, filters),
+    );
   },
 
   async getProviderStats(
     startDate?: number,
     endDate?: number,
     appType?: string,
+    filters?: UsageStatsFilters,
   ): Promise<ProviderStats[]> {
-    return await invoke("get_provider_stats", { startDate, endDate, appType });
+    return await invoke(
+      "get_provider_stats",
+      statsArgs(startDate, endDate, appType, filters),
+    );
   },
 
   async getModelStats(
     startDate?: number,
     endDate?: number,
     appType?: string,
+    filters?: UsageStatsFilters,
   ): Promise<ModelStats[]> {
-    return await invoke("get_model_stats", { startDate, endDate, appType });
+    return await invoke(
+      "get_model_stats",
+      statsArgs(startDate, endDate, appType, filters),
+    );
   },
 
   async getRequestLogs(

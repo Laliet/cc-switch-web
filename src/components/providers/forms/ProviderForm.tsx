@@ -244,10 +244,9 @@ export function ProviderForm({
     appId === "codex" ||
     appId === "gemini" ||
     appId === "opencode";
-  const [claudeDesktopMode, setClaudeDesktopMode] =
-    useState<ClaudeDesktopMode>(
-      initialData?.meta?.claudeDesktopMode ?? "direct",
-    );
+  const [claudeDesktopMode, setClaudeDesktopMode] = useState<ClaudeDesktopMode>(
+    initialData?.meta?.claudeDesktopMode ?? "direct",
+  );
   const [claudeDesktopApiFormat, setClaudeDesktopApiFormat] =
     useState<ClaudeDesktopApiFormat>(
       (initialData?.meta?.apiFormat as ClaudeDesktopApiFormat | undefined) ??
@@ -255,6 +254,9 @@ export function ProviderForm({
     );
   const [claudeDesktopApiKeyField, setClaudeDesktopApiKeyField] = useState(
     initialData?.meta?.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN",
+  );
+  const [claudeDesktopIsFullUrl, setClaudeDesktopIsFullUrl] = useState(
+    initialData?.meta?.isFullUrl ?? false,
   );
   const [claudeDesktopBaseUrl, setClaudeDesktopBaseUrl] = useState("");
   const [claudeDesktopApiKey, setClaudeDesktopApiKey] = useState("");
@@ -270,6 +272,7 @@ export function ProviderForm({
     category?: ProviderCategory;
     isPartner?: boolean;
     partnerPromotionKey?: string;
+    providerType?: string;
   } | null>(null);
   const [isEndpointModalOpen, setIsEndpointModalOpen] = useState(false);
   const [isCodexEndpointModalOpen, setIsCodexEndpointModalOpen] =
@@ -303,12 +306,14 @@ export function ProviderForm({
         "anthropic";
       const nextField =
         initialData?.meta?.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN";
+      const nextIsFullUrl = initialData?.meta?.isFullUrl ?? false;
       const nextConfig = initialData?.settingsConfig
         ? JSON.stringify(initialData.settingsConfig)
         : CLAUDE_DESKTOP_DEFAULT_CONFIG;
       setClaudeDesktopMode(nextMode);
       setClaudeDesktopApiFormat(nextFormat);
       setClaudeDesktopApiKeyField(nextField);
+      setClaudeDesktopIsFullUrl(nextIsFullUrl);
       setClaudeDesktopBaseUrl(baseUrlFromConfig(nextConfig));
       setClaudeDesktopApiKey(apiKeyFromConfig(nextConfig, nextField));
       setClaudeDesktopRoutes(routeRowsFromMeta(initialData?.meta));
@@ -474,12 +479,15 @@ export function ProviderForm({
       }));
     }
     if (appId === "claude-desktop") {
-      return claudeDesktopProviderPresets.map<PresetEntry>(
-        (preset, index) => ({
+      return claudeDesktopProviderPresets
+        .map<PresetEntry>((preset, index) => ({
           id: `claude-desktop-${index}`,
           preset,
-        }),
-      );
+        }))
+        .filter((entry) => {
+          const preset = entry.preset as ClaudeDesktopProviderPreset;
+          return !preset.requiresOAuth;
+        });
     }
     if (appId === "opencode") {
       return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
@@ -761,6 +769,10 @@ export function ProviderForm({
         claudeDesktopModelRoutes: routeMapFromRows(claudeDesktopRoutes),
         apiFormat: claudeDesktopApiFormat,
         apiKeyField: claudeDesktopApiKeyField,
+        isFullUrl: claudeDesktopIsFullUrl || undefined,
+        ...(activePreset?.providerType
+          ? { providerType: activePreset.providerType }
+          : {}),
         ...(activePreset?.isPartner ? { isPartner: true } : {}),
         ...(activePreset?.partnerPromotionKey
           ? { partnerPromotionKey: activePreset.partnerPromotionKey }
@@ -934,6 +946,10 @@ export function ProviderForm({
       category: entry.preset.category,
       isPartner: entry.preset.isPartner,
       partnerPromotionKey: entry.preset.partnerPromotionKey,
+      providerType:
+        appId === "claude-desktop"
+          ? (entry.preset as ClaudeDesktopProviderPreset).providerType
+          : undefined,
     });
 
     if (appId === "codex") {
@@ -1014,11 +1030,12 @@ export function ProviderForm({
       setClaudeDesktopMode(preset.mode);
       setClaudeDesktopApiFormat(preset.apiFormat ?? "anthropic");
       setClaudeDesktopApiKeyField(apiKeyField);
+      setClaudeDesktopIsFullUrl(false);
       setClaudeDesktopBaseUrl(preset.baseUrl);
       setClaudeDesktopApiKey("");
       setClaudeDesktopRoutes(rows);
       form.reset({
-        name: preset.name,
+        name: preset.nameKey ? t(preset.nameKey) : preset.name,
         websiteUrl: preset.websiteUrl ?? "",
         notes: "",
         settingsConfig: buildClaudeDesktopConfig(
@@ -1103,7 +1120,11 @@ export function ProviderForm({
           <div className="space-y-5">
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>{t("providerForm.claudeDesktopMode", { defaultValue: "写入模式" })}</Label>
+                <Label>
+                  {t("providerForm.claudeDesktopMode", {
+                    defaultValue: "写入模式",
+                  })}
+                </Label>
                 <Select
                   value={claudeDesktopMode}
                   onValueChange={(value) =>
@@ -1120,7 +1141,9 @@ export function ProviderForm({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>{t("providerForm.apiFormat", { defaultValue: "API 格式" })}</Label>
+                <Label>
+                  {t("providerForm.apiFormat", { defaultValue: "API 格式" })}
+                </Label>
                 <Select
                   value={claudeDesktopApiFormat}
                   onValueChange={(value) =>
@@ -1141,7 +1164,9 @@ export function ProviderForm({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>{t("providerForm.apiKeyField", { defaultValue: "Key 字段" })}</Label>
+                <Label>
+                  {t("providerForm.apiKeyField", { defaultValue: "Key 字段" })}
+                </Label>
                 <Select
                   value={claudeDesktopApiKeyField}
                   onValueChange={(value) => {
@@ -1173,7 +1198,9 @@ export function ProviderForm({
 
             <div className="space-y-2">
               <Label htmlFor="claude-desktop-base-url">
-                {t("providerForm.apiEndpoint", { defaultValue: "API Endpoint" })}
+                {t("providerForm.apiEndpoint", {
+                  defaultValue: "API Endpoint",
+                })}
               </Label>
               <Input
                 id="claude-desktop-base-url"
@@ -1193,6 +1220,25 @@ export function ProviderForm({
                 placeholder="https://api.example.com"
                 autoComplete="off"
               />
+              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("providerForm.fullEndpointUrl", {
+                      defaultValue: "完整端点 URL",
+                    })}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("providerForm.fullEndpointUrlHint", {
+                      defaultValue:
+                        "转发时直接使用该 URL，不再追加 /v1/messages 等路径",
+                    })}
+                  </div>
+                </div>
+                <Switch
+                  checked={claudeDesktopIsFullUrl}
+                  onCheckedChange={setClaudeDesktopIsFullUrl}
+                />
+              </div>
             </div>
 
             <div className="space-y-2">

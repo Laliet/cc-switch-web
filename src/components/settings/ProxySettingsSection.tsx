@@ -29,11 +29,24 @@ import type {
   Provider,
   ProxyAppId,
   ProxyRecentLog,
+  ProxyRouteAppId,
   ProxySettings,
   ProxyStatus,
 } from "@/types";
 
-const PROXY_APPS: ProxyAppId[] = ["claude", "codex", "gemini", "opencode"];
+const PROXY_ROUTE_APPS: ProxyRouteAppId[] = [
+  "claude",
+  "claude-desktop",
+  "codex",
+  "gemini",
+  "opencode",
+];
+const PROXY_TAKEOVER_APPS: ProxyAppId[] = [
+  "claude",
+  "codex",
+  "gemini",
+  "opencode",
+];
 const PROXY_TOAST_DURATION = 1800;
 
 interface ProxySettingsSectionProps {
@@ -48,7 +61,7 @@ export function ProxySettingsSection({
   const { t } = useTranslation();
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [recentLogs, setRecentLogs] = useState<ProxyRecentLog[]>([]);
-  const [failoverApp, setFailoverApp] = useState<ProxyAppId>("claude");
+  const [failoverApp, setFailoverApp] = useState<ProxyRouteAppId>("claude");
   const [failoverQueue, setFailoverQueue] = useState<FailoverQueueItem[]>([]);
   const [failoverProviders, setFailoverProviders] = useState<
     Record<string, Provider>
@@ -62,7 +75,7 @@ export function ProxySettingsSection({
     | "start"
     | "stop"
     | "test"
-    | `test:${ProxyAppId}`
+    | `test:${ProxyRouteAppId}`
     | "restore"
     | `takeover:${ProxyAppId}`
     | "failover"
@@ -123,16 +136,20 @@ export function ProxySettingsSection({
     onChange({ ...value, ...updates });
   };
 
+  const proxyConfigApp = (app: ProxyRouteAppId): ProxyAppId =>
+    app === "claude-desktop" ? "claude" : app;
+
   const updateApp = (
-    app: ProxyAppId,
+    app: ProxyRouteAppId,
     updates: Partial<ProxySettings["apps"][ProxyAppId]>,
   ) => {
+    const configApp = proxyConfigApp(app);
     onChange({
       ...value,
       apps: {
         ...value.apps,
-        [app]: {
-          ...value.apps[app],
+        [configApp]: {
+          ...value.apps[configApp],
           ...updates,
         },
       },
@@ -251,7 +268,7 @@ export function ProxySettingsSection({
         ...value,
         liveTakeoverActive: false,
         apps: Object.fromEntries(
-          PROXY_APPS.map((app) => [
+          PROXY_TAKEOVER_APPS.map((app) => [
             app,
             { ...value.apps[app], enabled: false },
           ]),
@@ -315,8 +332,8 @@ export function ProxySettingsSection({
     }
   };
 
-  const handleTest = async (app?: ProxyAppId) => {
-    const testApp = app ?? (value.bindApp as ProxyAppId);
+  const handleTest = async (app?: ProxyRouteAppId) => {
+    const testApp = app ?? value.bindApp;
     setBusyAction(app ? `test:${app}` : "test");
     try {
       const result = await settingsApi.testProxy({
@@ -399,7 +416,11 @@ export function ProxySettingsSection({
       (item) => item.providerId === providerId,
     );
     const nextIndex = currentIndex + direction;
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= failoverQueue.length) {
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= failoverQueue.length
+    ) {
       return;
     }
     const nextIds = failoverQueue.map((item) => item.providerId);
@@ -669,7 +690,9 @@ export function ProxySettingsSection({
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          {PROXY_APPS.map((app) => {
+          {PROXY_ROUTE_APPS.map((app) => {
+            const configApp = proxyConfigApp(app);
+            const supportsTakeover = app !== "claude-desktop";
             const target = status?.activeTargets?.find(
               (item) => item.appType === app,
             );
@@ -699,15 +722,20 @@ export function ProxySettingsSection({
                       })}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t(`settings.proxy.takeoverHint.${app}`, {
-                      defaultValue: `${appName} 接管：让 ${appName} 走本地代理`,
-                    })}
+                    {supportsTakeover
+                      ? t(`settings.proxy.takeoverHint.${app}`, {
+                          defaultValue: `${appName} 接管：让 ${appName} 走本地代理`,
+                        })
+                      : t("settings.proxy.takeoverHint.claudeDesktopManual", {
+                          defaultValue:
+                            "Claude Desktop 需要在专属面板应用 3P profile；这里仅提供路由测试和故障切换设置",
+                        })}
                   </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Switch
                         checked={
-                          value.apps[app]?.autoFailoverEnabled ?? false
+                          value.apps[configApp]?.autoFailoverEnabled ?? false
                         }
                         onCheckedChange={(checked) =>
                           updateApp(app, { autoFailoverEnabled: checked })
@@ -729,7 +757,7 @@ export function ProxySettingsSection({
                         type="number"
                         min={0}
                         max={10}
-                        value={value.apps[app]?.maxRetries ?? 0}
+                        value={value.apps[configApp]?.maxRetries ?? 0}
                         onChange={(event) =>
                           updateApp(app, {
                             maxRetries: Number(event.target.value) || 0,
@@ -745,7 +773,9 @@ export function ProxySettingsSection({
                         })}
                       </span>
                       <Input
-                        value={value.apps[app]?.defaultCostMultiplier ?? "1"}
+                        value={
+                          value.apps[configApp]?.defaultCostMultiplier ?? "1"
+                        }
                         onChange={(event) =>
                           updateApp(app, {
                             defaultCostMultiplier: event.target.value,
@@ -762,7 +792,8 @@ export function ProxySettingsSection({
                       </span>
                       <Select
                         value={
-                          value.apps[app]?.pricingModelSource ?? "response"
+                          value.apps[configApp]?.pricingModelSource ??
+                          "response"
                         }
                         onValueChange={(source) =>
                           updateApp(app, { pricingModelSource: source })
@@ -800,11 +831,17 @@ export function ProxySettingsSection({
                   </Button>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   <Switch
-                    checked={value.apps[app]?.enabled ?? false}
-                    onCheckedChange={(checked) =>
-                      void handleTakeoverChange(app, checked)
+                    checked={
+                      supportsTakeover
+                        ? (value.apps[configApp]?.enabled ?? false)
+                        : false
                     }
-                    disabled={isBusy}
+                    onCheckedChange={(checked) =>
+                      supportsTakeover
+                        ? void handleTakeoverChange(configApp, checked)
+                        : undefined
+                    }
+                    disabled={isBusy || !supportsTakeover}
                   />
                 </div>
               </div>
@@ -843,13 +880,13 @@ export function ProxySettingsSection({
           </div>
           <Select
             value={failoverApp}
-            onValueChange={(app) => setFailoverApp(app as ProxyAppId)}
+            onValueChange={(app) => setFailoverApp(app as ProxyRouteAppId)}
           >
             <SelectTrigger className="h-8 w-[150px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROXY_APPS.map((app) => (
+              {PROXY_ROUTE_APPS.map((app) => (
                 <SelectItem key={app} value={app}>
                   {t(`apps.${app}`, { defaultValue: app })}
                 </SelectItem>
@@ -919,9 +956,7 @@ export function ProxySettingsSection({
                 key={item.providerId}
                 className="grid items-center gap-2 rounded-md border px-3 py-2 text-sm sm:grid-cols-[32px_1fr_auto]"
               >
-                <div className="text-xs text-muted-foreground">
-                  {index + 1}
-                </div>
+                <div className="text-xs text-muted-foreground">{index + 1}</div>
                 <div className="min-w-0">
                   <div className="truncate font-medium">
                     {item.providerName}
@@ -986,13 +1021,15 @@ export function ProxySettingsSection({
             </Label>
             <Select
               value={value.bindApp}
-              onValueChange={(app) => update({ bindApp: app as ProxyAppId })}
+              onValueChange={(app) =>
+                update({ bindApp: app as ProxyRouteAppId })
+              }
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PROXY_APPS.map((app) => (
+                {PROXY_ROUTE_APPS.map((app) => (
                   <SelectItem key={app} value={app}>
                     {t(`apps.${app}`, { defaultValue: app })}
                   </SelectItem>

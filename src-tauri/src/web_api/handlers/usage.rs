@@ -12,8 +12,8 @@ use crate::{
     database::ModelPricingRecord,
     services::usage_stats::{
         DailyStats, DataSourceSummary, LogFilters, ModelStats, PaginatedLogs, ProviderLimitStatus,
-        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageSummary,
-        UsageSummaryByApp,
+        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageStatsFilters,
+        UsageSummary, UsageSummaryByApp,
     },
     store::AppState,
 };
@@ -26,6 +26,18 @@ pub struct UsageQuery {
     pub start_date: Option<i64>,
     pub end_date: Option<i64>,
     pub app_type: Option<String>,
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+}
+
+impl UsageQuery {
+    fn filters(self) -> UsageStatsFilters {
+        UsageStatsFilters {
+            app_type: self.app_type,
+            provider_id: self.provider_id,
+            model: self.model,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,10 +63,13 @@ pub async fn summary(
     State(state): State<Arc<AppState>>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<UsageSummary> {
+    let start_date = query.start_date;
+    let end_date = query.end_date;
+    let filters = query.filters();
     Ok(Json(
         state
             .db
-            .get_usage_summary(query.start_date, query.end_date, query.app_type.as_deref())
+            .get_usage_summary_with_filters(start_date, end_date, &filters)
             .map_err(ApiError::from)?,
     ))
 }
@@ -75,10 +90,13 @@ pub async fn trends(
     State(state): State<Arc<AppState>>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Vec<DailyStats>> {
+    let start_date = query.start_date;
+    let end_date = query.end_date;
+    let filters = query.filters();
     Ok(Json(
         state
             .db
-            .get_daily_trends(query.start_date, query.end_date, query.app_type.as_deref())
+            .get_daily_trends_with_filters(start_date, end_date, &filters)
             .map_err(ApiError::from)?,
     ))
 }
@@ -87,10 +105,13 @@ pub async fn providers(
     State(state): State<Arc<AppState>>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Vec<ProviderStats>> {
+    let start_date = query.start_date;
+    let end_date = query.end_date;
+    let filters = query.filters();
     Ok(Json(
         state
             .db
-            .get_provider_stats(query.start_date, query.end_date, query.app_type.as_deref())
+            .get_provider_stats_with_filters(start_date, end_date, &filters)
             .map_err(ApiError::from)?,
     ))
 }
@@ -99,10 +120,13 @@ pub async fn models(
     State(state): State<Arc<AppState>>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Vec<ModelStats>> {
+    let start_date = query.start_date;
+    let end_date = query.end_date;
+    let filters = query.filters();
     Ok(Json(
         state
             .db
-            .get_model_stats(query.start_date, query.end_date, query.app_type.as_deref())
+            .get_model_stats_with_filters(start_date, end_date, &filters)
             .map_err(ApiError::from)?,
     ))
 }

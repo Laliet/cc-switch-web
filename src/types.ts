@@ -1,4 +1,5 @@
 export type ProxyAppId = "claude" | "codex" | "gemini" | "opencode";
+export type ProxyRouteAppId = ProxyAppId | "claude-desktop";
 
 export type ProviderCategory =
   | "official" // 官方
@@ -217,6 +218,11 @@ export interface Settings {
   };
   proxy?: ProxySettings;
   webDav?: WebDavSettings;
+  network?: NetworkSettings;
+}
+
+export interface NetworkSettings {
+  githubMirrorBaseUrl: string;
 }
 
 export interface WebDavSettings {
@@ -259,7 +265,7 @@ export interface ProxySettings {
   host: string;
   port: number;
   upstreamProxy?: string;
-  bindApp: ProxyAppId;
+  bindApp: ProxyRouteAppId;
   autoStart: boolean;
   enableLogging: boolean;
   liveTakeoverActive: boolean;
@@ -311,7 +317,7 @@ export interface ProxyStatus {
   uptimeSeconds: number;
   activeTargets: ProxyActiveTarget[];
   takeover: Record<ProxyAppId | "omo", boolean>;
-  bindApp: ProxyAppId;
+  bindApp: ProxyRouteAppId;
   lastRequestAt?: string;
   lastError?: string;
   failoverCount?: number;
@@ -321,7 +327,7 @@ export interface ProxyStatus {
 }
 
 export interface ProxyActiveTarget {
-  appType: ProxyAppId;
+  appType: ProxyRouteAppId;
   providerId: string;
   providerName: string;
 }

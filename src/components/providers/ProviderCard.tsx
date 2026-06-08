@@ -87,6 +87,10 @@ const LOCAL_ROUTING_APPS = new Set<AppId>([
 ]);
 
 const supportsLocalRouting = (appId: AppId, provider: Provider) => {
+  if (appId === "claude-desktop") {
+    return provider.meta?.claudeDesktopMode === "proxy";
+  }
+
   if (!LOCAL_ROUTING_APPS.has(appId)) {
     return false;
   }

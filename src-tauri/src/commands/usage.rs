@@ -4,8 +4,8 @@ use crate::{
     database::ModelPricingRecord,
     services::usage_stats::{
         DailyStats, DataSourceSummary, LogFilters, ModelStats, PaginatedLogs, ProviderLimitStatus,
-        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageSummary,
-        UsageSummaryByApp,
+        ProviderStats, RequestLogDetail, SessionSyncResult, UsageDataExtent, UsageStatsFilters,
+        UsageSummary, UsageSummaryByApp,
     },
     store::AppState,
 };
@@ -16,10 +16,17 @@ pub fn get_usage_summary(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_id: Option<String>,
+    model: Option<String>,
 ) -> Result<UsageSummary, String> {
+    let filters = UsageStatsFilters {
+        app_type,
+        provider_id,
+        model,
+    };
     state
         .db
-        .get_usage_summary(start_date, end_date, app_type.as_deref())
+        .get_usage_summary_with_filters(start_date, end_date, &filters)
         .map_err(|err| err.to_string())
 }
 
@@ -41,10 +48,17 @@ pub fn get_usage_trends(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_id: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<DailyStats>, String> {
+    let filters = UsageStatsFilters {
+        app_type,
+        provider_id,
+        model,
+    };
     state
         .db
-        .get_daily_trends(start_date, end_date, app_type.as_deref())
+        .get_daily_trends_with_filters(start_date, end_date, &filters)
         .map_err(|err| err.to_string())
 }
 
@@ -54,10 +68,17 @@ pub fn get_provider_stats(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_id: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<ProviderStats>, String> {
+    let filters = UsageStatsFilters {
+        app_type,
+        provider_id,
+        model,
+    };
     state
         .db
-        .get_provider_stats(start_date, end_date, app_type.as_deref())
+        .get_provider_stats_with_filters(start_date, end_date, &filters)
         .map_err(|err| err.to_string())
 }
 
@@ -67,10 +88,17 @@ pub fn get_model_stats(
     start_date: Option<i64>,
     end_date: Option<i64>,
     app_type: Option<String>,
+    provider_id: Option<String>,
+    model: Option<String>,
 ) -> Result<Vec<ModelStats>, String> {
+    let filters = UsageStatsFilters {
+        app_type,
+        provider_id,
+        model,
+    };
     state
         .db
-        .get_model_stats(start_date, end_date, app_type.as_deref())
+        .get_model_stats_with_filters(start_date, end_date, &filters)
         .map_err(|err| err.to_string())
 }
 

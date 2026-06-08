@@ -344,6 +344,16 @@ describe("SettingsDialog Component", () => {
     fireEvent.click(screen.getByRole("button", { name: "settings.import" }));
     expect(importExportMock.importConfig).toHaveBeenCalled();
 
+    fireEvent.change(
+      screen.getByLabelText("settings.network.githubMirrorBaseUrl"),
+      {
+        target: { value: "https://ghproxy.net/" },
+      },
+    );
+    expect(settingsMock.updateSettings).toHaveBeenCalledWith({
+      network: { githubMirrorBaseUrl: "https://ghproxy.net/" },
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "common.clear" }));
     expect(importExportMock.clearSelection).toHaveBeenCalled();
   });

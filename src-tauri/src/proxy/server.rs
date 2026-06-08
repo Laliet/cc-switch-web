@@ -38,7 +38,7 @@ use crate::{
 };
 
 use super::{
-    adapters::{adapter_for, insert_auth_headers},
+    adapters::{adapter_for, full_endpoint_url, insert_auth_headers},
     live,
     service::ensure_gemini_takeover_supported,
     types::{
@@ -437,6 +437,10 @@ async fn proxy_handler(
             .as_ref()
             .map(|result| result.usage.clone())
             .unwrap_or_default();
+        let session_id = result
+            .as_ref()
+            .ok()
+            .and_then(|result| result.session_id.clone());
         push_recent_log(
             &state.recent_logs,
             ProxyRecentLog {
@@ -456,6 +460,7 @@ async fn proxy_handler(
             provider_id,
             model,
             usage_capture: usage,
+            session_id,
             request_id,
             status: status.map(|status| status.as_u16()),
             duration_ms,
@@ -490,6 +495,7 @@ struct ProxyRequestResult {
     provider_id: String,
     model: String,
     usage: ProxyUsageCapture,
+    session_id: Option<String>,
 }
 
 enum UpstreamAttemptError {
@@ -575,9 +581,11 @@ async fn proxy_request(
             provider_id: provider.id,
             model: String::new(),
             usage: ProxyUsageCapture::default(),
+            session_id: None,
         });
     }
-    let model = extract_request_model(&body_bytes);
+    let model = extract_request_model(&app, &routed_uri, &body_bytes);
+    let session_id = extract_request_session_id(&body_bytes);
 
     let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
         .map_err(|e| AppError::InvalidInput(format!("Unsupported method: {e}")))?;
@@ -671,6 +679,7 @@ async fn proxy_request(
         provider_id: upstream.provider.id,
         model,
         usage,
+        session_id,
     })
 }
 
@@ -1019,7 +1028,7 @@ async fn retry_streaming_first_byte_failover(
                 &state.app_state,
                 app.as_str(),
                 &backup.id,
-                &extract_request_model(body_bytes),
+                &extract_request_model(app, routed_uri, body_bytes),
                 request_id,
             ),
         )
@@ -1084,9 +1093,18 @@ async fn send_upstream_provider(
     let base_url = adapter
         .extract_base_url(provider)
         .map_err(UpstreamAttemptError::Local)?;
-    let url = adapter
-        .build_url(&base_url, routed_uri)
-        .map_err(UpstreamAttemptError::Local)?;
+    let url = if provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.is_full_url)
+        .unwrap_or(false)
+    {
+        full_endpoint_url(&base_url, routed_uri).map_err(UpstreamAttemptError::Local)?
+    } else {
+        adapter
+            .build_url(&base_url, routed_uri)
+            .map_err(UpstreamAttemptError::Local)?
+    };
     let mut headers = request_headers.clone();
     let auth = adapter
         .extract_auth(provider)
@@ -1763,6 +1781,25 @@ pub async fn test_settings(
     validate_settings(&settings)?;
     let app = parse_proxy_app(&settings.bind_app)?;
     let provider = current_provider(&state, &app)?;
+    if matches!(app, AppType::ClaudeDesktop) {
+        crate::claude_desktop_config::validate_provider(&provider)?;
+        let base_url = match crate::claude_desktop_config::provider_mode(&provider) {
+            crate::provider::ClaudeDesktopMode::Direct => {
+                crate::claude_desktop_config::direct_gateway_credentials(&provider)
+                    .map(|credentials| credentials.base_url)
+                    .ok()
+            }
+            crate::provider::ClaudeDesktopMode::Proxy => {
+                crate::claude_desktop_config::proxy_gateway_base_url_from_db(&state.db).ok()
+            }
+        };
+        let _ = build_client(&settings)?;
+        return Ok(ProxyTestResult {
+            success: true,
+            message: "Proxy settings are valid.".to_string(),
+            base_url,
+        });
+    }
     let adapter = adapter_for(&app);
     let base_url = adapter.extract_base_url(&provider)?;
     let _ = adapter.extract_auth(&provider)?;
@@ -1880,6 +1917,7 @@ struct ProxyRequestLogInput<'a> {
     provider_id: String,
     model: String,
     usage_capture: ProxyUsageCapture,
+    session_id: Option<String>,
     request_id: String,
     status: Option<u16>,
     duration_ms: u64,
@@ -1893,6 +1931,7 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
         provider_id,
         model,
         usage_capture,
+        session_id,
         request_id,
         status,
         duration_ms,
@@ -1960,7 +1999,7 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
         duration_ms: Some(i64::try_from(duration_ms).unwrap_or(i64::MAX)),
         status_code: status.map(i64::from).unwrap_or(0),
         error_message: error.map(ToString::to_string),
-        session_id: None,
+        session_id,
         provider_type: None,
         is_streaming: usage_capture.is_streaming,
         cost_multiplier: cost_multiplier.to_string(),
@@ -2066,16 +2105,61 @@ fn parse_sse_events_from_bytes(bytes: &Bytes) -> Vec<serde_json::Value> {
     events
 }
 
-fn extract_request_model(body: &Bytes) -> String {
+fn extract_request_model(app: &AppType, uri: &Uri, body: &Bytes) -> String {
+    if matches!(app, AppType::Gemini) {
+        if let Some(model) = extract_gemini_model_from_uri(uri) {
+            return model;
+        }
+    }
+
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()
-        .and_then(|value| {
-            value
-                .get("model")
-                .and_then(|model| model.as_str())
-                .map(ToString::to_string)
-        })
+        .and_then(|value| json_string_at_any_path(&value, &[&["model"], &["request", "model"]]))
         .unwrap_or_default()
+}
+
+fn extract_request_session_id(body: &Bytes) -> Option<String> {
+    let value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    json_string_at_any_path(
+        &value,
+        &[
+            &["session_id"],
+            &["sessionId"],
+            &["conversation_id"],
+            &["conversationId"],
+            &["metadata", "session_id"],
+            &["metadata", "sessionId"],
+        ],
+    )
+    .filter(|value| !value.trim().is_empty())
+}
+
+fn json_string_at_any_path(value: &serde_json::Value, paths: &[&[&str]]) -> Option<String> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for key in *path {
+            current = current.get(*key)?;
+        }
+        current.as_str().map(ToString::to_string)
+    })
+}
+
+fn extract_gemini_model_from_uri(uri: &Uri) -> Option<String> {
+    let mut segments = uri.path().trim_start_matches('/').split('/');
+    while let Some(segment) = segments.next() {
+        if segment == "models" {
+            let model_segment = segments.next()?;
+            let model = model_segment
+                .split_once(':')
+                .map(|(model, _)| model)
+                .unwrap_or(model_segment)
+                .trim();
+            if !model.is_empty() {
+                return Some(model.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn sanitize_uri_for_log(uri: &Uri) -> String {
@@ -2202,10 +2286,20 @@ fn truncate_for_log(value: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_runtime_settings, proxy_error_status, read_limited_upstream_body, takeover_apps,
-        AppError, AppType, ProxySettings,
+        extract_request_model, extract_request_session_id, merge_runtime_settings,
+        proxy_error_status, read_limited_upstream_body, takeover_apps, test_settings, AppError,
+        AppType, ProxySettings,
     };
-    use axum::http::StatusCode;
+    use crate::{
+        app_config::MultiAppConfig,
+        database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID,
+        provider::{Provider, ProviderManager},
+        store::AppState,
+    };
+    use axum::{body::Bytes, http::StatusCode};
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
     #[test]
     fn takeover_apps_does_not_duplicate_claude() {
@@ -2228,6 +2322,45 @@ mod tests {
         assert_eq!(
             proxy_error_status(&AppError::Config("upstream failed".into())),
             StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn extract_request_model_prefers_gemini_uri_model() {
+        let uri = "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse"
+            .parse()
+            .expect("valid uri");
+        let body = Bytes::from_static(br#"{"model":"body-model"}"#);
+
+        assert_eq!(
+            extract_request_model(&AppType::Gemini, &uri, &body),
+            "gemini-2.5-pro"
+        );
+    }
+
+    #[test]
+    fn extract_request_model_supports_nested_responses_model() {
+        let uri = "/v1/responses".parse().expect("valid uri");
+        let body = Bytes::from_static(br#"{"request":{"model":"gpt-5.1-codex"}}"#);
+
+        assert_eq!(
+            extract_request_model(&AppType::Codex, &uri, &body),
+            "gpt-5.1-codex"
+        );
+    }
+
+    #[test]
+    fn extract_request_session_id_supports_metadata_and_camel_case() {
+        let metadata = Bytes::from_static(br#"{"metadata":{"sessionId":"session-meta"}}"#);
+        assert_eq!(
+            extract_request_session_id(&metadata).as_deref(),
+            Some("session-meta")
+        );
+
+        let top_level = Bytes::from_static(br#"{"conversation_id":"conversation-1"}"#);
+        assert_eq!(
+            extract_request_session_id(&top_level).as_deref(),
+            Some("conversation-1")
         );
     }
 
@@ -2258,6 +2391,34 @@ mod tests {
 
         assert!(err.to_string().contains("exceeds"));
         server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn test_settings_accepts_claude_desktop_official_provider() {
+        let provider = Provider::with_id(
+            CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string(),
+            "Claude Desktop Official".to_string(),
+            json!({"env": {}}),
+            Some("https://claude.ai/download".to_string()),
+        );
+        let mut config = MultiAppConfig::default();
+        config.apps.insert(
+            AppType::ClaudeDesktop.as_str().to_string(),
+            ProviderManager {
+                providers: HashMap::from([(provider.id.clone(), provider)]),
+                current: CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string(),
+                backup_current: None,
+            },
+        );
+        let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+        let settings = ProxySettings {
+            bind_app: AppType::ClaudeDesktop.as_str().to_string(),
+            ..ProxySettings::default()
+        };
+
+        let result = test_settings(state, settings).await.expect("proxy test");
+
+        assert!(result.success);
     }
 
     #[test]

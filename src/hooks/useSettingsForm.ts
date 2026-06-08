@@ -20,6 +20,16 @@ const sanitizeDir = (value?: string | null): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const defaultNetworkSettings = () => ({
+  githubMirrorBaseUrl: "",
+});
+
+const normalizeNetworkSettings = (network?: Settings["network"]) => ({
+  ...defaultNetworkSettings(),
+  ...(network ?? {}),
+  githubMirrorBaseUrl: network?.githubMirrorBaseUrl?.trim() ?? "",
+});
+
 const defaultProxySettings = () => ({
   enabled: false,
   host: "127.0.0.1",
@@ -167,6 +177,7 @@ export function useSettingsForm(): UseSettingsFormResult {
       codexConfigDir: sanitizeDir(data.codexConfigDir),
       geminiConfigDir: sanitizeDir(data.geminiConfigDir),
       opencodeConfigDir: sanitizeDir(data.opencodeConfigDir),
+      network: normalizeNetworkSettings(data.network),
       proxy: normalizeProxySettings(data.proxy),
       language: normalizedLanguage,
     };
@@ -185,6 +196,7 @@ export function useSettingsForm(): UseSettingsFormResult {
             showInTray: true,
             minimizeToTrayOnClose: true,
             enableClaudePluginIntegration: false,
+            network: defaultNetworkSettings(),
             proxy: defaultProxySettings(),
             language: readPersistedLanguage(),
           } as SettingsFormState);
@@ -224,6 +236,7 @@ export function useSettingsForm(): UseSettingsFormResult {
         codexConfigDir: sanitizeDir(serverData.codexConfigDir),
         geminiConfigDir: sanitizeDir(serverData.geminiConfigDir),
         opencodeConfigDir: sanitizeDir(serverData.opencodeConfigDir),
+        network: normalizeNetworkSettings(serverData.network),
         proxy: normalizeProxySettings(serverData.proxy),
         language: normalizedLanguage,
       };

@@ -77,7 +77,13 @@ const renderProviderCard = (
     isEditMode?: boolean;
     dragHandleProps?: DragHandleProps;
     healthStatus?: ProviderHealth;
-    appId?: "claude" | "codex" | "gemini" | "opencode" | "omo";
+    appId?:
+      | "claude"
+      | "claude-desktop"
+      | "codex"
+      | "gemini"
+      | "opencode"
+      | "omo";
   } = {},
 ) => {
   const provider = createProvider(providerOverrides);
@@ -225,6 +231,24 @@ describe("ProviderCard", () => {
 
   it("does not show routing support badge for Gemini OAuth providers", () => {
     renderProviderCard({ category: "official" }, { appId: "gemini" });
+
+    expect(screen.queryByText("provider.routingSupport")).not.toBeInTheDocument();
+  });
+
+  it("shows routing support badge for Claude Desktop proxy providers", () => {
+    renderProviderCard(
+      { meta: { claudeDesktopMode: "proxy" } },
+      { appId: "claude-desktop" },
+    );
+
+    expect(screen.getByText("provider.routingSupport")).toBeInTheDocument();
+  });
+
+  it("does not show routing support badge for Claude Desktop direct providers", () => {
+    renderProviderCard(
+      { meta: { claudeDesktopMode: "direct" } },
+      { appId: "claude-desktop" },
+    );
 
     expect(screen.queryByText("provider.routingSupport")).not.toBeInTheDocument();
   });

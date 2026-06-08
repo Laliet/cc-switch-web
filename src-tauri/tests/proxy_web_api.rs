@@ -130,6 +130,28 @@ fn make_app_with_claude_desktop_provider_and_state(
     )
 }
 
+fn make_app_with_claude_desktop_providers(
+    password: &str,
+    csrf: &str,
+    current_provider_id: &str,
+    providers: Vec<Provider>,
+) -> axum::Router {
+    env::set_var("WEB_CSRF_TOKEN", csrf);
+    let mut config = MultiAppConfig::default();
+    config.ensure_app(&AppType::ClaudeDesktop);
+    let manager = config
+        .get_manager_mut(&AppType::ClaudeDesktop)
+        .expect("claude desktop manager");
+    manager.current = current_provider_id.to_string();
+    for provider in providers {
+        manager.providers.insert(provider.id.clone(), provider);
+    }
+    add_gemini_provider(&mut config, generic_gemini_provider());
+
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+    web_api::create_router(state, password.to_string())
+}
+
 fn make_app_with_claude_failover(
     password: &str,
     csrf: &str,
@@ -915,6 +937,49 @@ async fn proxy_failover_queue_routes_manage_ordered_provider_ids() {
 
 #[tokio::test]
 #[serial]
+async fn proxy_failover_queue_routes_accept_claude_desktop_providers() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let mut primary = claude_desktop_proxy_provider_with_base_url("http://desktop-primary");
+    primary.id = "desktop-primary".to_string();
+    primary.name = "Desktop Primary".to_string();
+    let mut backup = claude_desktop_proxy_provider_with_base_url("http://desktop-backup");
+    backup.id = "desktop-backup".to_string();
+    backup.name = "Desktop Backup".to_string();
+    let app = make_app_with_claude_desktop_providers(
+        "password",
+        "csrf-token",
+        "desktop-primary",
+        vec![primary, backup],
+    );
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/proxy/failover/claude-desktop",
+            Some(json!({ "providerIds": ["desktop-backup"] })),
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    assert_eq!(queue[0]["providerId"], json!("desktop-backup"));
+    assert_eq!(queue[0]["providerName"], json!("Desktop Backup"));
+
+    let res = dispatch(
+        app,
+        request(Method::GET, "/api/proxy/failover/claude-desktop", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let queue: Value = json_body(res).await;
+    assert_eq!(queue.as_array().expect("queue array").len(), 1);
+    assert_eq!(queue[0]["providerId"], json!("desktop-backup"));
+}
+
+#[tokio::test]
+#[serial]
 async fn proxy_model_pricing_routes_manage_custom_pricing() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     let _account_guard = setup();
@@ -1085,6 +1150,74 @@ async fn universal_provider_web_api_roundtrips_syncs_and_deletes_generated_app_p
     assert_eq!(res.status(), StatusCode::OK);
     let claude_providers: Value = json_body(res).await;
     assert!(claude_providers.get("universal-claude-newapi").is_none());
+}
+
+#[tokio::test]
+#[serial]
+async fn claude_desktop_web_api_exposes_status_routes_and_import() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let claude_provider = Provider::with_id(
+        "claude-import-source".to_string(),
+        "Claude Import Source".to_string(),
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+                "ANTHROPIC_AUTH_TOKEN": "test-token",
+                "ANTHROPIC_MODEL": "claude-sonnet-4"
+            }
+        }),
+        None,
+    );
+    let app = make_app_with_claude_provider("password", "csrf-token", claude_provider);
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::GET,
+            "/api/providers/claude-desktop/default-routes",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let routes: Value = json_body(res).await;
+    assert_eq!(routes[0]["routeId"], json!("claude-sonnet-4-6"));
+
+    let res = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/providers/claude-desktop/status", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let status: Value = json_body(res).await;
+    assert!(status.get("supported").is_some());
+    assert!(status.get("proxyRunning").is_some());
+
+    let res = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/providers/claude-desktop/import-from-claude",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let imported: Value = json_body(res).await;
+    assert_eq!(imported, json!(1));
+
+    let res = dispatch(
+        app,
+        request(Method::GET, "/api/providers/claude-desktop", None),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let providers: Value = json_body(res).await;
+    assert_eq!(
+        providers["claude-import-source"]["meta"]["claudeDesktopMode"],
+        json!("direct")
+    );
 }
 
 #[tokio::test]
@@ -1524,6 +1657,9 @@ async fn proxy_request_logs_persist_response_usage_and_cost_to_database() {
         .post(format!("{listen_url}/v1/messages"))
         .json(&json!({
             "model": "claude-sonnet-4-20250514",
+            "metadata": {
+                "sessionId": "proxy-session-1"
+            },
             "messages": []
         }))
         .send()
@@ -1543,6 +1679,7 @@ async fn proxy_request_logs_persist_response_usage_and_cost_to_database() {
         log.request_model.as_deref(),
         Some("claude-sonnet-4-20250514")
     );
+    assert_eq!(log.session_id.as_deref(), Some("proxy-session-1"));
     assert_eq!(log.input_tokens, 1000);
     assert_eq!(log.output_tokens, 500);
     assert_eq!(log.cache_read_tokens, 100);

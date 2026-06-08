@@ -64,7 +64,14 @@ describe("usage query hooks", () => {
     const range: UsageRangeSelection = { preset: "1d" };
     const { wrapper, queryClient } = createWrapper();
 
-    renderHook(() => useUsageSummary(range, "claude"), { wrapper });
+    renderHook(
+      () =>
+        useUsageSummary(range, "claude", {
+          providerId: "provider-1",
+          model: "sonnet",
+        }),
+      { wrapper },
+    );
     await waitFor(() =>
       expect(usageApiMocks.getUsageSummary).toHaveBeenCalledTimes(1),
     );
@@ -77,6 +84,10 @@ describe("usage query hooks", () => {
     expect(usageApiMocks.getUsageSummary.mock.calls[1][1]).toBe(
       firstEnd + 300_000,
     );
+    expect(usageApiMocks.getUsageSummary.mock.calls[1][3]).toEqual({
+      providerId: "provider-1",
+      model: "sonnet",
+    });
   });
 
   it("recomputes request log ranges when a query refetches", async () => {

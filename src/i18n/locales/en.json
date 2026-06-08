@@ -216,6 +216,13 @@
     "wslDefaultDistro": "Ubuntu",
     "wslTemplateUserPlaceholder": "your-username",
     "wslTemplateApplied": "Filled WSL template paths for {{distro}}. Save settings to apply.",
+    "network": {
+      "title": "Network",
+      "description": "GitHub is used by default. Configure a mirror only when repository downloads are unstable.",
+      "githubMirrorBaseUrl": "GitHub mirror base URL",
+      "useOrigin": "Use GitHub",
+      "githubMirrorHint": "Applied to GitHub ZIP archive downloads such as Skills repositories. Leave empty to use github.com directly."
+    },
     "checkForUpdates": "Check for Updates",
     "updateTo": "Update to v{{version}}",
     "updating": "Updating...",

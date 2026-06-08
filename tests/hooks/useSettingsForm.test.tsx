@@ -60,6 +60,7 @@ describe("useSettingsForm Hook", () => {
     expect(settings.enableClaudePluginIntegration).toBe(false);
     expect(settings.claudeConfigDir).toBe("/Users/demo");
     expect(settings.codexConfigDir).toBeUndefined();
+    expect(settings.network).toEqual({ githubMirrorBaseUrl: "" });
     expect(settings.language).toBe("en");
     expect(result.current.initialLanguage).toBe("en");
     expect(changeLanguageSpy).toHaveBeenCalledWith("en");
@@ -109,6 +110,53 @@ describe("useSettingsForm Hook", () => {
           enabled: false,
         },
       },
+    });
+  });
+
+  it("should normalize network mirror settings", async () => {
+    useSettingsQueryMock.mockReturnValue({
+      data: {
+        showInTray: true,
+        minimizeToTrayOnClose: true,
+        enableClaudePluginIntegration: false,
+        language: "zh",
+        network: {
+          githubMirrorBaseUrl: " https://ghproxy.net/ ",
+        },
+      },
+      isLoading: false,
+    });
+
+    const { result } = renderHook(() => useSettingsForm());
+
+    await waitFor(() => {
+      expect(result.current.settings?.network).toBeDefined();
+    });
+
+    expect(result.current.settings?.network).toEqual({
+      githubMirrorBaseUrl: "https://ghproxy.net/",
+    });
+  });
+
+  it("should fill default network settings when network is missing", async () => {
+    useSettingsQueryMock.mockReturnValue({
+      data: {
+        showInTray: true,
+        minimizeToTrayOnClose: true,
+        enableClaudePluginIntegration: false,
+        language: "zh",
+      },
+      isLoading: false,
+    });
+
+    const { result } = renderHook(() => useSettingsForm());
+
+    await waitFor(() => {
+      expect(result.current.settings?.network).toBeDefined();
+    });
+
+    expect(result.current.settings?.network).toEqual({
+      githubMirrorBaseUrl: "",
     });
   });
 

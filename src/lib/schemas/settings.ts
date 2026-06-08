@@ -39,6 +39,25 @@ const webDavSchema = z.object({
   profile: z.string().trim().min(1).default("default"),
 });
 
+const networkSchema = z.object({
+  githubMirrorBaseUrl: z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        if (!value) return true;
+        try {
+          const url = new URL(value);
+          return url.protocol === "http:" || url.protocol === "https:";
+        } catch {
+          return false;
+        }
+      },
+      { message: "GitHub 镜像地址必须是 http(s) URL" },
+    )
+    .default(""),
+});
+
 export const settingsSchema = z.object({
   showInTray: z.boolean(),
   minimizeToTrayOnClose: z.boolean(),
@@ -51,13 +70,20 @@ export const settingsSchema = z.object({
   customEndpointsClaude: z.record(z.string(), z.unknown()).optional(),
   customEndpointsCodex: z.record(z.string(), z.unknown()).optional(),
   webDav: webDavSchema.optional(),
+  network: networkSchema.optional(),
   proxy: z
     .object({
       enabled: z.boolean(),
       host: z.string().trim().min(1),
       port: z.number().int().min(1).max(65535),
       upstreamProxy: z.string().trim().optional().or(z.literal("")),
-      bindApp: z.enum(["claude", "codex", "gemini", "opencode"]),
+      bindApp: z.enum([
+        "claude",
+        "claude-desktop",
+        "codex",
+        "gemini",
+        "opencode",
+      ]),
       autoStart: z.boolean(),
       enableLogging: z.boolean().default(false),
       liveTakeoverActive: z.boolean().default(false),

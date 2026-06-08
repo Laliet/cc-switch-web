@@ -5,6 +5,7 @@ import type {
   AppTypeFilter,
   LogFilters,
   ModelPricing,
+  UsageStatsFilters,
   UsageRangeSelection,
 } from "@/types/usage";
 
@@ -13,18 +14,35 @@ const effectiveApp = (appType?: AppTypeFilter) =>
 
 const usageBaseKey = ["usage"] as const;
 
+const normalizeStatsFilters = (filters?: UsageStatsFilters) => ({
+  providerId: filters?.providerId?.trim() || undefined,
+  model: filters?.model?.trim() || undefined,
+});
+
 export const usageKeys = {
   all: usageBaseKey,
-  summary: (range: UsageRangeSelection, appType?: AppTypeFilter) =>
-    [...usageBaseKey, "summary", range, appType] as const,
+  summary: (
+    range: UsageRangeSelection,
+    appType?: AppTypeFilter,
+    filters?: UsageStatsFilters,
+  ) => [...usageBaseKey, "summary", range, appType, filters] as const,
   summaryByApp: (range: UsageRangeSelection) =>
     [...usageBaseKey, "summary-by-app", range] as const,
-  trends: (range: UsageRangeSelection, appType?: AppTypeFilter) =>
-    [...usageBaseKey, "trends", range, appType] as const,
-  providers: (range: UsageRangeSelection, appType?: AppTypeFilter) =>
-    [...usageBaseKey, "providers", range, appType] as const,
-  models: (range: UsageRangeSelection, appType?: AppTypeFilter) =>
-    [...usageBaseKey, "models", range, appType] as const,
+  trends: (
+    range: UsageRangeSelection,
+    appType?: AppTypeFilter,
+    filters?: UsageStatsFilters,
+  ) => [...usageBaseKey, "trends", range, appType, filters] as const,
+  providers: (
+    range: UsageRangeSelection,
+    appType?: AppTypeFilter,
+    filters?: UsageStatsFilters,
+  ) => [...usageBaseKey, "providers", range, appType, filters] as const,
+  models: (
+    range: UsageRangeSelection,
+    appType?: AppTypeFilter,
+    filters?: UsageStatsFilters,
+  ) => [...usageBaseKey, "models", range, appType, filters] as const,
   logs: (
     range: UsageRangeSelection,
     filters: LogFilters,
@@ -42,16 +60,19 @@ export const usageKeys = {
 export function useUsageSummary(
   range: UsageRangeSelection,
   appType?: AppTypeFilter,
+  filters?: UsageStatsFilters,
   refreshIntervalMs = 0,
 ) {
+  const statsFilters = normalizeStatsFilters(filters);
   return useQuery({
-    queryKey: usageKeys.summary(range, appType),
+    queryKey: usageKeys.summary(range, appType, statsFilters),
     queryFn: () => {
       const resolved = resolveUsageRange(range);
       return usageApi.getUsageSummary(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
+        statsFilters,
       );
     },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
@@ -78,16 +99,19 @@ export function useUsageSummaryByApp(
 export function useUsageTrends(
   range: UsageRangeSelection,
   appType?: AppTypeFilter,
+  filters?: UsageStatsFilters,
   refreshIntervalMs = 0,
 ) {
+  const statsFilters = normalizeStatsFilters(filters);
   return useQuery({
-    queryKey: usageKeys.trends(range, appType),
+    queryKey: usageKeys.trends(range, appType, statsFilters),
     queryFn: () => {
       const resolved = resolveUsageRange(range);
       return usageApi.getUsageTrends(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
+        statsFilters,
       );
     },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
@@ -97,16 +121,19 @@ export function useUsageTrends(
 export function useProviderStats(
   range: UsageRangeSelection,
   appType?: AppTypeFilter,
+  filters?: UsageStatsFilters,
   refreshIntervalMs = 0,
 ) {
+  const statsFilters = normalizeStatsFilters(filters);
   return useQuery({
-    queryKey: usageKeys.providers(range, appType),
+    queryKey: usageKeys.providers(range, appType, statsFilters),
     queryFn: () => {
       const resolved = resolveUsageRange(range);
       return usageApi.getProviderStats(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
+        statsFilters,
       );
     },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
@@ -116,16 +143,19 @@ export function useProviderStats(
 export function useModelStats(
   range: UsageRangeSelection,
   appType?: AppTypeFilter,
+  filters?: UsageStatsFilters,
   refreshIntervalMs = 0,
 ) {
+  const statsFilters = normalizeStatsFilters(filters);
   return useQuery({
-    queryKey: usageKeys.models(range, appType),
+    queryKey: usageKeys.models(range, appType, statsFilters),
     queryFn: () => {
       const resolved = resolveUsageRange(range);
       return usageApi.getModelStats(
         resolved.startDate,
         resolved.endDate,
         effectiveApp(appType),
+        statsFilters,
       );
     },
     refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,

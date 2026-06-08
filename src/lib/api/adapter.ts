@@ -894,6 +894,21 @@ export function commandToEndpoint(
         },
       };
     }
+    case "get_claude_desktop_default_routes":
+      return {
+        method: "GET",
+        url: `${apiBase}/providers/claude-desktop/default-routes`,
+      };
+    case "get_claude_desktop_status":
+      return {
+        method: "GET",
+        url: `${apiBase}/providers/claude-desktop/status`,
+      };
+    case "import_claude_desktop_providers_from_claude":
+      return {
+        method: "POST",
+        url: `${apiBase}/providers/claude-desktop/import-from-claude`,
+      };
 
     // MCP commands
     case "get_claude_mcp_status":
@@ -1218,6 +1233,8 @@ export function commandToEndpoint(
           startDate: args.startDate,
           endDate: args.endDate,
           appType: args.appType,
+          providerId: args.providerId,
+          model: args.model,
         })}`,
       };
     case "get_usage_summary_by_app":
@@ -1235,6 +1252,8 @@ export function commandToEndpoint(
           startDate: args.startDate,
           endDate: args.endDate,
           appType: args.appType,
+          providerId: args.providerId,
+          model: args.model,
         })}`,
       };
     case "get_provider_stats":
@@ -1244,6 +1263,8 @@ export function commandToEndpoint(
           startDate: args.startDate,
           endDate: args.endDate,
           appType: args.appType,
+          providerId: args.providerId,
+          model: args.model,
         })}`,
       };
     case "get_model_stats":
@@ -1253,6 +1274,8 @@ export function commandToEndpoint(
           startDate: args.startDate,
           endDate: args.endDate,
           appType: args.appType,
+          providerId: args.providerId,
+          model: args.model,
         })}`,
       };
     case "get_request_logs":

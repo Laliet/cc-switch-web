@@ -968,6 +968,44 @@ describe("commandToEndpoint", () => {
           body: { timeoutSecs: 45 },
         },
       },
+      {
+        cmd: "get_usage_summary",
+        args: {
+          startDate: 1,
+          endDate: 2,
+          appType: "claude",
+          providerId: "provider/1",
+          model: "claude-sonnet-4",
+        },
+        expected: {
+          method: "GET",
+          url: "/api/usage/summary?startDate=1&endDate=2&appType=claude&providerId=provider%2F1&model=claude-sonnet-4",
+        },
+      },
+      {
+        cmd: "get_claude_desktop_default_routes",
+        args: {},
+        expected: {
+          method: "GET",
+          url: "/api/providers/claude-desktop/default-routes",
+        },
+      },
+      {
+        cmd: "get_claude_desktop_status",
+        args: {},
+        expected: {
+          method: "GET",
+          url: "/api/providers/claude-desktop/status",
+        },
+      },
+      {
+        cmd: "import_claude_desktop_providers_from_claude",
+        args: {},
+        expected: {
+          method: "POST",
+          url: "/api/providers/claude-desktop/import-from-claude",
+        },
+      },
     ];
 
     for (const testCase of cases) {

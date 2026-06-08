@@ -84,4 +84,31 @@ describe("usageApi", () => {
     expect(response).toEqual({ success: false, error: "boom" });
     expect(i18nMocks.t).not.toHaveBeenCalled();
   });
+
+  it("passes stats filters to usage summary invoke", async () => {
+    adapterMocks.invoke.mockResolvedValueOnce({
+      totalRequests: 0,
+      totalCost: "0",
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheCreationTokens: 0,
+      totalCacheReadTokens: 0,
+      successRate: 0,
+      realTotalTokens: 0,
+      cacheHitRate: 0,
+    });
+
+    await usageApi.getUsageSummary(1, 2, "claude", {
+      providerId: "provider-1",
+      model: "claude-sonnet-4",
+    });
+
+    expect(adapterMocks.invoke).toHaveBeenCalledWith("get_usage_summary", {
+      startDate: 1,
+      endDate: 2,
+      appType: "claude",
+      providerId: "provider-1",
+      model: "claude-sonnet-4",
+    });
+  });
 });

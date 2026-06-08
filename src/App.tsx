@@ -38,6 +38,7 @@ import {
   isUsageApp,
 } from "@/config/apps";
 import { ProviderList } from "@/components/providers/ProviderList";
+import { ClaudeDesktopPanel } from "@/components/providers/ClaudeDesktopPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
@@ -726,6 +727,9 @@ function AppContent() {
 
       <main className="flex-1 overflow-y-scroll">
         <div className="mx-auto max-w-4xl px-6 py-6">
+          {activeApp === "claude-desktop" ? (
+            <ClaudeDesktopPanel onProvidersChanged={handleImportSuccess} />
+          ) : null}
           <ProviderList
             providers={providers}
             currentProviderId={currentProviderId}

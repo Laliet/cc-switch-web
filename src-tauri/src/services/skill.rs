@@ -10,10 +10,12 @@ use std::io::{ErrorKind, Read};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tokio::time::timeout;
+use url::Url;
 
 use crate::app_config::AppType;
 use crate::config::{get_app_config_dir, get_home_dir, write_json_file};
 use crate::error::format_skill_error;
+use crate::settings;
 
 const MAX_SKILL_SCAN_DEPTH: usize = 32;
 const DEFAULT_SKILL_CACHE_TTL_SECS: u64 = 0;
@@ -206,6 +208,7 @@ pub struct SkillService {
     http_client: Client,
     install_dir: PathBuf,
     app: AppType,
+    github_mirror_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -274,7 +277,51 @@ impl SkillService {
             http_client,
             install_dir,
             app: app.clone(),
+            github_mirror_base_url: Self::configured_github_mirror_base_url(),
         })
+    }
+
+    fn configured_github_mirror_base_url() -> Option<String> {
+        let raw = settings::get_settings().network.github_mirror_base_url;
+        Self::normalize_github_mirror_base_url(&raw)
+    }
+
+    fn normalize_github_mirror_base_url(raw: &str) -> Option<String> {
+        let trimmed = raw.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let Ok(url) = Url::parse(trimmed) else {
+            log::warn!("GitHub 镜像地址无效，已忽略: {trimmed}");
+            return None;
+        };
+        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+            log::warn!("GitHub 镜像地址必须是 http(s) URL，已忽略: {trimmed}");
+            return None;
+        }
+
+        Some(trimmed.to_string())
+    }
+
+    fn github_archive_url(owner: &str, name: &str, branch: &str) -> String {
+        format!("https://github.com/{owner}/{name}/archive/refs/heads/{branch}.zip")
+    }
+
+    fn mirrored_github_archive_url(&self, owner: &str, name: &str, branch: &str) -> String {
+        let url = Self::github_archive_url(owner, name, branch);
+        match self.github_mirror_base_url.as_deref() {
+            Some(mirror) => format!("{mirror}/{url}"),
+            None => url,
+        }
+    }
+
+    fn github_download_hint(&self) -> &'static str {
+        if self.github_mirror_base_url.is_some() {
+            "当前已配置 GitHub 镜像，请确认镜像地址可访问或临时切回 GitHub 原站。"
+        } else {
+            "中国大陆网络如访问 GitHub 不稳定，可在设置 > 高级 > 网络中配置 GitHub 镜像。"
+        }
     }
 
     fn get_install_dir_for_app(app: &AppType) -> Result<PathBuf> {
@@ -1344,10 +1391,7 @@ impl SkillService {
         let mut last_error = None;
         for branch in branches {
             let temp_dir = tempfile::tempdir()?;
-            let url = format!(
-                "https://github.com/{}/{}/archive/refs/heads/{}.zip",
-                repo.owner, repo.name, branch
-            );
+            let url = self.mirrored_github_archive_url(&repo.owner, &repo.name, branch);
 
             match self
                 .download_and_extract(&url, temp_dir.path(), cache_headers)
@@ -1373,7 +1417,11 @@ impl SkillService {
             };
         }
 
-        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("所有分支下载失败")))
+        let hint = self.github_download_hint();
+        match last_error {
+            Some(error) => Err(anyhow::anyhow!("{error}\n{hint}")),
+            None => Err(anyhow::anyhow!("所有分支下载失败\n{hint}")),
+        }
     }
 
     /// 下载并解压 ZIP
@@ -1899,6 +1947,7 @@ mod tests {
                 .expect("client build should succeed"),
             install_dir: dir,
             app: AppType::Claude,
+            github_mirror_base_url: None,
         }
     }
 
@@ -1938,6 +1987,36 @@ mod tests {
             .expect("default anthropics skills repo should exist");
 
         assert_eq!(repo.skills_path.as_deref(), Some("skills"));
+    }
+
+    #[test]
+    fn test_github_archive_url_uses_origin_by_default() {
+        assert_eq!(
+            SkillService::github_archive_url("owner", "repo", "main"),
+            "https://github.com/owner/repo/archive/refs/heads/main.zip"
+        );
+    }
+
+    #[test]
+    fn test_mirrored_github_archive_url_prefixes_origin_url() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let mut service = build_service_with_install_dir(temp_dir.path().to_path_buf());
+        service.github_mirror_base_url = Some("https://ghproxy.net".to_string());
+
+        assert_eq!(
+            service.mirrored_github_archive_url("owner", "repo", "dev"),
+            "https://ghproxy.net/https://github.com/owner/repo/archive/refs/heads/dev.zip"
+        );
+    }
+
+    #[test]
+    fn test_normalize_github_mirror_base_url_requires_http_url() {
+        assert_eq!(
+            SkillService::normalize_github_mirror_base_url(" https://ghproxy.net/ ").as_deref(),
+            Some("https://ghproxy.net")
+        );
+        assert!(SkillService::normalize_github_mirror_base_url("ghproxy.net").is_none());
+        assert!(SkillService::normalize_github_mirror_base_url("file:///tmp/mirror").is_none());
     }
 
     #[test]

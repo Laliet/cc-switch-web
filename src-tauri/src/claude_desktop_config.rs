@@ -10,7 +10,8 @@ use crate::config::get_home_dir;
 use crate::config::{atomic_write, delete_file, read_json_file, write_json_file};
 use crate::database::{Database, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID};
 use crate::error::AppError;
-use crate::provider::{ClaudeDesktopMode, Provider};
+use crate::provider::{ClaudeDesktopMode, Provider, ProviderMeta};
+use crate::store::AppState;
 
 pub const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
 pub const PROFILE_NAME: &str = "CC Switch";
@@ -229,6 +230,96 @@ pub fn default_proxy_routes() -> Vec<ClaudeDesktopDefaultRoute> {
     DEFAULT_PROXY_ROUTES.to_vec()
 }
 
+pub fn import_providers_from_claude(state: &AppState) -> Result<usize, AppError> {
+    let mut imported = 0usize;
+    state.update_config(|config| {
+        let claude_providers = config
+            .get_manager(&crate::app_config::AppType::Claude)
+            .map(|manager| manager.providers.clone())
+            .unwrap_or_default();
+        let desktop_manager = config
+            .get_manager_mut(&crate::app_config::AppType::ClaudeDesktop)
+            .ok_or_else(|| {
+                AppError::localized(
+                    "provider.app.not_found",
+                    "应用配置不存在: claude-desktop",
+                    "App configuration not found: claude-desktop",
+                )
+            })?;
+
+        ensure_official_provider(desktop_manager);
+        for provider in claude_providers.values() {
+            if desktop_manager.providers.contains_key(&provider.id) {
+                continue;
+            }
+
+            let mut desktop_provider = provider.clone();
+            let meta = desktop_provider
+                .meta
+                .get_or_insert_with(ProviderMeta::default);
+            if is_compatible_direct_provider(provider)
+                && claude_provider_models_are_claude_safe(provider)
+            {
+                meta.claude_desktop_mode = Some(ClaudeDesktopMode::Direct);
+            } else if let Some(routes) = suggested_routes_from_claude_provider(provider) {
+                meta.claude_desktop_mode = Some(ClaudeDesktopMode::Proxy);
+                meta.claude_desktop_model_routes = routes;
+            } else {
+                continue;
+            }
+
+            desktop_manager
+                .providers
+                .insert(desktop_provider.id.clone(), desktop_provider);
+            imported += 1;
+        }
+
+        if desktop_manager.current.is_empty() {
+            desktop_manager.current = CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string();
+        }
+        Ok(())
+    })?;
+    Ok(imported)
+}
+
+fn ensure_official_provider(manager: &mut crate::provider::ProviderManager) {
+    manager
+        .providers
+        .entry(CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string())
+        .or_insert_with(|| {
+            let mut provider = Provider::with_id(
+                CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID.to_string(),
+                "Claude Desktop Official".to_string(),
+                json!({"env": {}}),
+                Some("https://claude.ai/download".to_string()),
+            );
+            provider.category = Some("official".to_string());
+            provider
+        });
+}
+
+fn claude_provider_models_are_claude_safe(provider: &Provider) -> bool {
+    let Some(env) = provider
+        .settings_config
+        .get("env")
+        .and_then(Value::as_object)
+    else {
+        return true;
+    };
+
+    [
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    ]
+    .into_iter()
+    .filter_map(|key| env.get(key).and_then(Value::as_str))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .all(is_claude_safe_model_id)
+}
+
 pub fn is_compatible_direct_provider(provider: &Provider) -> bool {
     validate_direct_provider(provider).is_ok()
 }
@@ -279,7 +370,25 @@ pub fn direct_gateway_credentials(
         })?;
 
     let base_url = required_env(env, "ANTHROPIC_BASE_URL", "ANTHROPIC_BASE_URL")?;
-    let api_key = required_env(env, "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN")?;
+    let preferred_key = match provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.api_key_field.as_deref())
+        .map(str::trim)
+    {
+        Some("ANTHROPIC_API_KEY") => "ANTHROPIC_API_KEY",
+        _ => "ANTHROPIC_AUTH_TOKEN",
+    };
+    let fallback_key = if preferred_key == "ANTHROPIC_API_KEY" {
+        "ANTHROPIC_AUTH_TOKEN"
+    } else {
+        "ANTHROPIC_API_KEY"
+    };
+    let api_key = required_env_any(
+        env,
+        &[preferred_key, fallback_key],
+        "ANTHROPIC_AUTH_TOKEN 或 ANTHROPIC_API_KEY",
+    )?;
     Ok(DirectGatewayCredentials { base_url, api_key })
 }
 
@@ -288,18 +397,30 @@ fn required_env(
     key: &str,
     label: &str,
 ) -> Result<String, AppError> {
-    env.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            AppError::localized(
-                "claude_desktop.provider.env_key_missing",
-                format!("Claude Desktop 供应商缺少 {label}"),
-                format!("Claude Desktop provider is missing {label}"),
-            )
-        })
+    required_env_any(env, &[key], label)
+}
+
+fn required_env_any(
+    env: &serde_json::Map<String, Value>,
+    keys: &[&str],
+    label: &str,
+) -> Result<String, AppError> {
+    for key in keys {
+        if let Some(value) = env
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(value.to_string());
+        }
+    }
+
+    Err(AppError::localized(
+        "claude_desktop.provider.env_key_missing",
+        format!("Claude Desktop 供应商缺少 {label}"),
+        format!("Claude Desktop provider is missing {label}"),
+    ))
 }
 
 pub fn validate_provider(provider: &Provider) -> Result<(), AppError> {
@@ -634,7 +755,94 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
             )
         })?;
     body["model"] = json!(route.upstream_model);
+    if uses_openai_compatible_api(provider) {
+        map_openai_compatible_tool_choice(&mut body)?;
+    }
     Ok(body)
+}
+
+fn uses_openai_compatible_api(provider: &Provider) -> bool {
+    matches!(
+        provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.api_format.as_deref())
+            .map(str::trim),
+        Some("openai_chat" | "openai_responses")
+    )
+}
+
+fn map_openai_compatible_tool_choice(body: &mut Value) -> Result<(), AppError> {
+    let Some(tool_choice) = body.get_mut("tool_choice") else {
+        return Ok(());
+    };
+
+    match tool_choice {
+        Value::String(choice) if choice == "any" => {
+            *tool_choice = json!("required");
+            Ok(())
+        }
+        Value::String(choice)
+            if matches!(
+                choice.as_str(),
+                "auto" | "none" | "required" | "required_auto"
+            ) =>
+        {
+            Ok(())
+        }
+        Value::Object(choice) => {
+            let choice_type = choice
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            match choice_type {
+                "auto" => {
+                    *tool_choice = json!("auto");
+                    Ok(())
+                }
+                "none" => {
+                    *tool_choice = json!("none");
+                    Ok(())
+                }
+                "any" => {
+                    *tool_choice = json!("required");
+                    Ok(())
+                }
+                "tool" => {
+                    let name = choice
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            AppError::localized(
+                                "claude_desktop.provider.tool_choice_name_missing",
+                                "Claude Desktop tool_choice 指定工具时缺少 name",
+                                "Claude Desktop tool_choice is missing name for a forced tool",
+                            )
+                        })?;
+                    *tool_choice = json!({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                        },
+                    });
+                    Ok(())
+                }
+                _ => Err(AppError::localized(
+                    "claude_desktop.provider.tool_choice_unsupported",
+                    format!("Claude Desktop 本地路由暂不支持 tool_choice 类型: {choice_type}"),
+                    format!("Claude Desktop proxy mode does not support tool_choice type: {choice_type}"),
+                )),
+            }
+        }
+        _ => Err(AppError::localized(
+            "claude_desktop.provider.tool_choice_invalid",
+            "Claude Desktop tool_choice 格式无效",
+            "Claude Desktop tool_choice has an invalid shape",
+        )),
+    }
 }
 
 pub fn proxy_gateway_base_url_from_db(db: &Database) -> Result<String, AppError> {
@@ -1170,6 +1378,13 @@ mod tests {
     }
 
     fn proxy_provider(routes: HashMap<String, ClaudeDesktopModelRoute>) -> Provider {
+        proxy_provider_with_api_format(routes, None)
+    }
+
+    fn proxy_provider_with_api_format(
+        routes: HashMap<String, ClaudeDesktopModelRoute>,
+        api_format: Option<&str>,
+    ) -> Provider {
         provider_with_meta(
             json!({
                 "env": {
@@ -1180,6 +1395,7 @@ mod tests {
             ProviderMeta {
                 claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
                 claude_desktop_model_routes: routes,
+                api_format: api_format.map(str::to_string),
                 ..ProviderMeta::default()
             },
         )
@@ -1227,6 +1443,28 @@ mod tests {
     }
 
     #[test]
+    fn direct_gateway_credentials_accepts_configured_api_key_field() {
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.example.com",
+                    "ANTHROPIC_API_KEY": "sk-api-key"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Direct),
+                api_key_field: Some("ANTHROPIC_API_KEY".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let credentials = direct_gateway_credentials(&provider).expect("credentials");
+
+        assert_eq!(credentials.base_url, "https://api.example.com");
+        assert_eq!(credentials.api_key, "sk-api-key");
+    }
+
+    #[test]
     fn proxy_request_model_is_remapped_to_upstream_model() {
         let provider = proxy_provider(HashMap::from([(
             "claude-haiku-4-5".to_string(),
@@ -1248,6 +1486,91 @@ mod tests {
 
         assert_eq!(body["model"], "deepseek-v3.1");
         assert_eq!(body["messages"][0]["content"], "hi");
+    }
+
+    #[test]
+    fn openai_proxy_request_maps_anthropic_tool_choice_variants() {
+        let routes = HashMap::from([(
+            "claude-haiku-4-5".to_string(),
+            ClaudeDesktopModelRoute {
+                model: "gpt-4.1".to_string(),
+                label_override: None,
+                supports_1m: Some(false),
+            },
+        )]);
+        let provider = proxy_provider_with_api_format(routes, Some("openai_chat"));
+
+        let mapped_auto = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {"type": "auto"}
+            }),
+            &provider,
+        )
+        .expect("mapped auto");
+        let mapped_any = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {"type": "any"}
+            }),
+            &provider,
+        )
+        .expect("mapped any");
+        let mapped_none = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {"type": "none"}
+            }),
+            &provider,
+        )
+        .expect("mapped none");
+        let mapped_tool = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {"type": "tool", "name": "lookup_price"}
+            }),
+            &provider,
+        )
+        .expect("mapped forced tool");
+
+        assert_eq!(mapped_auto["tool_choice"], "auto");
+        assert_eq!(mapped_any["tool_choice"], "required");
+        assert_eq!(mapped_none["tool_choice"], "none");
+        assert_eq!(
+            mapped_tool["tool_choice"],
+            json!({
+                "type": "function",
+                "function": {
+                    "name": "lookup_price"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn anthropic_proxy_request_preserves_tool_choice_shape() {
+        let provider = proxy_provider(HashMap::from([(
+            "claude-haiku-4-5".to_string(),
+            ClaudeDesktopModelRoute {
+                model: "claude-3-5-haiku-latest".to_string(),
+                label_override: None,
+                supports_1m: Some(false),
+            },
+        )]));
+
+        let body = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {"type": "tool", "name": "lookup_price"}
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(
+            body["tool_choice"],
+            json!({"type": "tool", "name": "lookup_price"})
+        );
     }
 
     #[test]

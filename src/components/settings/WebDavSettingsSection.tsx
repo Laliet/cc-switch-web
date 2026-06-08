@@ -1,12 +1,17 @@
 import { useState } from "react";
 import { Download, Eye, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { settingsApi } from "@/lib/api";
-import type { WebDavSettings, WebDavSnapshotPreview } from "@/types";
+import type {
+  WebDavSettings,
+  WebDavSnapshotPreview,
+  WebDavSyncResult,
+} from "@/types";
 
 interface WebDavSettingsSectionProps {
   value?: WebDavSettings;
@@ -30,6 +35,8 @@ export function WebDavSettingsSection({
     "upload" | "preview" | "download" | null
   >(null);
   const [preview, setPreview] = useState<WebDavSnapshotPreview | null>(null);
+  const [lastResult, setLastResult] = useState<WebDavSyncResult | null>(null);
+  const [confirmDownload, setConfirmDownload] = useState(false);
   const settings = { ...DEFAULT_WEBDAV_SETTINGS, ...(value ?? {}) };
 
   const update = (patch: Partial<WebDavSettings>) => {
@@ -45,10 +52,7 @@ export function WebDavSettingsSection({
     try {
       await task();
     } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "WebDAV sync failed";
+      const message = friendlyWebDavError(error);
       toast.error(message);
     } finally {
       setBusyAction(null);
@@ -59,6 +63,7 @@ export function WebDavSettingsSection({
     runAction("upload", async () => {
       const result = await settingsApi.uploadWebDavSnapshot(settings);
       setPreview(result.preview ?? null);
+      setLastResult(result);
       toast.success(result.message || "Snapshot uploaded");
     });
 
@@ -66,6 +71,7 @@ export function WebDavSettingsSection({
     runAction("preview", async () => {
       const result = await settingsApi.previewWebDavSnapshot(settings);
       setPreview(result);
+      setLastResult(null);
       toast.success(
         result.exists ? "Remote snapshot loaded" : "Remote snapshot not found",
       );
@@ -75,6 +81,7 @@ export function WebDavSettingsSection({
     runAction("download", async () => {
       const result = await settingsApi.downloadWebDavSnapshot(settings);
       setPreview(result.preview ?? null);
+      setLastResult(result);
       toast.success(result.message || "Snapshot downloaded");
     });
 
@@ -161,13 +168,24 @@ export function WebDavSettingsSection({
         <Button
           type="button"
           variant="outline"
-          onClick={handleDownload}
+          onClick={() => setConfirmDownload(true)}
           disabled={!settings.enabled || busyAction !== null}
         >
           <Download className="mr-2 h-4 w-4" />
           {busyAction === "download" ? "Downloading..." : "Download"}
         </Button>
       </div>
+
+      {lastResult?.backupId ? (
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
+          <div className="font-medium text-emerald-700 dark:text-emerald-300">
+            Local backup created before applying remote snapshot
+          </div>
+          <p className="mt-1 break-all text-muted-foreground">
+            Backup ID: {lastResult.backupId}
+          </p>
+        </div>
+      ) : null}
 
       {preview ? (
         <div className="rounded-md border border-border-default p-3 text-xs">
@@ -187,6 +205,12 @@ export function WebDavSettingsSection({
             <p className="break-all">{preview.remotePath}</p>
             {preview.modifiedAt ? <p>Modified: {preview.modifiedAt}</p> : null}
             {preview.sizeBytes ? <p>Size: {preview.sizeBytes} bytes</p> : null}
+            {preview.configVersion ? (
+              <p>Config version: {preview.configVersion}</p>
+            ) : null}
+            {preview.schemaVersion ? (
+              <p>Schema version: {preview.schemaVersion}</p>
+            ) : null}
             {preview.artifactList.length ? (
               <p>Artifacts: {preview.artifactList.join(", ")}</p>
             ) : null}
@@ -198,8 +222,47 @@ export function WebDavSettingsSection({
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        isOpen={confirmDownload}
+        title="Download WebDAV snapshot?"
+        message={
+          preview?.exists
+            ? `The remote snapshot will replace local provider configuration.\n\n${preview.remotePath}\n\nA local backup will be created before import.`
+            : "The remote snapshot will replace local provider configuration. A local backup will be created before import."
+        }
+        confirmText="Download"
+        onConfirm={() => {
+          setConfirmDownload(false);
+          handleDownload();
+        }}
+        onCancel={() => setConfirmDownload(false)}
+      />
     </section>
   );
+}
+
+function friendlyWebDavError(error: unknown): string {
+  const raw =
+    error instanceof Error && error.message
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  if (!raw) return "WebDAV sync failed";
+  if (raw.includes("401") || raw.includes("403")) {
+    return "WebDAV authentication failed. Check username, password, and server permissions.";
+  }
+  if (raw.includes("404") || raw.includes("not found")) {
+    return "Remote WebDAV snapshot was not found. Preview the remote path or upload a snapshot first.";
+  }
+  if (raw.includes("timed out") || raw.includes("timeout")) {
+    return "WebDAV request timed out. Check the server address and network connection.";
+  }
+  if (raw.includes("compatible")) {
+    return "Remote WebDAV snapshot is not compatible with this version.";
+  }
+  return raw;
 }
 
 function Field({

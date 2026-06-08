@@ -28,6 +28,7 @@ import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
 import { WebDavSettingsSection } from "@/components/settings/WebDavSettingsSection";
+import { NetworkSettingsSection } from "@/components/settings/NetworkSettingsSection";
 import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
 import { useSettings } from "@/hooks/useSettings";
@@ -355,6 +356,10 @@ export function SettingsDialog({
                     <WebDavSettingsSection
                       value={settings.webDav}
                       onChange={(webDav) => updateSettings({ webDav })}
+                    />
+                    <NetworkSettingsSection
+                      value={settings.network}
+                      onChange={(network) => updateSettings({ network })}
                     />
                     {showWebCredentials ? (
                       <UniversalProvidersSection

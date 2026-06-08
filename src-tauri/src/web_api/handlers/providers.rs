@@ -194,6 +194,29 @@ pub async fn opencode_live_provider_ids(
     Ok(Json(ids))
 }
 
+pub async fn claude_desktop_default_routes(
+    State(_state): State<Arc<AppState>>,
+) -> ApiResult<Vec<crate::claude_desktop_config::ClaudeDesktopDefaultRoute>> {
+    Ok(Json(crate::claude_desktop_config::default_proxy_routes()))
+}
+
+pub async fn claude_desktop_status(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<crate::claude_desktop_config::ClaudeDesktopStatus> {
+    let proxy = crate::proxy::status_for_state(&state).await;
+    let status = crate::claude_desktop_config::get_status(&state.db, proxy.running)
+        .map_err(ApiError::from)?;
+    Ok(Json(status))
+}
+
+pub async fn import_claude_desktop_providers_from_claude(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<usize> {
+    let imported = crate::claude_desktop_config::import_providers_from_claude(&state)
+        .map_err(ApiError::from)?;
+    Ok(Json(imported))
+}
+
 pub async fn update_sort_order(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,

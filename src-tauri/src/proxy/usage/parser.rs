@@ -119,9 +119,15 @@ impl TokenUsage {
         if usage.get("prompt_tokens").is_some() {
             Self::from_openai_response(body)
         } else if usage.get("input_tokens").is_some() {
-            Some(Self {
-                input_tokens: usage.get("input_tokens")?.as_u64()? as u32,
-                output_tokens: usage.get("output_tokens")?.as_u64()? as u32,
+            let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64())? as u32;
+            let output_tokens = usage
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| usage.get("completion_tokens").and_then(|v| v.as_u64()))
+                .unwrap_or(0) as u32;
+            let parsed = Self {
+                input_tokens,
+                output_tokens,
                 cache_read_tokens: usage
                     .get("cache_read_input_tokens")
                     .and_then(|v| v.as_u64())
@@ -141,7 +147,8 @@ impl TokenUsage {
                     .and_then(|v| v.as_str())
                     .map(ToString::to_string),
                 message_id: None,
-            })
+            };
+            parsed.has_tokens().then_some(parsed)
         } else {
             None
         }
@@ -160,21 +167,46 @@ impl TokenUsage {
 
     fn from_openai_response(body: &Value) -> Option<Self> {
         let usage = body.get("usage")?;
-        Some(Self {
-            input_tokens: usage.get("prompt_tokens")?.as_u64()? as u32,
-            output_tokens: usage.get("completion_tokens")?.as_u64()? as u32,
+        let input_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_u64())
+            .or_else(|| usage.get("input_tokens").and_then(|v| v.as_u64()))?
+            as u32;
+        let output_tokens = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .or_else(|| usage.get("output_tokens").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as u32;
+        let parsed = Self {
+            input_tokens,
+            output_tokens,
             cache_read_tokens: usage
                 .get("prompt_tokens_details")
                 .and_then(|d| d.get("cached_tokens"))
                 .and_then(|v| v.as_u64())
+                .or_else(|| {
+                    usage
+                        .get("input_tokens_details")
+                        .and_then(|d| d.get("cached_tokens"))
+                        .and_then(|v| v.as_u64())
+                })
+                .or_else(|| {
+                    usage
+                        .get("cache_read_input_tokens")
+                        .and_then(|v| v.as_u64())
+                })
                 .unwrap_or(0) as u32,
-            cache_creation_tokens: 0,
+            cache_creation_tokens: usage
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
             model: body
                 .get("model")
                 .and_then(|v| v.as_str())
                 .map(ToString::to_string),
             message_id: None,
-        })
+        };
+        parsed.has_tokens().then_some(parsed)
     }
 
     fn from_openai_stream_events(events: &[Value]) -> Option<Self> {
@@ -239,5 +271,39 @@ impl TokenUsage {
             || self.output_tokens > 0
             || self.cache_read_tokens > 0
             || self.cache_creation_tokens > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::TokenUsage;
+
+    #[test]
+    fn parses_openai_responses_usage_with_partial_fields() {
+        let body = json!({
+            "model": "gpt-5.1-codex",
+            "usage": {
+                "input_tokens": 120,
+                "input_tokens_details": { "cached_tokens": 40 }
+            }
+        });
+
+        let usage = TokenUsage::from_response("codex", &body).expect("usage");
+        assert_eq!(usage.input_tokens, 120);
+        assert_eq!(usage.output_tokens, 0);
+        assert_eq!(usage.cache_read_tokens, 40);
+        assert_eq!(usage.model.as_deref(), Some("gpt-5.1-codex"));
+    }
+
+    #[test]
+    fn ignores_null_openai_responses_usage_without_panicking() {
+        let body = json!({
+            "model": "gpt-5.1-codex",
+            "usage": null
+        });
+
+        assert!(TokenUsage::from_response("codex", &body).is_none());
     }
 }

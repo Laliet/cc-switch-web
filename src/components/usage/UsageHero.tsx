@@ -1,20 +1,27 @@
 import { Activity, Coins, Gauge, Zap } from "lucide-react";
 import { useUsageSummary, useUsageSummaryByApp } from "@/lib/query/usage";
-import type { AppTypeFilter, UsageRangeSelection } from "@/types/usage";
+import {
+  usageAppLabel,
+  type AppTypeFilter,
+  type UsageRangeSelection,
+  type UsageStatsFilters,
+} from "@/types/usage";
 import { formatNumber, formatPercent, formatUsd } from "./format";
 
 interface UsageHeroProps {
   range: UsageRangeSelection;
   appType: AppTypeFilter;
+  filters?: UsageStatsFilters;
   refreshIntervalMs: number;
 }
 
 export function UsageHero({
   range,
   appType,
+  filters,
   refreshIntervalMs,
 }: UsageHeroProps) {
-  const summary = useUsageSummary(range, appType, refreshIntervalMs);
+  const summary = useUsageSummary(range, appType, filters, refreshIntervalMs);
   const byApp = useUsageSummaryByApp(range, refreshIntervalMs);
   const data = summary.data;
 
@@ -91,7 +98,8 @@ export function UsageHero({
                 key={item.appType}
                 className="rounded-md border border-border-default bg-muted/40 px-2 py-1 text-xs"
               >
-                {item.appType}: {formatUsd(item.summary.totalCost)}
+                {usageAppLabel(item.appType)}:{" "}
+                {formatUsd(item.summary.totalCost)}
               </span>
             ))}
           </div>

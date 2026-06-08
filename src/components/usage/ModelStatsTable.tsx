@@ -1,5 +1,9 @@
 import { useModelStats } from "@/lib/query/usage";
-import type { AppTypeFilter, UsageRangeSelection } from "@/types/usage";
+import type {
+  AppTypeFilter,
+  UsageRangeSelection,
+  UsageStatsFilters,
+} from "@/types/usage";
 import {
   Table,
   TableBody,
@@ -13,15 +17,17 @@ import { formatNumber, formatUsd } from "./format";
 interface ModelStatsTableProps {
   range: UsageRangeSelection;
   appType: AppTypeFilter;
+  filters?: UsageStatsFilters;
   refreshIntervalMs: number;
 }
 
 export function ModelStatsTable({
   range,
   appType,
+  filters,
   refreshIntervalMs,
 }: ModelStatsTableProps) {
-  const query = useModelStats(range, appType, refreshIntervalMs);
+  const query = useModelStats(range, appType, filters, refreshIntervalMs);
 
   return (
     <div className="rounded-lg border border-border-default bg-card">
@@ -57,7 +63,10 @@ export function ModelStatsTable({
           ))}
           {!query.isLoading && (query.data ?? []).length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground">
+              <TableCell
+                colSpan={5}
+                className="text-center text-muted-foreground"
+              >
                 No model usage yet
               </TableCell>
             </TableRow>

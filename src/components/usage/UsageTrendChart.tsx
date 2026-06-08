@@ -1,20 +1,26 @@
 import { useMemo } from "react";
 import { useUsageTrends } from "@/lib/query/usage";
-import type { AppTypeFilter, UsageRangeSelection } from "@/types/usage";
+import type {
+  AppTypeFilter,
+  UsageRangeSelection,
+  UsageStatsFilters,
+} from "@/types/usage";
 import { compactDate, formatUsd } from "./format";
 
 interface UsageTrendChartProps {
   range: UsageRangeSelection;
   appType: AppTypeFilter;
+  filters?: UsageStatsFilters;
   refreshIntervalMs: number;
 }
 
 export function UsageTrendChart({
   range,
   appType,
+  filters,
   refreshIntervalMs,
 }: UsageTrendChartProps) {
-  const trends = useUsageTrends(range, appType, refreshIntervalMs);
+  const trends = useUsageTrends(range, appType, filters, refreshIntervalMs);
   const maxCost = useMemo(() => {
     return Math.max(
       0,

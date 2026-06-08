@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsageDashboard } from "@/components/usage/UsageDashboard";
-import type { AppTypeFilter, UsageRangeSelection } from "@/types/usage";
+import type {
+  AppTypeFilter,
+  UsageRangeSelection,
+  UsageStatsFilters,
+} from "@/types/usage";
 
 const usageQueryMocks = vi.hoisted(() => ({
   useDataSources: vi.fn(),
@@ -23,34 +27,69 @@ vi.mock("@/components/usage/UsageHero", () => ({
   UsageHero: ({
     range,
     appType,
+    filters,
   }: {
     range: UsageRangeSelection;
     appType: AppTypeFilter;
+    filters?: UsageStatsFilters;
   }) => (
     <div data-testid="usage-hero-range">
       {range.preset}:{appType}:{range.customStartDate ?? ""}:
-      {range.customEndDate ?? ""}
+      {range.customEndDate ?? ""}:{filters?.providerId ?? ""}:
+      {filters?.model ?? ""}
     </div>
   ),
 }));
 vi.mock("@/components/usage/UsageTrendChart", () => ({
-  UsageTrendChart: ({ range }: { range: UsageRangeSelection }) => (
-    <div data-testid="usage-trend-range">{range.preset}</div>
+  UsageTrendChart: ({
+    range,
+    filters,
+  }: {
+    range: UsageRangeSelection;
+    filters?: UsageStatsFilters;
+  }) => (
+    <div data-testid="usage-trend-range">
+      {range.preset}:{filters?.providerId ?? ""}:{filters?.model ?? ""}
+    </div>
   ),
 }));
 vi.mock("@/components/usage/RequestLogTable", () => ({
-  RequestLogTable: ({ range }: { range: UsageRangeSelection }) => (
-    <div data-testid="request-log-range">{range.preset}</div>
+  RequestLogTable: ({
+    range,
+    filters,
+  }: {
+    range: UsageRangeSelection;
+    filters?: UsageStatsFilters;
+  }) => (
+    <div data-testid="request-log-range">
+      {range.preset}:{filters?.providerId ?? ""}:{filters?.model ?? ""}
+    </div>
   ),
 }));
 vi.mock("@/components/usage/ProviderStatsTable", () => ({
-  ProviderStatsTable: ({ range }: { range: UsageRangeSelection }) => (
-    <div data-testid="provider-stats-range">{range.preset}</div>
+  ProviderStatsTable: ({
+    range,
+    filters,
+  }: {
+    range: UsageRangeSelection;
+    filters?: UsageStatsFilters;
+  }) => (
+    <div data-testid="provider-stats-range">
+      {range.preset}:{filters?.providerId ?? ""}:{filters?.model ?? ""}
+    </div>
   ),
 }));
 vi.mock("@/components/usage/ModelStatsTable", () => ({
-  ModelStatsTable: ({ range }: { range: UsageRangeSelection }) => (
-    <div data-testid="model-stats-range">{range.preset}</div>
+  ModelStatsTable: ({
+    range,
+    filters,
+  }: {
+    range: UsageRangeSelection;
+    filters?: UsageStatsFilters;
+  }) => (
+    <div data-testid="model-stats-range">
+      {range.preset}:{filters?.providerId ?? ""}:{filters?.model ?? ""}
+    </div>
   ),
 }));
 vi.mock("@/components/usage/PricingConfigPanel", () => ({

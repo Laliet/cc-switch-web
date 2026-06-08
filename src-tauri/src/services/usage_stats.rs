@@ -79,11 +79,30 @@ pub struct ModelStats {
 #[serde(rename_all = "camelCase")]
 pub struct LogFilters {
     pub app_type: Option<String>,
+    pub provider_id: Option<String>,
     pub provider_name: Option<String>,
     pub model: Option<String>,
     pub status_code: Option<u16>,
     pub start_date: Option<i64>,
     pub end_date: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStatsFilters {
+    pub app_type: Option<String>,
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+}
+
+impl UsageStatsFilters {
+    fn from_app_type(app_type: Option<&str>) -> Self {
+        Self {
+            app_type: app_type.map(str::to_string),
+            provider_id: None,
+            model: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -184,7 +203,7 @@ fn derive_real_total_and_hit_rate(
 fn validate_usage_app(app_type: Option<&str>) -> Result<(), AppError> {
     if let Some(app_type) = app_type {
         match app_type {
-            "claude" | "codex" | "gemini" | "opencode" => Ok(()),
+            "claude" | "claude-desktop" | "codex" | "gemini" | "opencode" => Ok(()),
             _ => Err(AppError::InvalidInput(format!(
                 "Unsupported usage app type: {app_type}"
             ))),
@@ -291,7 +310,7 @@ fn push_common_log_filters(
     alias: &str,
     start_date: Option<i64>,
     end_date: Option<i64>,
-    app_type: Option<&str>,
+    filters: UsageStatsFiltersRef<'_>,
 ) {
     if let Some(start) = start_date {
         conditions.push(format!("{alias}.created_at >= ?"));
@@ -301,10 +320,53 @@ fn push_common_log_filters(
         conditions.push(format!("{alias}.created_at <= ?"));
         params_vec.push(Box::new(end));
     }
-    if let Some(app) = app_type {
+    if let Some(app) = filters.app_type {
         conditions.push(format!("{alias}.app_type = ?"));
         params_vec.push(Box::new(app.to_string()));
     }
+    if let Some(provider_id) = filters.provider_id {
+        conditions.push(format!("{alias}.provider_id = ?"));
+        params_vec.push(Box::new(provider_id.to_string()));
+    }
+    if let Some(model) = filters.model {
+        conditions.push(format!("{alias}.model = ?"));
+        params_vec.push(Box::new(model.to_string()));
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct UsageStatsFiltersRef<'a> {
+    app_type: Option<&'a str>,
+    provider_id: Option<&'a str>,
+    model: Option<&'a str>,
+}
+
+impl<'a> UsageStatsFiltersRef<'a> {
+    fn from_parts(
+        app_type: Option<&'a str>,
+        provider_id: Option<&'a str>,
+        model: Option<&'a str>,
+    ) -> Self {
+        Self {
+            app_type: trim_optional_filter(app_type),
+            provider_id: trim_optional_filter(provider_id),
+            model: trim_optional_filter(model),
+        }
+    }
+}
+
+impl<'a> From<&'a UsageStatsFilters> for UsageStatsFiltersRef<'a> {
+    fn from(filters: &'a UsageStatsFilters) -> Self {
+        Self::from_parts(
+            filters.app_type.as_deref(),
+            filters.provider_id.as_deref(),
+            filters.model.as_deref(),
+        )
+    }
+}
+
+fn trim_optional_filter(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn rollup_date_from_millis(ts: i64) -> Result<String, AppError> {
@@ -321,7 +383,7 @@ fn push_rollup_filters(
     alias: &str,
     start_date: Option<i64>,
     end_date: Option<i64>,
-    app_type: Option<&str>,
+    filters: UsageStatsFiltersRef<'_>,
 ) -> Result<(), AppError> {
     if let Some(start) = start_date {
         conditions.push(format!("{alias}.date >= ?"));
@@ -331,9 +393,17 @@ fn push_rollup_filters(
         conditions.push(format!("{alias}.date <= ?"));
         params_vec.push(Box::new(rollup_date_from_millis(end)?));
     }
-    if let Some(app) = app_type {
+    if let Some(app) = filters.app_type {
         conditions.push(format!("{alias}.app_type = ?"));
         params_vec.push(Box::new(app.to_string()));
+    }
+    if let Some(provider_id) = filters.provider_id {
+        conditions.push(format!("{alias}.provider_id = ?"));
+        params_vec.push(Box::new(provider_id.to_string()));
+    }
+    if let Some(model) = filters.model {
+        conditions.push(format!("{alias}.model = ?"));
+        params_vec.push(Box::new(model.to_string()));
     }
     Ok(())
 }
@@ -1307,7 +1377,21 @@ impl Database {
         end_date: Option<i64>,
         app_type: Option<&str>,
     ) -> Result<UsageSummary, AppError> {
-        validate_usage_app(app_type)?;
+        self.get_usage_summary_with_filters(
+            start_date,
+            end_date,
+            &UsageStatsFilters::from_app_type(app_type),
+        )
+    }
+
+    pub fn get_usage_summary_with_filters(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        filters: &UsageStatsFilters,
+    ) -> Result<UsageSummary, AppError> {
+        let filters = UsageStatsFiltersRef::from(filters);
+        validate_usage_app(filters.app_type)?;
         let conn = lock_conn!(self.conn);
 
         let mut log_conditions = Vec::new();
@@ -1318,7 +1402,7 @@ impl Database {
             "l",
             start_date,
             end_date,
-            app_type,
+            filters,
         );
         let log_where = where_clause(&log_conditions);
 
@@ -1330,7 +1414,7 @@ impl Database {
             "r",
             start_date,
             end_date,
-            app_type,
+            filters,
         )?;
         let rollup_where = where_clause(&rollup_conditions);
 
@@ -1396,7 +1480,7 @@ impl Database {
             "l",
             start_date,
             end_date,
-            None,
+            UsageStatsFiltersRef::default(),
         );
         let log_where = where_clause(&log_conditions);
 
@@ -1408,7 +1492,7 @@ impl Database {
             "r",
             start_date,
             end_date,
-            None,
+            UsageStatsFiltersRef::default(),
         )?;
         let rollup_where = where_clause(&rollup_conditions);
 
@@ -1485,7 +1569,21 @@ impl Database {
         end_date: Option<i64>,
         app_type: Option<&str>,
     ) -> Result<Vec<DailyStats>, AppError> {
-        validate_usage_app(app_type)?;
+        self.get_daily_trends_with_filters(
+            start_date,
+            end_date,
+            &UsageStatsFilters::from_app_type(app_type),
+        )
+    }
+
+    pub fn get_daily_trends_with_filters(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        filters: &UsageStatsFilters,
+    ) -> Result<Vec<DailyStats>, AppError> {
+        let filters = UsageStatsFiltersRef::from(filters);
+        validate_usage_app(filters.app_type)?;
         let conn = lock_conn!(self.conn);
         let end = end_date.unwrap_or_else(|| Local::now().timestamp_millis());
         let start = start_date.unwrap_or(end - 30 * 24 * 60 * 60 * 1000);
@@ -1505,7 +1603,7 @@ impl Database {
             "l",
             Some(start),
             Some(end),
-            app_type,
+            filters,
         );
         let log_where = where_clause(&conditions);
         let fresh_log = fresh_input_sql("l");
@@ -1556,7 +1654,7 @@ impl Database {
                 "r",
                 Some(start),
                 Some(end),
-                app_type,
+                filters,
             )?;
             let rollup_where = where_clause(&rollup_conditions);
             let fresh_rollup = fresh_input_sql("r");
@@ -1626,7 +1724,21 @@ impl Database {
         end_date: Option<i64>,
         app_type: Option<&str>,
     ) -> Result<Vec<ProviderStats>, AppError> {
-        validate_usage_app(app_type)?;
+        self.get_provider_stats_with_filters(
+            start_date,
+            end_date,
+            &UsageStatsFilters::from_app_type(app_type),
+        )
+    }
+
+    pub fn get_provider_stats_with_filters(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        filters: &UsageStatsFilters,
+    ) -> Result<Vec<ProviderStats>, AppError> {
+        let filters = UsageStatsFiltersRef::from(filters);
+        validate_usage_app(filters.app_type)?;
         let conn = lock_conn!(self.conn);
         let mut log_conditions = Vec::new();
         let mut log_params: Vec<Box<dyn ToSql>> = Vec::new();
@@ -1636,7 +1748,7 @@ impl Database {
             "l",
             start_date,
             end_date,
-            app_type,
+            filters,
         );
         let log_where = where_clause(&log_conditions);
 
@@ -1648,7 +1760,7 @@ impl Database {
             "r",
             start_date,
             end_date,
-            app_type,
+            filters,
         )?;
         let rollup_where = where_clause(&rollup_conditions);
 
@@ -1730,7 +1842,21 @@ impl Database {
         end_date: Option<i64>,
         app_type: Option<&str>,
     ) -> Result<Vec<ModelStats>, AppError> {
-        validate_usage_app(app_type)?;
+        self.get_model_stats_with_filters(
+            start_date,
+            end_date,
+            &UsageStatsFilters::from_app_type(app_type),
+        )
+    }
+
+    pub fn get_model_stats_with_filters(
+        &self,
+        start_date: Option<i64>,
+        end_date: Option<i64>,
+        filters: &UsageStatsFilters,
+    ) -> Result<Vec<ModelStats>, AppError> {
+        let filters = UsageStatsFiltersRef::from(filters);
+        validate_usage_app(filters.app_type)?;
         let conn = lock_conn!(self.conn);
         let mut log_conditions = Vec::new();
         let mut log_params: Vec<Box<dyn ToSql>> = Vec::new();
@@ -1740,7 +1866,7 @@ impl Database {
             "l",
             start_date,
             end_date,
-            app_type,
+            filters,
         );
         let log_where = where_clause(&log_conditions);
 
@@ -1752,7 +1878,7 @@ impl Database {
             "r",
             start_date,
             end_date,
-            app_type,
+            filters,
         )?;
         let rollup_where = where_clause(&rollup_conditions);
 
@@ -1828,7 +1954,11 @@ impl Database {
             "l",
             filters.start_date,
             filters.end_date,
-            filters.app_type.as_deref(),
+            UsageStatsFiltersRef::from_parts(
+                filters.app_type.as_deref(),
+                filters.provider_id.as_deref(),
+                None,
+            ),
         );
         if let Some(provider_name) = filters
             .provider_name
@@ -2467,6 +2597,65 @@ mod tests {
         assert_eq!(model.total_tokens, 390);
         assert_eq!(model.total_cost, "0.123456");
         assert_eq!(model.avg_cost_per_request, "0.041152");
+        Ok(())
+    }
+
+    #[test]
+    fn usage_stats_filters_provider_and_model_across_logs_and_rollups() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let now = Utc::now().timestamp_millis();
+        let rollup_date = rollup_date_from_millis(now)?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs (
+                    request_id, provider_id, app_type, model,
+                    input_tokens, output_tokens, total_cost_usd,
+                    latency_ms, status_code, created_at
+                 ) VALUES
+                    ('usage-filter-log-1', 'p1', 'claude', 'claude-sonnet-4', 100, 30, '0.010000', 100, 200, ?1),
+                    ('usage-filter-log-2', 'p2', 'claude', 'claude-sonnet-4', 500, 50, '0.050000', 100, 200, ?1),
+                    ('usage-filter-log-3', 'p1', 'claude', 'claude-opus-4', 700, 70, '0.070000', 100, 200, ?1)",
+                params![now],
+            )
+            .map_err(|err| AppError::Database(err.to_string()))?;
+            conn.execute(
+                "INSERT INTO usage_daily_rollups (
+                    date, app_type, provider_id, model, request_count, success_count,
+                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                    total_cost_usd, avg_latency_ms
+                 ) VALUES
+                    (?1, 'claude', 'p1', 'claude-sonnet-4', 2, 2, 200, 60, 0, 0, '0.020000', 120),
+                    (?1, 'claude', 'p2', 'claude-sonnet-4', 3, 3, 300, 90, 0, 0, '0.030000', 120),
+                    (?1, 'claude', 'p1', 'claude-opus-4', 4, 4, 400, 120, 0, 0, '0.040000', 120)",
+                params![rollup_date],
+            )
+            .map_err(|err| AppError::Database(err.to_string()))?;
+        }
+
+        let filters = UsageStatsFilters {
+            app_type: Some("claude".to_string()),
+            provider_id: Some("p1".to_string()),
+            model: Some("claude-sonnet-4".to_string()),
+        };
+        let summary =
+            db.get_usage_summary_with_filters(Some(now - 1_000), Some(now + 1_000), &filters)?;
+        assert_eq!(summary.total_requests, 3);
+        assert_eq!(summary.total_input_tokens, 300);
+        assert_eq!(summary.total_output_tokens, 90);
+        assert_eq!(summary.total_cost, "0.030000");
+
+        let providers =
+            db.get_provider_stats_with_filters(Some(now - 1_000), Some(now + 1_000), &filters)?;
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].provider_id, "p1");
+        assert_eq!(providers[0].request_count, 3);
+
+        let models =
+            db.get_model_stats_with_filters(Some(now - 1_000), Some(now + 1_000), &filters)?;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "claude-sonnet-4");
+        assert_eq!(models[0].request_count, 3);
         Ok(())
     }
 

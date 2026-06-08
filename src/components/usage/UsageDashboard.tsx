@@ -10,12 +10,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useUsageDataExtent, useUsageSummary } from "@/lib/query/usage";
+import {
+  useModelStats,
+  useProviderStats,
+  useUsageDataExtent,
+  useUsageSummary,
+} from "@/lib/query/usage";
 import {
   AppTypeFilter,
   KNOWN_USAGE_APP_TYPES,
   UsageRangePreset,
   UsageRangeSelection,
+  UsageStatsFilters,
+  usageAppLabel,
 } from "@/types/usage";
 import {
   startOfToday,
@@ -43,15 +50,37 @@ const APP_FILTERS: AppTypeFilter[] = ["all", ...KNOWN_USAGE_APP_TYPES];
 export function UsageDashboard() {
   const [range, setRange] = useState<UsageRangeSelection>({ preset: "today" });
   const [appType, setAppType] = useState<AppTypeFilter>("all");
+  const [providerId, setProviderId] = useState("all");
+  const [model, setModel] = useState("all");
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(30_000);
   const [rangeWasSelected, setRangeWasSelected] = useState(false);
   const [autoRangeApplied, setAutoRangeApplied] = useState(false);
+  const statsFilters = useMemo<UsageStatsFilters>(
+    () => ({
+      providerId: providerId === "all" ? undefined : providerId,
+      model: model === "all" ? undefined : model,
+    }),
+    [model, providerId],
+  );
   const todaySummary = useUsageSummary(
     { preset: "today" },
     appType,
+    statsFilters,
     refreshIntervalMs,
   );
   const dataExtent = useUsageDataExtent(appType, refreshIntervalMs);
+  const providerOptionsQuery = useProviderStats(
+    range,
+    appType,
+    model === "all" ? undefined : { model },
+    refreshIntervalMs,
+  );
+  const modelOptionsQuery = useModelStats(
+    range,
+    appType,
+    providerId === "all" ? undefined : { providerId },
+    refreshIntervalMs,
+  );
   const usageLoadError =
     todaySummary.error instanceof Error
       ? todaySummary.error.message
@@ -62,6 +91,37 @@ export function UsageDashboard() {
   const refreshLabel = useMemo(
     () => (refreshIntervalMs > 0 ? `${refreshIntervalMs / 1000}s` : "Off"),
     [refreshIntervalMs],
+  );
+
+  const providerOptions = useMemo(
+    () => {
+      const options = new Map<
+        string,
+        { value: string; label: string; appTypes: Set<string> }
+      >();
+      for (const provider of providerOptionsQuery.data ?? []) {
+        const existing = options.get(provider.providerId);
+        if (existing) {
+          existing.appTypes.add(provider.appType);
+          continue;
+        }
+        options.set(provider.providerId, {
+          value: provider.providerId,
+          label: provider.providerName || provider.providerId,
+          appTypes: new Set([provider.appType]),
+        });
+      }
+      return Array.from(options.values()).map((option) => ({
+        ...option,
+        appTypes: Array.from(option.appTypes),
+      }));
+    },
+    [providerOptionsQuery.data],
+  );
+
+  const modelOptions = useMemo(
+    () => (modelOptionsQuery.data ?? []).map((item) => item.model),
+    [modelOptionsQuery.data],
   );
 
   const cycleRefresh = () => {
@@ -95,6 +155,26 @@ export function UsageDashboard() {
     rangeWasSelected,
     todaySummary.data,
   ]);
+
+  useEffect(() => {
+    if (
+      providerId !== "all" &&
+      providerOptions.length > 0 &&
+      !providerOptions.some((option) => option.value === providerId)
+    ) {
+      setProviderId("all");
+    }
+  }, [providerId, providerOptions]);
+
+  useEffect(() => {
+    if (
+      model !== "all" &&
+      modelOptions.length > 0 &&
+      !modelOptions.includes(model)
+    ) {
+      setModel("all");
+    }
+  }, [model, modelOptions]);
 
   return (
     <div className="space-y-5 pb-6">
@@ -131,7 +211,11 @@ export function UsageDashboard() {
           </Select>
           <Select
             value={appType}
-            onValueChange={(value) => setAppType(value as AppTypeFilter)}
+            onValueChange={(value) => {
+              setAppType(value as AppTypeFilter);
+              setProviderId("all");
+              setModel("all");
+            }}
           >
             <SelectTrigger className="w-[140px]">
               <SelectValue />
@@ -139,7 +223,36 @@ export function UsageDashboard() {
             <SelectContent>
               {APP_FILTERS.map((app) => (
                 <SelectItem key={app} value={app}>
-                  {app}
+                  {usageAppLabel(app)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={providerId} onValueChange={setProviderId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All providers</SelectItem>
+              {providerOptions.map((provider) => (
+                <SelectItem key={provider.value} value={provider.value}>
+                  {provider.label}
+                  {appType === "all" && provider.appTypes.length === 1
+                    ? ` (${usageAppLabel(provider.appTypes[0])})`
+                    : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={model} onValueChange={setModel}>
+            <SelectTrigger className="w-[190px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All models</SelectItem>
+              {modelOptions.map((modelOption) => (
+                <SelectItem key={modelOption} value={modelOption}>
+                  {modelOption}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -162,11 +275,13 @@ export function UsageDashboard() {
       <UsageHero
         range={range}
         appType={appType}
+        filters={statsFilters}
         refreshIntervalMs={refreshIntervalMs}
       />
       <UsageTrendChart
         range={range}
         appType={appType}
+        filters={statsFilters}
         refreshIntervalMs={refreshIntervalMs}
       />
 
@@ -193,6 +308,7 @@ export function UsageDashboard() {
           <RequestLogTable
             range={range}
             appType={appType}
+            filters={statsFilters}
             refreshIntervalMs={refreshIntervalMs}
           />
         </TabsContent>
@@ -200,6 +316,7 @@ export function UsageDashboard() {
           <ProviderStatsTable
             range={range}
             appType={appType}
+            filters={statsFilters}
             refreshIntervalMs={refreshIntervalMs}
           />
         </TabsContent>
@@ -207,6 +324,7 @@ export function UsageDashboard() {
           <ModelStatsTable
             range={range}
             appType={appType}
+            filters={statsFilters}
             refreshIntervalMs={refreshIntervalMs}
           />
         </TabsContent>

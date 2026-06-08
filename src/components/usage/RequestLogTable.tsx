@@ -23,6 +23,7 @@ import type {
   LogFilters,
   RequestLog,
   UsageRangeSelection,
+  UsageStatsFilters,
 } from "@/types/usage";
 import { formatDateTime, formatNumber, formatUsd, statusTone } from "./format";
 import { RequestDetailPanel } from "./RequestDetailPanel";
@@ -30,12 +31,14 @@ import { RequestDetailPanel } from "./RequestDetailPanel";
 interface RequestLogTableProps {
   range: UsageRangeSelection;
   appType: AppTypeFilter;
+  filters?: UsageStatsFilters;
   refreshIntervalMs: number;
 }
 
 export function RequestLogTable({
   range,
   appType,
+  filters: dashboardFilters,
   refreshIntervalMs,
 }: RequestLogTableProps) {
   const [page, setPage] = useState(0);
@@ -47,7 +50,7 @@ export function RequestLogTable({
   const pageSize = 20;
   useEffect(() => {
     setPage(0);
-  }, [appType, range]);
+  }, [appType, dashboardFilters?.model, dashboardFilters?.providerId, range]);
 
   useEffect(() => {
     setPageInput(String(page + 1));
@@ -56,11 +59,19 @@ export function RequestLogTable({
   const filters = useMemo<LogFilters>(
     () => ({
       appType: appType === "all" ? undefined : appType,
+      providerId: dashboardFilters?.providerId,
       providerName: providerName.trim() || undefined,
-      model: model.trim() || undefined,
+      model: dashboardFilters?.model ?? (model.trim() || undefined),
       statusCode: status === "all" ? undefined : Number(status),
     }),
-    [appType, model, providerName, status],
+    [
+      appType,
+      dashboardFilters?.model,
+      dashboardFilters?.providerId,
+      model,
+      providerName,
+      status,
+    ],
   );
   const query = useRequestLogs(
     range,
@@ -113,6 +124,7 @@ export function RequestLogTable({
             }}
             className="min-w-[180px] flex-1"
             placeholder="Model"
+            disabled={Boolean(dashboardFilters?.model)}
           />
           <Select
             value={status}

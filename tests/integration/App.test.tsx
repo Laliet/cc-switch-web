@@ -53,6 +53,10 @@ vi.mock("@/components/providers/ProviderList", () => ({
   ),
 }));
 
+vi.mock("@/components/providers/ClaudeDesktopPanel", () => ({
+  ClaudeDesktopPanel: () => <div data-testid="claude-desktop-panel" />,
+}));
+
 vi.mock("@/components/providers/AddProviderDialog", () => ({
   AddProviderDialog: ({ open, onOpenChange, onSubmit, appId }: any) =>
     open ? (
@@ -133,6 +137,9 @@ vi.mock("@/components/AppSwitcher", () => ({
     <div data-testid="app-switcher">
       <span>{activeApp}</span>
       <button onClick={() => onSwitch("claude")}>switch-claude</button>
+      <button onClick={() => onSwitch("claude-desktop")}>
+        switch-claude-desktop
+      </button>
       <button onClick={() => onSwitch("codex")}>switch-codex</button>
     </div>
   ),
@@ -250,6 +257,20 @@ describe("App integration with MSW", () => {
     await waitFor(() =>
       expect(window.localStorage.getItem(ACTIVE_APP_STORAGE_KEY)).toBe("codex"),
     );
+  });
+
+  it("shows the Claude Desktop panel on the Desktop app view", async () => {
+    renderApp();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list").textContent).toContain(
+        "claude-1",
+      ),
+    );
+
+    fireEvent.click(screen.getByText("switch-claude-desktop"));
+
+    expect(await screen.findByTestId("claude-desktop-panel")).toBeInTheDocument();
   });
 
   it("validates web credentials via buildWebApiUrl", async () => {

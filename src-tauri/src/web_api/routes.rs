@@ -87,6 +87,18 @@ fn provider_routes() -> Router<SharedState> {
             get(providers::opencode_live_provider_ids),
         )
         .route(
+            "/claude-desktop/default-routes",
+            get(providers::claude_desktop_default_routes),
+        )
+        .route(
+            "/claude-desktop/status",
+            get(providers::claude_desktop_status),
+        )
+        .route(
+            "/claude-desktop/import-from-claude",
+            post(providers::import_claude_desktop_providers_from_claude),
+        )
+        .route(
             "/:app/:id",
             put(providers::update_provider).delete(providers::delete_provider),
         )

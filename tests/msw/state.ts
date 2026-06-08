@@ -264,6 +264,9 @@ let settingsState: Settings = {
   geminiConfigDir: "/default/gemini",
   opencodeConfigDir: "/default/opencode",
   language: "zh",
+  network: {
+    githubMirrorBaseUrl: "",
+  },
   proxy: createDefaultProxySettings(),
 };
 let appConfigDirOverride: string | null = null;
@@ -348,6 +351,9 @@ export const resetProviderState = () => {
     geminiConfigDir: "/default/gemini",
     opencodeConfigDir: "/default/opencode",
     language: "zh",
+    network: {
+      githubMirrorBaseUrl: "",
+    },
     proxy: createDefaultProxySettings(),
   };
   appConfigDirOverride = null;

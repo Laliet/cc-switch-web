@@ -216,6 +216,13 @@
     "wslDefaultDistro": "Ubuntu",
     "wslTemplateUserPlaceholder": "你的用户名",
     "wslTemplateApplied": "已填充 {{distro}} 的 WSL 模板路径，保存后生效。",
+    "network": {
+      "title": "网络",
+      "description": "默认使用 GitHub 原站。仅在仓库下载不稳定时配置镜像。",
+      "githubMirrorBaseUrl": "GitHub 镜像地址",
+      "useOrigin": "使用原站",
+      "githubMirrorHint": "用于 Skills 仓库等 GitHub ZIP 归档下载。留空则直接访问 github.com。"
+    },
     "checkForUpdates": "检查更新",
     "updateTo": "更新到 v{{version}}",
     "updating": "更新中...",

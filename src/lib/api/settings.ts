@@ -1,5 +1,6 @@
 import type {
   ProxyAppId,
+  ProxyRouteAppId,
   FailoverQueueItem,
   ModelPricingRecord,
   ProxyRecentLog,
@@ -211,32 +212,32 @@ export const settingsApi = {
     return await invoke("proxy_recent_logs");
   },
 
-  async getFailoverQueue(app: ProxyAppId): Promise<FailoverQueueItem[]> {
+  async getFailoverQueue(app: ProxyRouteAppId): Promise<FailoverQueueItem[]> {
     return await invoke("get_failover_queue", { app });
   },
 
   async replaceFailoverQueue(
-    app: ProxyAppId,
+    app: ProxyRouteAppId,
     providerIds: string[],
   ): Promise<FailoverQueueItem[]> {
     return await invoke("replace_failover_queue", { app, providerIds });
   },
 
   async addFailoverProvider(
-    app: ProxyAppId,
+    app: ProxyRouteAppId,
     providerId: string,
   ): Promise<FailoverQueueItem[]> {
     return await invoke("add_failover_provider", { app, providerId });
   },
 
   async removeFailoverProvider(
-    app: ProxyAppId,
+    app: ProxyRouteAppId,
     providerId: string,
   ): Promise<FailoverQueueItem[]> {
     return await invoke("remove_failover_provider", { app, providerId });
   },
 
-  async clearFailoverQueue(app: ProxyAppId): Promise<FailoverQueueItem[]> {
+  async clearFailoverQueue(app: ProxyRouteAppId): Promise<FailoverQueueItem[]> {
     return await invoke("clear_failover_queue", { app });
   },
 

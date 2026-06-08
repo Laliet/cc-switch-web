@@ -93,11 +93,17 @@ export interface ModelStats {
 
 export interface LogFilters {
   appType?: string;
+  providerId?: string;
   providerName?: string;
   model?: string;
   statusCode?: number;
   startDate?: number;
   endDate?: number;
+}
+
+export interface UsageStatsFilters {
+  providerId?: string;
+  model?: string;
 }
 
 export interface ProviderLimitStatus {
@@ -145,12 +151,37 @@ export interface UsageRangeSelection {
   customEndDate?: number;
 }
 
-export type UsageAppType = "claude" | "codex" | "gemini" | "opencode";
+export type UsageAppType =
+  | "claude"
+  | "claude-desktop"
+  | "codex"
+  | "gemini"
+  | "opencode";
 export type AppTypeFilter = "all" | UsageAppType;
 
 export const KNOWN_USAGE_APP_TYPES: ReadonlyArray<UsageAppType> = [
   "claude",
+  "claude-desktop",
   "codex",
   "gemini",
   "opencode",
 ];
+
+export function usageAppLabel(appType: AppTypeFilter | string): string {
+  switch (appType) {
+    case "all":
+      return "All apps";
+    case "claude":
+      return "Claude Code";
+    case "claude-desktop":
+      return "Claude Desktop";
+    case "codex":
+      return "Codex";
+    case "gemini":
+      return "Gemini";
+    case "opencode":
+      return "OpenCode";
+    default:
+      return appType;
+  }
+}

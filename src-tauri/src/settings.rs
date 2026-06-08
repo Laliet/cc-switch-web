@@ -235,6 +235,13 @@ pub struct WebDavSettings {
     pub profile: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkSettings {
+    #[serde(default)]
+    pub github_mirror_base_url: String,
+}
+
 impl Default for WebDavSettings {
     fn default() -> Self {
         Self {
@@ -364,6 +371,8 @@ pub struct AppSettings {
     pub proxy: ProxySettings,
     #[serde(default, rename = "webDav")]
     pub webdav: WebDavSettings,
+    #[serde(default)]
+    pub network: NetworkSettings,
     /// Claude 自定义端点列表
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints_claude: HashMap<String, CustomEndpoint>,
@@ -394,6 +403,7 @@ impl Default for AppSettings {
             security: None,
             proxy: ProxySettings::default(),
             webdav: WebDavSettings::default(),
+            network: NetworkSettings::default(),
             custom_endpoints_claude: HashMap::new(),
             custom_endpoints_codex: HashMap::new(),
         }
@@ -506,6 +516,9 @@ impl AppSettings {
             .map(|s| s.trim())
             .filter(|s| matches!(*s, "en" | "zh"))
             .map(|s| s.to_string());
+
+        self.network.github_mirror_base_url =
+            self.network.github_mirror_base_url.trim().to_string();
 
         self.claude_config_dir =
             migrate_legacy_default_override(self.claude_config_dir.take(), Path::new(".claude"));
@@ -711,6 +724,24 @@ mod tests {
 
         assert!(loaded.proxy.rectify_thinking_signature);
         assert!(loaded.proxy.rectify_thinking_budget);
+    }
+
+    #[test]
+    fn defaults_and_normalizes_network_settings() {
+        let loaded: AppSettings = serde_json::from_value(json!({
+            "showInTray": true,
+            "minimizeToTrayOnClose": true
+        }))
+        .expect("settings should deserialize");
+        assert!(loaded.network.github_mirror_base_url.is_empty());
+
+        let mut settings = loaded;
+        settings.network.github_mirror_base_url = " https://ghproxy.net/ ".to_string();
+        settings.normalize_paths();
+        assert_eq!(
+            settings.network.github_mirror_base_url,
+            "https://ghproxy.net/"
+        );
     }
 
     #[test]
