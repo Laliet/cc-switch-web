@@ -148,7 +148,7 @@ jobs:
 
       - name: Build Tauri App (Windows)
         if: runner.os == 'Windows'
-        run: pnpm tauri build
+        run: pnpm tauri build --bundles msi
 
       - name: Build Tauri App (Linux)
         if: runner.os == 'Linux'
@@ -282,6 +282,12 @@ jobs:
           set -euo pipefail
           echo "Collected signatures (if any alongside artifacts):"
           ls -la release-assets/*.sig || echo "No signatures found"
+
+      - name: Validate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "docs/release-note-${GITHUB_REF_NAME}-zh.md"
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
