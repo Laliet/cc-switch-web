@@ -139,4 +139,4 @@ jobs:
           echo '<!DOCTYPE html><html><head><title>placeholder</title></head><body></body></html>' > dist-web/index.html
 
       - name: Integration tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --tests --features test-hooks
