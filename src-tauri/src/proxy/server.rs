@@ -31,14 +31,17 @@ use crate::{
     app_config::AppType,
     database::{ProxyRequestLogRecord, ProxyRequestUsageUpdate},
     error::AppError,
-    provider::Provider,
+    provider::{Provider, ProviderType},
     services::provider::ProviderService,
     settings::{self, ProxyAppSettings, ProxySettings},
     store::AppState,
 };
 
 use super::{
-    adapters::{adapter_for, full_endpoint_url, insert_auth_headers},
+    adapters::{
+        adapter_for, full_endpoint_url, insert_auth_headers, provider_type,
+        resolve_auth_for_provider,
+    },
     live,
     service::ensure_gemini_takeover_supported,
     types::{
@@ -429,6 +432,10 @@ async fn proxy_handler(
             .as_ref()
             .map(|result| result.provider_id.clone())
             .unwrap_or_default();
+        let provider_type = result
+            .as_ref()
+            .ok()
+            .and_then(|result| result.provider_type.clone());
         let model = result
             .as_ref()
             .map(|result| result.model.clone())
@@ -458,6 +465,7 @@ async fn proxy_handler(
             state: &state,
             app_type: app,
             provider_id,
+            provider_type,
             model,
             usage_capture: usage,
             session_id,
@@ -493,6 +501,7 @@ struct ProxyRequestResult {
     app: String,
     path: String,
     provider_id: String,
+    provider_type: Option<String>,
     model: String,
     usage: ProxyUsageCapture,
     session_id: Option<String>,
@@ -511,6 +520,7 @@ struct UpstreamResponse {
 #[derive(Debug, Clone, Default)]
 struct ProxyUsageCapture {
     usage: Option<TokenUsage>,
+    usage_app_type: Option<String>,
     first_token_ms: Option<u64>,
     is_streaming: bool,
 }
@@ -578,6 +588,7 @@ async fn proxy_request(
             response,
             app: log_app,
             path: log_path,
+            provider_type: provider_type(&provider),
             provider_id: provider.id,
             model: String::new(),
             usage: ProxyUsageCapture::default(),
@@ -618,16 +629,17 @@ async fn proxy_request(
         total_timeout,
     )
     .await?;
+    let usage_app_type = usage_app_type_for_provider(&app, &upstream.provider);
 
     let (response, usage) = if request_accepts_stream || is_streaming_response(&upstream.response) {
         match build_streaming_response(
             upstream.response,
             &settings,
-            app.as_str(),
+            usage_app_type,
             request_started_at,
             build_stream_usage_context(
                 &state.app_state,
-                app.as_str(),
+                usage_app_type,
                 &upstream.provider.id,
                 &model,
                 &request_id,
@@ -668,7 +680,7 @@ async fn proxy_request(
             upstream.response,
             total_timeout,
             request_started_at,
-            app.as_str(),
+            usage_app_type,
         )
         .await?
     };
@@ -676,6 +688,7 @@ async fn proxy_request(
         response,
         app: log_app,
         path: log_path,
+        provider_type: provider_type(&upstream.provider),
         provider_id: upstream.provider.id,
         model,
         usage,
@@ -1018,15 +1031,16 @@ async fn retry_streaming_first_byte_failover(
     };
 
     let should_stream = request_accepts_stream || is_streaming_response(&backup_response);
+    let usage_app_type = usage_app_type_for_provider(app, &backup);
     let response = if should_stream {
         match build_streaming_response(
             backup_response,
             settings,
-            app.as_str(),
+            usage_app_type,
             request_started_at,
             build_stream_usage_context(
                 &state.app_state,
-                app.as_str(),
+                usage_app_type,
                 &backup.id,
                 &extract_request_model(app, routed_uri, body_bytes),
                 request_id,
@@ -1055,7 +1069,7 @@ async fn retry_streaming_first_byte_failover(
             backup_response,
             total_timeout,
             request_started_at,
-            app.as_str(),
+            usage_app_type,
         )
         .await?
     };
@@ -1093,25 +1107,28 @@ async fn send_upstream_provider(
     let base_url = adapter
         .extract_base_url(provider)
         .map_err(UpstreamAttemptError::Local)?;
+    let upstream_uri = upstream_uri_for_provider(app, provider, routed_uri)
+        .map_err(UpstreamAttemptError::Local)?;
     let url = if provider
         .meta
         .as_ref()
         .and_then(|meta| meta.is_full_url)
         .unwrap_or(false)
     {
-        full_endpoint_url(&base_url, routed_uri).map_err(UpstreamAttemptError::Local)?
+        full_endpoint_url(&base_url, &upstream_uri).map_err(UpstreamAttemptError::Local)?
     } else {
         adapter
-            .build_url(&base_url, routed_uri)
+            .build_url(&base_url, &upstream_uri)
             .map_err(UpstreamAttemptError::Local)?
     };
     let mut headers = request_headers.clone();
-    let auth = adapter
-        .extract_auth(provider)
+    let auth = resolve_auth_for_provider(&state.app_state, app, provider, adapter)
+        .await
         .map_err(UpstreamAttemptError::Local)?;
     if let Some(auth) = auth {
         insert_auth_headers(&mut headers, adapter, &auth);
     }
+    inject_codex_oauth_headers(&mut headers, provider, body_bytes.as_ref());
 
     timeout_app_error(
         total_timeout,
@@ -1128,6 +1145,40 @@ async fn send_upstream_provider(
     .map_err(|e| UpstreamAttemptError::Send(upstream_request_error(e)))
 }
 
+fn upstream_uri_for_provider(
+    app: &AppType,
+    provider: &Provider,
+    routed_uri: &Uri,
+) -> Result<Uri, AppError> {
+    if !matches!(app, AppType::ClaudeDesktop) || routed_uri.path() != "/v1/messages" {
+        return Ok(routed_uri.clone());
+    }
+
+    let target_path = match crate::claude_desktop_config::proxy_api_format(provider) {
+        Some("openai_chat") => Some("/v1/chat/completions"),
+        Some("openai_responses") => Some("/v1/responses"),
+        Some("anthropic") | None => None,
+        Some("gemini_native") => None,
+        Some(_) => None,
+    };
+    let Some(target_path) = target_path else {
+        return Ok(routed_uri.clone());
+    };
+
+    replace_uri_path(routed_uri, target_path)
+}
+
+fn replace_uri_path(uri: &Uri, path: &str) -> Result<Uri, AppError> {
+    let path_and_query = match uri.query() {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_string(),
+    };
+    Uri::builder()
+        .path_and_query(path_and_query)
+        .build()
+        .map_err(|e| AppError::InvalidInput(format!("Invalid proxy request URI: {e}")))
+}
+
 fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettings {
     match app {
         AppType::Claude => settings.apps.claude.clone(),
@@ -1136,6 +1187,67 @@ fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettin
         AppType::Opencode => settings.apps.opencode.clone(),
         AppType::ClaudeDesktop => settings.apps.claude.clone(),
         AppType::Omo | AppType::OmoSlim => ProxyAppSettings::default(),
+    }
+}
+
+fn usage_app_type_for_provider<'a>(app: &'a AppType, provider: &Provider) -> &'a str {
+    if matches!(app, AppType::ClaudeDesktop)
+        && provider.meta.as_ref().is_some_and(|meta| {
+            matches!(
+                meta.provider_type(),
+                Some(ProviderType::GithubCopilot | ProviderType::CodexOauth)
+            ) || matches!(
+                crate::claude_desktop_config::proxy_api_format(provider),
+                Some("openai_chat" | "openai_responses")
+            )
+        })
+    {
+        return "codex";
+    }
+    app.as_str()
+}
+
+fn inject_codex_oauth_headers(
+    headers: &mut reqwest::header::HeaderMap,
+    provider: &Provider,
+    body: &[u8],
+) {
+    let Some(meta) = provider.meta.as_ref() else {
+        return;
+    };
+    if meta.provider_type() != Some(ProviderType::CodexOauth) {
+        return;
+    }
+
+    let session_id = extract_session_id_from_slice(body);
+    if let Some(session_id) = session_id.as_deref() {
+        insert_header_if_valid(headers, "openai-session-id", session_id);
+        insert_header_if_valid(headers, "x-openai-session-id", session_id);
+    }
+    if session_id.is_some() {
+        if let Some(cache_key) = meta
+            .prompt_cache_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            insert_header_if_valid(headers, "openai-prompt-cache-key", cache_key);
+            insert_header_if_valid(headers, "x-openai-prompt-cache-key", cache_key);
+        }
+    }
+    if meta.codex_fast_mode.unwrap_or(false) {
+        insert_header_if_valid(headers, "openai-fast-mode", "true");
+        insert_header_if_valid(headers, "x-codex-fast-mode", "true");
+    }
+}
+
+fn insert_header_if_valid(
+    headers: &mut reqwest::header::HeaderMap,
+    name: &'static str,
+    value: &str,
+) {
+    if let Ok(value) = reqwest::header::HeaderValue::from_str(value) {
+        headers.insert(reqwest::header::HeaderName::from_static(name), value);
     }
 }
 
@@ -1333,6 +1445,7 @@ async fn build_buffered_response(
         response,
         ProxyUsageCapture {
             usage,
+            usage_app_type: Some(app_type.to_string()),
             first_token_ms: None,
             is_streaming: false,
         },
@@ -1419,6 +1532,7 @@ async fn build_streaming_response(
             response,
             ProxyUsageCapture {
                 usage: None,
+                usage_app_type: Some(app_type.to_string()),
                 first_token_ms: None,
                 is_streaming: true,
             },
@@ -1481,6 +1595,7 @@ async fn build_streaming_response(
         response,
         ProxyUsageCapture {
             usage,
+            usage_app_type: Some(app_type.to_string()),
             first_token_ms,
             is_streaming: true,
         },
@@ -1802,7 +1917,7 @@ pub async fn test_settings(
     }
     let adapter = adapter_for(&app);
     let base_url = adapter.extract_base_url(&provider)?;
-    let _ = adapter.extract_auth(&provider)?;
+    let _ = resolve_auth_for_provider(&state, &app, &provider, adapter).await?;
     let _ = adapter.build_url(&base_url, &"/".parse::<Uri>().expect("valid root uri"))?;
     let _ = build_client(&settings)?;
     Ok(ProxyTestResult {
@@ -1915,6 +2030,7 @@ struct ProxyRequestLogInput<'a> {
     state: &'a ProxyHandlerState,
     app_type: String,
     provider_id: String,
+    provider_type: Option<String>,
     model: String,
     usage_capture: ProxyUsageCapture,
     session_id: Option<String>,
@@ -1929,6 +2045,7 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
         state,
         app_type,
         provider_id,
+        provider_type,
         model,
         usage_capture,
         session_id,
@@ -1938,6 +2055,11 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
         error,
     } = input;
     let app_type_ref = app_type.as_str();
+    let usage_app_type = usage_capture
+        .usage_app_type
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(app_type_ref);
     let request_model = Some(model.clone()).filter(|value| !value.is_empty());
     let resolved_usage = usage_capture.usage;
     let response_model = resolved_usage
@@ -1969,7 +2091,7 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
             .ok()
             .flatten();
         CostCalculator::try_calculate_for_app(
-            app_type_ref,
+            usage_app_type,
             usage,
             pricing.as_ref(),
             cost_multiplier,
@@ -2000,7 +2122,7 @@ fn persist_proxy_request_log(input: ProxyRequestLogInput<'_>) {
         status_code: status.map(i64::from).unwrap_or(0),
         error_message: error.map(ToString::to_string),
         session_id,
-        provider_type: None,
+        provider_type,
         is_streaming: usage_capture.is_streaming,
         cost_multiplier: cost_multiplier.to_string(),
         created_at: chrono::Utc::now().timestamp_millis(),
@@ -2119,6 +2241,10 @@ fn extract_request_model(app: &AppType, uri: &Uri, body: &Bytes) -> String {
 }
 
 fn extract_request_session_id(body: &Bytes) -> Option<String> {
+    extract_session_id_from_slice(body.as_ref())
+}
+
+fn extract_session_id_from_slice(body: &[u8]) -> Option<String> {
     let value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
     json_string_at_any_path(
         &value,
@@ -2286,14 +2412,15 @@ fn truncate_for_log(value: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_request_model, extract_request_session_id, merge_runtime_settings,
-        proxy_error_status, read_limited_upstream_body, takeover_apps, test_settings, AppError,
-        AppType, ProxySettings,
+        extract_request_model, extract_request_session_id, inject_codex_oauth_headers,
+        merge_runtime_settings, proxy_error_status, read_limited_upstream_body, takeover_apps,
+        test_settings, upstream_uri_for_provider, usage_app_type_for_provider, AppError, AppType,
+        ProxySettings,
     };
     use crate::{
         app_config::MultiAppConfig,
         database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID,
-        provider::{Provider, ProviderManager},
+        provider::{Provider, ProviderAuthBinding, ProviderManager, ProviderMeta},
         store::AppState,
     };
     use axum::{body::Bytes, http::StatusCode};
@@ -2361,6 +2488,178 @@ mod tests {
         assert_eq!(
             extract_request_session_id(&top_level).as_deref(),
             Some("conversation-1")
+        );
+    }
+
+    #[test]
+    fn codex_oauth_headers_include_session_cache_and_fast_mode() {
+        let provider = Provider {
+            id: "codex-oauth".to_string(),
+            name: "Codex OAuth".to_string(),
+            settings_config: json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                provider_type: Some("codex_oauth".to_string()),
+                prompt_cache_key: Some("cache-key".to_string()),
+                codex_fast_mode: Some(true),
+                auth_binding: Some(ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("codex_oauth".to_string()),
+                    account_id: None,
+                    use_default: Some(true),
+                }),
+                ..ProviderMeta::default()
+            }),
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        inject_codex_oauth_headers(
+            &mut headers,
+            &provider,
+            br#"{"metadata":{"sessionId":"session-1"}}"#,
+        );
+
+        assert_eq!(
+            headers
+                .get("openai-session-id")
+                .and_then(|value| value.to_str().ok()),
+            Some("session-1")
+        );
+        assert_eq!(
+            headers
+                .get("openai-prompt-cache-key")
+                .and_then(|value| value.to_str().ok()),
+            Some("cache-key")
+        );
+        assert_eq!(
+            headers
+                .get("openai-fast-mode")
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn codex_oauth_headers_skip_cache_key_without_session_identity() {
+        let provider = Provider {
+            id: "codex-oauth".to_string(),
+            name: "Codex OAuth".to_string(),
+            settings_config: json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                provider_type: Some("codex_oauth".to_string()),
+                prompt_cache_key: Some("cache-key".to_string()),
+                codex_fast_mode: Some(true),
+                auth_binding: Some(ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("codex_oauth".to_string()),
+                    account_id: None,
+                    use_default: Some(true),
+                }),
+                ..ProviderMeta::default()
+            }),
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        inject_codex_oauth_headers(&mut headers, &provider, br#"{"input":"hello"}"#);
+
+        assert!(headers.get("openai-session-id").is_none());
+        assert!(headers.get("openai-prompt-cache-key").is_none());
+        assert_eq!(
+            headers
+                .get("openai-fast-mode")
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn claude_desktop_openai_formats_route_messages_to_openai_endpoints() {
+        let mut provider = Provider {
+            id: "desktop-openai".to_string(),
+            name: "Desktop OpenAI".to_string(),
+            settings_config: json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                api_format: Some("OpenAI Chat".to_string()),
+                ..ProviderMeta::default()
+            }),
+        };
+        let uri = "/v1/messages?stream=true".parse().expect("valid uri");
+
+        let chat_uri =
+            upstream_uri_for_provider(&AppType::ClaudeDesktop, &provider, &uri).expect("chat uri");
+        assert_eq!(
+            chat_uri.path_and_query().map(|value| value.as_str()),
+            Some("/v1/chat/completions?stream=true")
+        );
+
+        provider.meta.as_mut().expect("meta").api_format = Some("openai-responses".to_string());
+        let responses_uri = upstream_uri_for_provider(&AppType::ClaudeDesktop, &provider, &uri)
+            .expect("responses uri");
+        assert_eq!(
+            responses_uri.path_and_query().map(|value| value.as_str()),
+            Some("/v1/responses?stream=true")
+        );
+    }
+
+    #[test]
+    fn claude_desktop_anthropic_format_keeps_messages_endpoint() {
+        let provider = Provider {
+            id: "desktop-anthropic".to_string(),
+            name: "Desktop Anthropic".to_string(),
+            settings_config: json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                api_format: Some("anthropic".to_string()),
+                ..ProviderMeta::default()
+            }),
+        };
+        let uri = "/v1/messages?stream=true".parse().expect("valid uri");
+
+        let upstream =
+            upstream_uri_for_provider(&AppType::ClaudeDesktop, &provider, &uri).expect("uri");
+        assert_eq!(
+            upstream.path_and_query().map(|value| value.as_str()),
+            Some("/v1/messages?stream=true")
+        );
+    }
+
+    #[test]
+    fn claude_desktop_openai_formats_use_codex_usage_parser() {
+        let provider = Provider {
+            id: "desktop-codex".to_string(),
+            name: "Desktop Codex".to_string(),
+            settings_config: json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                provider_type: Some("codex_oauth".to_string()),
+                api_format: Some("openai_responses".to_string()),
+                ..ProviderMeta::default()
+            }),
+        };
+
+        assert_eq!(
+            usage_app_type_for_provider(&AppType::ClaudeDesktop, &provider),
+            "codex"
         );
     }
 

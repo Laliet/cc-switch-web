@@ -115,13 +115,11 @@ describe("PromptListItem", () => {
       "aria-label",
       `prompts.enable: ${prompt.name}`,
     );
-    expect(screen.getByRole("button", { name: "prompts.edit" })).toHaveAttribute(
-      "aria-label",
-      "prompts.edit",
-    );
-    expect(screen.getByRole("button", { name: "common.delete" })).toHaveAttribute(
-      "aria-label",
-      "common.delete",
-    );
+    expect(
+      screen.getByRole("button", { name: "prompts.edit" }),
+    ).toHaveAttribute("aria-label", "prompts.edit");
+    expect(
+      screen.getByRole("button", { name: "common.delete" }),
+    ).toHaveAttribute("aria-label", "common.delete");
   });
 });

@@ -236,10 +236,9 @@ export function getRelayPulseProviderFromUrl(url: string): string | undefined {
     const normalizedUrl = url.trim();
     if (!normalizedUrl) return undefined;
 
-    const urlObj =
-      normalizedUrl.includes("://")
-        ? new URL(normalizedUrl)
-        : new URL(`https://${normalizedUrl}`);
+    const urlObj = normalizedUrl.includes("://")
+      ? new URL(normalizedUrl)
+      : new URL(`https://${normalizedUrl}`);
     const host = urlObj.hostname.toLowerCase();
 
     // 直接匹配

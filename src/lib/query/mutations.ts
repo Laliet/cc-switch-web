@@ -203,13 +203,20 @@ export const useSwitchProviderMutation = (appId: AppId) => {
 
       let description: string | undefined;
       try {
-        const info = await settingsApi.getConfigDirInfo(appId);
-        description = t("notifications.switchSuccessWithPath", {
-          defaultValue:
-            "已写入 {{path}}。如未生效，请重启 {{appName}} 终端。",
-          path: getLiveConfigPath(appId, info.dir),
-          appName: t(`apps.${appId}`, { defaultValue: appId }),
-        });
+        if (appId === "claude-desktop") {
+          description = t("notifications.switchClaudeDesktopRestart", {
+            defaultValue:
+              "已写入 Claude Desktop 3P profile。如未生效，请完全退出并重新打开 Claude Desktop。",
+          });
+        } else {
+          const info = await settingsApi.getConfigDirInfo(appId);
+          description = t("notifications.switchSuccessWithPath", {
+            defaultValue:
+              "已写入 {{path}}。如未生效，请重启 {{appName}} 终端。",
+            path: getLiveConfigPath(appId, info.dir),
+            appName: t(`apps.${appId}`, { defaultValue: appId }),
+          });
+        }
       } catch (error) {
         console.warn(
           "[mutations] Failed to resolve live config path after switch",

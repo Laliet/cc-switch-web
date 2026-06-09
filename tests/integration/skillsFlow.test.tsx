@@ -88,7 +88,9 @@ function SkillsManagementPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "installed" | "uninstalled">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "installed" | "uninstalled"
+  >("all");
 
   const loadSkills = async () => {
     setIsLoading(true);
@@ -110,7 +112,9 @@ function SkillsManagementPage() {
       const query = searchQuery.toLowerCase().trim();
       if (query) {
         const matchesName = skill.name.toLowerCase().includes(query);
-        const matchesDescription = skill.description?.toLowerCase().includes(query);
+        const matchesDescription = skill.description
+          ?.toLowerCase()
+          .includes(query);
         if (!matchesName && !matchesDescription) return false;
       }
 
@@ -240,9 +244,22 @@ describe("Skills Management User Flow", () => {
   describe("Complete Browse Skills Flow", () => {
     it("user can view skills list on page load", async () => {
       const skills = [
-        createSkill({ key: "skill-1", name: "Code Review", description: "Automated code review" }),
-        createSkill({ key: "skill-2", name: "Test Generator", description: "Generate unit tests" }),
-        createSkill({ key: "skill-3", name: "Doc Writer", description: "Write documentation", installed: true }),
+        createSkill({
+          key: "skill-1",
+          name: "Code Review",
+          description: "Automated code review",
+        }),
+        createSkill({
+          key: "skill-2",
+          name: "Test Generator",
+          description: "Generate unit tests",
+        }),
+        createSkill({
+          key: "skill-3",
+          name: "Doc Writer",
+          description: "Write documentation",
+          installed: true,
+        }),
       ];
 
       getAllSkillsMock.mockResolvedValue({ skills });
@@ -312,8 +329,16 @@ describe("Skills Management User Flow", () => {
     it("user can search skills by description", async () => {
       const user = userEvent.setup();
       const skills = [
-        createSkill({ key: "skill-1", name: "Skill A", description: "Generates unit tests" }),
-        createSkill({ key: "skill-2", name: "Skill B", description: "Reviews code quality" }),
+        createSkill({
+          key: "skill-1",
+          name: "Skill A",
+          description: "Generates unit tests",
+        }),
+        createSkill({
+          key: "skill-2",
+          name: "Skill B",
+          description: "Reviews code quality",
+        }),
       ];
 
       getAllSkillsMock.mockResolvedValue({ skills });
@@ -333,9 +358,7 @@ describe("Skills Management User Flow", () => {
 
     it("shows no results when search has no matches", async () => {
       const user = userEvent.setup();
-      const skills = [
-        createSkill({ key: "skill-1", name: "Code Review" }),
-      ];
+      const skills = [createSkill({ key: "skill-1", name: "Code Review" })];
 
       getAllSkillsMock.mockResolvedValue({ skills });
 
@@ -386,8 +409,16 @@ describe("Skills Management User Flow", () => {
     it("user can filter by installation status", async () => {
       const user = userEvent.setup();
       const skills = [
-        createSkill({ key: "skill-1", name: "Installed Skill", installed: true }),
-        createSkill({ key: "skill-2", name: "Uninstalled Skill", installed: false }),
+        createSkill({
+          key: "skill-1",
+          name: "Installed Skill",
+          installed: true,
+        }),
+        createSkill({
+          key: "skill-2",
+          name: "Uninstalled Skill",
+          installed: false,
+        }),
       ];
 
       getAllSkillsMock.mockResolvedValue({ skills });
@@ -423,7 +454,11 @@ describe("Skills Management User Flow", () => {
       const user = userEvent.setup();
       const skills = [
         createSkill({ key: "skill-1", name: "Code Review", installed: true }),
-        createSkill({ key: "skill-2", name: "Code Generator", installed: false }),
+        createSkill({
+          key: "skill-2",
+          name: "Code Generator",
+          installed: false,
+        }),
         createSkill({ key: "skill-3", name: "Test Runner", installed: true }),
       ];
 
@@ -432,7 +467,9 @@ describe("Skills Management User Flow", () => {
       render(<SkillsManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByTestId("skills-count")).toHaveTextContent("3 skills");
+        expect(screen.getByTestId("skills-count")).toHaveTextContent(
+          "3 skills",
+        );
       });
 
       // Search for "Code"
@@ -441,7 +478,10 @@ describe("Skills Management User Flow", () => {
       expect(screen.getByTestId("skills-count")).toHaveTextContent("2 skills");
 
       // Then filter by installed
-      await user.selectOptions(screen.getByTestId("status-filter"), "installed");
+      await user.selectOptions(
+        screen.getByTestId("status-filter"),
+        "installed",
+      );
 
       // Should only show "Code Review" (installed + matches "Code")
       expect(screen.getByText("Code Review")).toBeInTheDocument();
@@ -462,7 +502,9 @@ describe("Skills Management User Flow", () => {
       render(<SkillsManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByTestId("skills-count")).toHaveTextContent("2 skills");
+        expect(screen.getByTestId("skills-count")).toHaveTextContent(
+          "2 skills",
+        );
       });
 
       // Apply filters to get no results
@@ -502,7 +544,9 @@ describe("Skills Management User Flow", () => {
 
       // 1. Verify skill is not installed
       const skillCard = screen.getByTestId("skill-card-skill-1");
-      expect(within(skillCard).queryByTestId("installed-badge")).not.toBeInTheDocument();
+      expect(
+        within(skillCard).queryByTestId("installed-badge"),
+      ).not.toBeInTheDocument();
 
       // 2. Click Install button
       await user.click(within(skillCard).getByText("Install"));
@@ -521,7 +565,9 @@ describe("Skills Management User Flow", () => {
 
     it("handles install error gracefully", async () => {
       const user = userEvent.setup();
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const consoleSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
 
       const skill = createSkill({
         key: "skill-1",
@@ -572,14 +618,18 @@ describe("Skills Management User Flow", () => {
 
       // 1. Verify skill is installed
       const skillCard = screen.getByTestId("skill-card-skill-1");
-      expect(within(skillCard).getByTestId("installed-badge")).toBeInTheDocument();
+      expect(
+        within(skillCard).getByTestId("installed-badge"),
+      ).toBeInTheDocument();
 
       // 2. Click Uninstall button
       await user.click(within(skillCard).getByText("Uninstall"));
 
       // 3. Verify uninstall API was called
       await waitFor(() => {
-        expect(uninstallSkillMock).toHaveBeenCalledWith("skills/installed-skill");
+        expect(uninstallSkillMock).toHaveBeenCalledWith(
+          "skills/installed-skill",
+        );
       });
 
       // 4. Verify success toast
@@ -594,7 +644,9 @@ describe("Skills Management User Flow", () => {
     it("user can refresh skills list", async () => {
       const user = userEvent.setup();
 
-      const initialSkills = [createSkill({ key: "skill-1", name: "Initial Skill" })];
+      const initialSkills = [
+        createSkill({ key: "skill-1", name: "Initial Skill" }),
+      ];
       const updatedSkills = [
         createSkill({ key: "skill-1", name: "Initial Skill" }),
         createSkill({ key: "skill-2", name: "New Skill" }),
@@ -665,7 +717,9 @@ describe("Skills Management User Flow", () => {
 
       // Step 3: Install the skill
       const skillCard = screen.getByTestId("skill-card-code-review");
-      expect(within(skillCard).queryByTestId("installed-badge")).not.toBeInTheDocument();
+      expect(
+        within(skillCard).queryByTestId("installed-badge"),
+      ).not.toBeInTheDocument();
 
       await user.click(within(skillCard).getByText("Install"));
 
@@ -675,15 +729,26 @@ describe("Skills Management User Flow", () => {
 
       // Step 4: Verify skill is now installed (after refresh)
       await waitFor(() => {
-        expect(within(screen.getByTestId("skill-card-code-review")).getByTestId("installed-badge")).toBeInTheDocument();
+        expect(
+          within(screen.getByTestId("skill-card-code-review")).getByTestId(
+            "installed-badge",
+          ),
+        ).toBeInTheDocument();
       });
 
       // Step 5: Filter to show only installed skills
-      await user.selectOptions(screen.getByTestId("status-filter"), "installed");
+      await user.selectOptions(
+        screen.getByTestId("status-filter"),
+        "installed",
+      );
       expect(screen.getByText("Code Review")).toBeInTheDocument();
 
       // Step 6: Uninstall the skill
-      await user.click(within(screen.getByTestId("skill-card-code-review")).getByText("Uninstall"));
+      await user.click(
+        within(screen.getByTestId("skill-card-code-review")).getByText(
+          "Uninstall",
+        ),
+      );
 
       await waitFor(() => {
         expect(uninstallSkillMock).toHaveBeenCalled();
@@ -702,7 +767,9 @@ describe("Skills Management User Flow", () => {
       });
 
       const finalSkillCard = screen.getByTestId("skill-card-code-review");
-      expect(within(finalSkillCard).queryByTestId("installed-badge")).not.toBeInTheDocument();
+      expect(
+        within(finalSkillCard).queryByTestId("installed-badge"),
+      ).not.toBeInTheDocument();
     });
   });
 });

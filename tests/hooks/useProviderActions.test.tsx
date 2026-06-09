@@ -20,9 +20,18 @@ const updateProviderMutateAsync = vi.fn();
 const deleteProviderMutateAsync = vi.fn();
 const switchProviderMutateAsync = vi.fn();
 
-const addProviderMutation = { mutateAsync: addProviderMutateAsync, isPending: false };
-const updateProviderMutation = { mutateAsync: updateProviderMutateAsync, isPending: false };
-const deleteProviderMutation = { mutateAsync: deleteProviderMutateAsync, isPending: false };
+const addProviderMutation = {
+  mutateAsync: addProviderMutateAsync,
+  isPending: false,
+};
+const updateProviderMutation = {
+  mutateAsync: updateProviderMutateAsync,
+  isPending: false,
+};
+const deleteProviderMutation = {
+  mutateAsync: deleteProviderMutateAsync,
+  isPending: false,
+};
 const switchProviderMutation = {
   mutateAsync: switchProviderMutateAsync,
   isPending: false,
@@ -48,11 +57,13 @@ const settingsApiApplyMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   providersApi: {
     update: (...args: unknown[]) => providersApiUpdateMock(...args),
-    updateTrayMenu: (...args: unknown[]) => providersApiUpdateTrayMenuMock(...args),
+    updateTrayMenu: (...args: unknown[]) =>
+      providersApiUpdateTrayMenuMock(...args),
   },
   settingsApi: {
     get: (...args: unknown[]) => settingsApiGetMock(...args),
-    applyClaudePluginConfig: (...args: unknown[]) => settingsApiApplyMock(...args),
+    applyClaudePluginConfig: (...args: unknown[]) =>
+      settingsApiApplyMock(...args),
   },
 }));
 
@@ -269,9 +280,9 @@ describe("useProviderActions", () => {
       wrapper,
     });
 
-    await expect(
-      result.current.switchProvider(provider),
-    ).rejects.toThrow("switch failed");
+    await expect(result.current.switchProvider(provider)).rejects.toThrow(
+      "switch failed",
+    );
     expect(settingsApiGetMock).not.toHaveBeenCalled();
     expect(settingsApiApplyMock).not.toHaveBeenCalled();
   });
@@ -381,7 +392,6 @@ describe("useProviderActions", () => {
     expect(toastErrorMock.mock.calls[0]?.[0]).toBe("用量查询配置保存失败");
   });
 
-
   it("propagates addProvider errors to caller", async () => {
     addProviderMutateAsync.mockRejectedValueOnce(new Error("add failed"));
     const { wrapper } = createWrapper();
@@ -424,9 +434,9 @@ describe("useProviderActions", () => {
       wrapper,
     });
 
-    await expect(
-      result.current.switchProvider(provider),
-    ).rejects.toThrow("switch failed");
+    await expect(result.current.switchProvider(provider)).rejects.toThrow(
+      "switch failed",
+    );
 
     expect(settingsApiGetMock).not.toHaveBeenCalled();
     expect(settingsApiApplyMock).not.toHaveBeenCalled();
@@ -443,16 +453,16 @@ describe("useProviderActions", () => {
     expect(result.current.isLoading).toBe(true);
   });
 });
-  it("clears loading flag when all mutations idle", () => {
-    addProviderMutation.isPending = false;
-    updateProviderMutation.isPending = false;
-    deleteProviderMutation.isPending = false;
-    switchProviderMutation.isPending = false;
+it("clears loading flag when all mutations idle", () => {
+  addProviderMutation.isPending = false;
+  updateProviderMutation.isPending = false;
+  deleteProviderMutation.isPending = false;
+  switchProviderMutation.isPending = false;
 
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useProviderActions("claude"), {
-      wrapper,
-    });
-
-    expect(result.current.isLoading).toBe(false);
+  const { wrapper } = createWrapper();
+  const { result } = renderHook(() => useProviderActions("claude"), {
+    wrapper,
   });
+
+  expect(result.current.isLoading).toBe(false);
+});

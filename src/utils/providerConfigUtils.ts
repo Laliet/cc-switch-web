@@ -11,7 +11,11 @@ import { normalizeQuotes } from "@/utils/textNormalization";
  * Security note: these keys MUST be skipped at every recursion level in deep
  * operations that consume untrusted input (JSON snippets / user-provided config).
  */
-export const DANGEROUS_KEYS = ["__proto__", "constructor", "prototype"] as const;
+export const DANGEROUS_KEYS = [
+  "__proto__",
+  "constructor",
+  "prototype",
+] as const;
 
 /**
  * Returns true if `key` is a known prototype pollution gadget key.
@@ -567,10 +571,7 @@ export const setCodexModelName = (
   const trimmed = modelName.trim();
   if (!trimmed) {
     const normalizedText = normalizeQuotes(configText);
-    const stripped = normalizedText.replace(
-      /^model\s*=\s*.*(?:\r?\n)?/gm,
-      "",
-    );
+    const stripped = normalizedText.replace(/^model\s*=\s*.*(?:\r?\n)?/gm, "");
     return stripped;
   }
 

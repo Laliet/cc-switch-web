@@ -26,7 +26,8 @@ vi.mock("@/lib/api", () => ({
     importConfigFromFile: (...args: unknown[]) => importConfigMock(...args),
     saveFileDialog: (...args: unknown[]) => saveFileDialogMock(...args),
     exportConfigToFile: (...args: unknown[]) => exportConfigMock(...args),
-    syncCurrentProvidersLive: (...args: unknown[]) => syncCurrentProvidersLiveMock(...args),
+    syncCurrentProvidersLive: (...args: unknown[]) =>
+      syncCurrentProvidersLiveMock(...args),
   },
 }));
 
@@ -106,7 +107,10 @@ describe("useImportExport Hook (edge cases)", () => {
 
   it("propagates export success message to toast with saved path", async () => {
     saveFileDialogMock.mockResolvedValue("/exports/config.json");
-    exportConfigMock.mockResolvedValue({ success: true, filePath: "/final/config.json" });
+    exportConfigMock.mockResolvedValue({
+      success: true,
+      filePath: "/final/config.json",
+    });
     const { result } = renderHook(() => useImportExport());
 
     await act(async () => {
@@ -118,5 +122,4 @@ describe("useImportExport Hook (edge cases)", () => {
       expect.stringContaining("/final/config.json"),
     );
   });
-
 });

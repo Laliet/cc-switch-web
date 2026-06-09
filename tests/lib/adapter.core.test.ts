@@ -935,6 +935,103 @@ describe("commandToEndpoint", () => {
         },
       },
       {
+        cmd: "get_codex_oauth_models",
+        args: { accountId: "codex/account" },
+        expected: {
+          method: "GET",
+          url: "/api/model-fetch/codex-oauth?accountId=codex%2Faccount",
+        },
+      },
+      {
+        cmd: "get_github_copilot_models",
+        args: { accountId: null },
+        expected: {
+          method: "GET",
+          url: "/api/model-fetch/github-copilot",
+        },
+      },
+      {
+        cmd: "list_managed_auth_accounts",
+        args: { provider: "github_copilot" },
+        expected: {
+          method: "GET",
+          url: "/api/auth/accounts?provider=github_copilot",
+        },
+      },
+      {
+        cmd: "import_managed_auth_account",
+        args: {
+          input: {
+            provider: "github_copilot",
+            id: "gh-1",
+            label: "GitHub One",
+            tokens: { accessToken: "token-1" },
+          },
+        },
+        expected: {
+          method: "POST",
+          url: "/api/auth/accounts",
+          body: {
+            provider: "github_copilot",
+            id: "gh-1",
+            label: "GitHub One",
+            tokens: { accessToken: "token-1" },
+          },
+        },
+      },
+      {
+        cmd: "set_default_managed_auth_account",
+        args: { provider: "github_copilot", accountId: "gh/1" },
+        expected: {
+          method: "POST",
+          url: "/api/auth/accounts/default?provider=github_copilot&accountId=gh%2F1",
+        },
+      },
+      {
+        cmd: "delete_managed_auth_account",
+        args: { provider: "github_copilot", accountId: "gh/1" },
+        expected: {
+          method: "DELETE",
+          url: "/api/auth/accounts?provider=github_copilot&accountId=gh%2F1",
+        },
+      },
+      {
+        cmd: "logout_managed_auth_account",
+        args: { provider: "github_copilot", accountId: "gh/1" },
+        expected: {
+          method: "POST",
+          url: "/api/auth/accounts/logout?provider=github_copilot&accountId=gh%2F1",
+        },
+      },
+      {
+        cmd: "start_managed_auth_device_login",
+        args: { request: { provider: "codex_oauth" } },
+        expected: {
+          method: "POST",
+          url: "/api/auth/device/start",
+          body: { provider: "codex_oauth" },
+        },
+      },
+      {
+        cmd: "poll_managed_auth_device_login",
+        args: {
+          request: { provider: "codex_oauth", sessionId: "session-1" },
+        },
+        expected: {
+          method: "POST",
+          url: "/api/auth/device/poll",
+          body: { provider: "codex_oauth", sessionId: "session-1" },
+        },
+      },
+      {
+        cmd: "query_managed_auth_usage",
+        args: { provider: "github_copilot", accountId: "gh/1" },
+        expected: {
+          method: "GET",
+          url: "/api/auth/usage?provider=github_copilot&accountId=gh%2F1",
+        },
+      },
+      {
         cmd: "stream_check_provider",
         args: { appType: "opencode", providerId: "provider/1" },
         expected: {

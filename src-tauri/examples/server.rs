@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let username = auth_state
         .read()
         .map(|guard| guard.username.clone())
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
+        .map_err(|err| io::Error::other(err.to_string()))?;
 
     let state: SharedState = Arc::new(AppState::try_new()?);
 
@@ -157,11 +157,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 addr
             );
         }
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Refusing to start without ALLOW_HTTP_BASIC_OVER_HTTP",
-        )
-        .into());
+        return Err(
+            io::Error::other("Refusing to start without ALLOW_HTTP_BASIC_OVER_HTTP").into(),
+        );
     }
 
     info!(

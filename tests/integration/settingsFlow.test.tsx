@@ -187,8 +187,7 @@ function UpdateProvider({ children }: { children: ReactNode }) {
 
 function useUpdate() {
   const context = useContext(UpdateContext);
-  if (!context)
-    throw new Error("useUpdate must be used within UpdateProvider");
+  if (!context) throw new Error("useUpdate must be used within UpdateProvider");
   return context;
 }
 
@@ -326,14 +325,14 @@ describe("Settings and Update User Flow", () => {
 
       // 1. Verify initial theme (system)
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: system"
+        "Current: system",
       );
 
       // 2. Switch to light theme
       await user.click(screen.getByTestId("theme-light"));
 
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: light"
+        "Current: light",
       );
       expect(setThemeMock).toHaveBeenCalledWith("light");
 
@@ -341,7 +340,7 @@ describe("Settings and Update User Flow", () => {
       await user.click(screen.getByTestId("theme-dark"));
 
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: dark"
+        "Current: dark",
       );
       expect(setThemeMock).toHaveBeenCalledWith("dark");
 
@@ -349,7 +348,7 @@ describe("Settings and Update User Flow", () => {
       await user.click(screen.getByTestId("theme-system"));
 
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: system"
+        "Current: system",
       );
       expect(setThemeMock).toHaveBeenCalledWith("system");
     });
@@ -361,7 +360,7 @@ describe("Settings and Update User Flow", () => {
 
       // Should load saved theme
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: dark"
+        "Current: dark",
       );
     });
   });
@@ -421,7 +420,7 @@ describe("Settings and Update User Flow", () => {
       expect(screen.getByText("Update available: 2.0.0")).toBeInTheDocument();
       expect(screen.getByText("Current version: 1.0.0")).toBeInTheDocument();
       expect(
-        screen.getByText("Release notes: New features and bug fixes")
+        screen.getByText("Release notes: New features and bug fixes"),
       ).toBeInTheDocument();
 
       // 4. Should show action buttons
@@ -440,7 +439,7 @@ describe("Settings and Update User Flow", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("error-message")).toHaveTextContent(
-          "Network error"
+          "Network error",
         );
       });
     });
@@ -525,7 +524,7 @@ describe("Settings and Update User Flow", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("error-message")).toHaveTextContent(
-          "Download failed"
+          "Download failed",
         );
       });
 
@@ -626,13 +625,13 @@ describe("Settings and Update User Flow", () => {
 
       // Step 1: User opens settings and sees default theme
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: system"
+        "Current: system",
       );
 
       // Step 2: User switches to dark theme
       await user.click(screen.getByTestId("theme-dark"));
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: dark"
+        "Current: dark",
       );
 
       // Step 3: User checks for updates (first time - up to date)
@@ -645,7 +644,7 @@ describe("Settings and Update User Flow", () => {
       // Step 4: User changes mind and switches to light theme
       await user.click(screen.getByTestId("theme-light"));
       expect(screen.getByTestId("current-theme")).toHaveTextContent(
-        "Current: light"
+        "Current: light",
       );
 
       // Step 5: User checks for updates again (this time finds update)

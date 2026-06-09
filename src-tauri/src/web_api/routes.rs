@@ -7,7 +7,7 @@ use axum::{
 
 use super::{
     handlers::{
-        config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
+        auth, config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
         stream_check, system, usage, webdav,
     },
     SharedState,
@@ -16,6 +16,7 @@ use super::{
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
         .route("/health/status", get(health::proxy_status))
+        .nest("/auth", auth_routes())
         .nest("/providers", provider_routes())
         .nest("/mcp", mcp_routes())
         .nest("/prompts", prompt_routes())
@@ -26,6 +27,14 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/webdav", webdav_routes())
         .nest("/config", config_routes())
         .route("/model-fetch", post(model_fetch::fetch_models_for_config))
+        .route(
+            "/model-fetch/codex-oauth",
+            get(model_fetch::get_codex_oauth_models),
+        )
+        .route(
+            "/model-fetch/github-copilot",
+            get(model_fetch::get_github_copilot_models),
+        )
         .nest("/stream-check", stream_check_routes())
         .route("/tray/update", post(system::update_tray))
         .route("/system/csrf-token", get(system::get_csrf_token))
@@ -35,6 +44,33 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/fs/save-file", post(config::save_file_dialog))
         .route("/fs/open-file", post(config::open_file_dialog))
         .with_state(state)
+}
+
+fn auth_routes() -> Router<SharedState> {
+    Router::new()
+        .route(
+            "/accounts",
+            get(auth::list_accounts)
+                .post(auth::import_account)
+                .delete(auth::delete_account_by_query),
+        )
+        .route(
+            "/accounts/:provider/:account_id/default",
+            post(auth::set_default),
+        )
+        .route("/accounts/default", post(auth::set_default_by_query))
+        .route(
+            "/accounts/:provider/:account_id/logout",
+            post(auth::logout_account),
+        )
+        .route("/accounts/logout", post(auth::logout_account_by_query))
+        .route(
+            "/accounts/:provider/:account_id",
+            delete(auth::delete_account),
+        )
+        .route("/device/start", post(auth::start_device_login))
+        .route("/device/poll", post(auth::poll_device_login))
+        .route("/usage", get(auth::query_usage))
 }
 
 fn webdav_routes() -> Router<SharedState> {

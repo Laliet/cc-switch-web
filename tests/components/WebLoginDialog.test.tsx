@@ -24,7 +24,9 @@ type AdapterMocks = {
   getWebApiBaseValidationError: ReturnType<
     typeof vi.fn<(value: string) => string | null>
   >;
-  normalizeWebApiBase: ReturnType<typeof vi.fn<(value: string) => string | null>>;
+  normalizeWebApiBase: ReturnType<
+    typeof vi.fn<(value: string) => string | null>
+  >;
   WEB_CSRF_STORAGE_KEY: string;
 };
 
@@ -34,9 +36,10 @@ const adapterMocks = vi.hoisted(() => ({
   ),
   clearWebApiBaseOverride: vi.fn(),
   clearWebCredentials: vi.fn(),
-  setWebCredentials: vi.fn<
-    (username: string, password: string, apiBase?: string | null) => void
-  >(),
+  setWebCredentials:
+    vi.fn<
+      (username: string, password: string, apiBase?: string | null) => void
+    >(),
   setWebApiBaseOverride: vi.fn<(value: string) => void>(),
   base64EncodeUtf8: vi.fn(() => "encoded-value"),
   getWebApiBase: vi.fn(() => apiBaseForBuild),
@@ -78,7 +81,9 @@ vi.mock("@/components/ui/input", () => ({
   Input: ({ value, onChange, ...rest }: any) => (
     <input
       value={value}
-      onChange={(event) => onChange?.({ target: { value: event.target.value } })}
+      onChange={(event) =>
+        onChange?.({ target: { value: event.target.value } })
+      }
       {...rest}
     />
   ),
@@ -122,9 +127,7 @@ describe("WebLoginDialog", () => {
     render(<WebLoginDialog open onLoginSuccess={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "登录" })).toBeInTheDocument();
-    expect(
-      screen.getByLabelText("API 地址 (可选)"),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText("API 地址 (可选)")).toBeInTheDocument();
     expect(screen.getByLabelText("用户名")).toBeInTheDocument();
     expect(screen.getByLabelText("密码")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登录" })).toBeInTheDocument();
@@ -170,9 +173,7 @@ describe("WebLoginDialog", () => {
 
     render(<WebLoginDialog open onLoginSuccess={vi.fn()} />);
 
-    const usernameInput = screen.getByLabelText(
-      "用户名",
-    ) as HTMLInputElement;
+    const usernameInput = screen.getByLabelText("用户名") as HTMLInputElement;
     await user.clear(usernameInput);
     await user.type(usernameInput, "alice");
     await user.type(screen.getByLabelText("密码"), "secret");

@@ -93,31 +93,28 @@ export function UsageDashboard() {
     [refreshIntervalMs],
   );
 
-  const providerOptions = useMemo(
-    () => {
-      const options = new Map<
-        string,
-        { value: string; label: string; appTypes: Set<string> }
-      >();
-      for (const provider of providerOptionsQuery.data ?? []) {
-        const existing = options.get(provider.providerId);
-        if (existing) {
-          existing.appTypes.add(provider.appType);
-          continue;
-        }
-        options.set(provider.providerId, {
-          value: provider.providerId,
-          label: provider.providerName || provider.providerId,
-          appTypes: new Set([provider.appType]),
-        });
+  const providerOptions = useMemo(() => {
+    const options = new Map<
+      string,
+      { value: string; label: string; appTypes: Set<string> }
+    >();
+    for (const provider of providerOptionsQuery.data ?? []) {
+      const existing = options.get(provider.providerId);
+      if (existing) {
+        existing.appTypes.add(provider.appType);
+        continue;
       }
-      return Array.from(options.values()).map((option) => ({
-        ...option,
-        appTypes: Array.from(option.appTypes),
-      }));
-    },
-    [providerOptionsQuery.data],
-  );
+      options.set(provider.providerId, {
+        value: provider.providerId,
+        label: provider.providerName || provider.providerId,
+        appTypes: new Set([provider.appType]),
+      });
+    }
+    return Array.from(options.values()).map((option) => ({
+      ...option,
+      appTypes: Array.from(option.appTypes),
+    }));
+  }, [providerOptionsQuery.data]);
 
   const modelOptions = useMemo(
     () => (modelOptionsQuery.data ?? []).map((item) => item.model),

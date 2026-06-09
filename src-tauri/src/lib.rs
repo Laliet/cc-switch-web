@@ -1,6 +1,7 @@
 mod app_config;
 #[cfg(feature = "desktop")]
 mod app_store;
+mod auth;
 mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
@@ -34,6 +35,11 @@ pub mod web_api;
 mod webdav_sync;
 
 pub use app_config::{AppType, McpApps, McpServer, MultiAppConfig};
+pub use auth::{
+    ManagedAuthAccount, ManagedAuthAccountInput, ManagedAuthDevicePoll,
+    ManagedAuthDevicePollResult, ManagedAuthDeviceSession, ManagedAuthDeviceStart,
+    ManagedAuthProvider, ManagedAuthTokenSet, ManagedAuthUsage,
+};
 pub use codex_config::{get_codex_auth_path, get_codex_config_path, write_codex_live_atomic};
 #[cfg(feature = "desktop")]
 pub use commands::*;
@@ -49,11 +55,12 @@ pub use mcp::{
 };
 pub use prompt::Prompt;
 pub use provider::{
-    ClaudeDesktopMode, ClaudeDesktopModelRoute, Provider, ProviderMeta, UniversalProvider,
+    ClaudeDesktopMode, ClaudeDesktopModelRoute, Provider, ProviderAuthBinding, ProviderMeta,
+    ProviderType, UniversalProvider,
 };
 pub use services::{
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, SkillService,
-    SpeedtestService,
+    AuthService, CodexOAuthManager, ConfigService, CopilotAuthManager, EndpointLatency, McpService,
+    PromptService, ProviderService, SkillService, SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -808,6 +815,8 @@ pub fn run() {
             commands::get_claude_desktop_status,
             commands::import_claude_desktop_providers_from_claude,
             commands::fetch_models_for_config,
+            commands::get_codex_oauth_models,
+            commands::get_github_copilot_models,
             commands::stream_check_provider,
             commands::stream_check_all_providers,
             commands::get_stream_check_config,
@@ -818,6 +827,15 @@ pub fn run() {
             commands::save_file_dialog,
             commands::open_file_dialog,
             commands::sync_current_providers_live,
+            // Auth Center
+            commands::list_managed_auth_accounts,
+            commands::import_managed_auth_account,
+            commands::set_default_managed_auth_account,
+            commands::delete_managed_auth_account,
+            commands::logout_managed_auth_account,
+            commands::start_managed_auth_device_login,
+            commands::poll_managed_auth_device_login,
+            commands::query_managed_auth_usage,
             // Deep link import
             commands::parse_deeplink,
             commands::import_from_deeplink,

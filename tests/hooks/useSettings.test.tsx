@@ -76,7 +76,9 @@ const createSettingsFormMock = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const createDirectorySettingsMock = (overrides: Record<string, unknown> = {}) => ({
+const createDirectorySettingsMock = (
+  overrides: Record<string, unknown> = {},
+) => ({
   appConfigDir: undefined,
   resolvedDirs: {
     appConfig: "/home/mock/.cc-switch",
@@ -195,7 +197,9 @@ describe("useSettings hook", () => {
     expect(payload.codexConfigDir).toBeUndefined();
     expect(payload.language).toBe("en");
     expect(setAppConfigDirOverrideMock).toHaveBeenCalledWith("/override/app");
-    expect(applyClaudePluginConfigMock).toHaveBeenCalledWith({ official: false });
+    expect(applyClaudePluginConfigMock).toHaveBeenCalledWith({
+      official: false,
+    });
     expect(metadataMock.setRequiresRestart).toHaveBeenCalledWith(true);
     expect(window.localStorage.getItem("language")).toBe("en");
     expect(toastErrorMock).not.toHaveBeenCalled();
@@ -227,7 +231,9 @@ describe("useSettings hook", () => {
 
     expect(saveResult).toEqual({ requiresRestart: false });
     expect(setAppConfigDirOverrideMock).toHaveBeenCalledWith(null);
-    expect(applyClaudePluginConfigMock).toHaveBeenCalledWith({ official: true });
+    expect(applyClaudePluginConfigMock).toHaveBeenCalledWith({
+      official: true,
+    });
     expect(metadataMock.setRequiresRestart).toHaveBeenCalledWith(false);
     // 目录未变化，不应触发同步
     expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();

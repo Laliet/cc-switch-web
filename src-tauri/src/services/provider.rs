@@ -11,7 +11,7 @@ use crate::config::{
     write_json_file, write_text_file,
 };
 use crate::error::AppError;
-use crate::provider::{Provider, ProviderMeta, UsageData, UsageResult};
+use crate::provider::{Provider, ProviderMeta, ProviderType, UsageData, UsageResult};
 use crate::settings::{self, CustomEndpoint};
 use crate::store::AppState;
 use crate::usage_script;
@@ -181,6 +181,100 @@ mod tests {
             ProviderService::extract_credentials(&provider, &AppType::Claude).unwrap();
         assert_eq!(api_key, "token");
         assert_eq!(base_url, "https://claude.example");
+    }
+
+    #[test]
+    fn codex_oauth_live_write_requires_proxy_takeover() {
+        let mut provider = Provider::with_id(
+            "codex-oauth".into(),
+            "Codex OAuth".into(),
+            json!({
+                "auth": { "OPENAI_API_KEY": "" },
+                "config": "model_provider = \"codex_oauth\""
+            }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            provider_type: Some("codex_oauth".to_string()),
+            ..ProviderMeta::default()
+        });
+
+        let err = ProviderService::write_codex_live(&provider)
+            .expect_err("Codex OAuth should use proxy takeover");
+
+        assert!(err.to_string().contains("代理接管"));
+    }
+
+    #[test]
+    fn claude_managed_oauth_live_write_requires_proxy_takeover() {
+        let mut provider = Provider::with_id(
+            "github-copilot".into(),
+            "GitHub Copilot".into(),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
+                    "ANTHROPIC_AUTH_TOKEN": ""
+                }
+            }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            provider_type: Some("github_copilot".to_string()),
+            ..ProviderMeta::default()
+        });
+
+        let err = ProviderService::write_claude_live(&provider)
+            .expect_err("managed OAuth Claude provider should use proxy takeover");
+
+        assert!(err.to_string().contains("代理接管"));
+    }
+
+    #[test]
+    fn manual_api_key_oauth_provider_is_not_treated_as_managed_live_write() {
+        let mut provider = Provider::with_id(
+            "github-copilot-manual".into(),
+            "GitHub Copilot Manual".into(),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
+                    "ANTHROPIC_AUTH_TOKEN": "manual-token"
+                }
+            }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            provider_type: Some("github_copilot".to_string()),
+            auth_binding: Some(crate::provider::ProviderAuthBinding {
+                mode: " API_KEY ".to_string(),
+                provider_type: Some("github_copilot".to_string()),
+                account_id: None,
+                use_default: None,
+            }),
+            ..ProviderMeta::default()
+        });
+
+        assert!(!ProviderService::is_managed_oauth_provider(&provider));
+    }
+
+    #[test]
+    fn legacy_oauth_provider_with_manual_token_is_not_treated_as_managed_live_write() {
+        let mut provider = Provider::with_id(
+            "github-copilot-legacy-manual".into(),
+            "GitHub Copilot Legacy Manual".into(),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
+                    "ANTHROPIC_AUTH_TOKEN": "manual-token"
+                }
+            }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            provider_type: Some("github_copilot".to_string()),
+            ..ProviderMeta::default()
+        });
+
+        assert!(!ProviderService::is_managed_oauth_provider(&provider));
     }
 }
 
@@ -607,13 +701,13 @@ impl ProviderService {
         #[cfg(feature = "web-server")]
         {
             let proxy = settings::get_settings().proxy;
-            return match app_type {
+            match app_type {
                 AppType::Claude => proxy.apps.claude.enabled,
                 AppType::Codex => proxy.apps.codex.enabled,
                 AppType::Gemini => proxy.apps.gemini.enabled,
                 AppType::Opencode => proxy.apps.opencode.enabled,
                 AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
-            };
+            }
         }
 
         #[cfg(not(feature = "web-server"))]
@@ -1759,6 +1853,13 @@ impl ProviderService {
     }
 
     fn write_codex_live(provider: &Provider) -> Result<(), AppError> {
+        if Self::is_managed_oauth_provider(provider) {
+            return Err(AppError::localized(
+                "provider.codex.oauth_requires_proxy",
+                "Codex OAuth 托管供应商需要开启 Codex 代理接管后使用。",
+                "Codex OAuth managed providers require Codex proxy takeover.",
+            ));
+        }
         let settings = provider
             .settings_config
             .as_object()
@@ -2051,11 +2152,48 @@ impl ProviderService {
     }
 
     fn write_claude_live(provider: &Provider) -> Result<(), AppError> {
+        if Self::is_managed_oauth_provider(provider) {
+            return Err(AppError::localized(
+                "provider.claude.oauth_requires_proxy",
+                "GitHub Copilot / Codex OAuth 托管供应商需要开启 Claude 代理接管后使用。",
+                "GitHub Copilot / Codex OAuth managed providers require Claude proxy takeover.",
+            ));
+        }
         let settings_path = get_claude_settings_path()?;
         let mut content = provider.settings_config.clone();
         let _ = Self::normalize_claude_models_in_value(&mut content);
         write_json_file(&settings_path, &content)?;
         Ok(())
+    }
+
+    fn is_managed_oauth_provider(provider: &Provider) -> bool {
+        let Some(meta) = provider.meta.as_ref() else {
+            return false;
+        };
+        if meta
+            .auth_binding
+            .as_ref()
+            .is_some_and(|binding| auth_binding_mode_is(&binding.mode, "api_key"))
+        {
+            return false;
+        }
+        if meta.auth_binding.is_none()
+            && meta
+                .github_account_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+            && provider_has_manual_auth_key(provider)
+        {
+            return false;
+        }
+        meta.provider_type().is_some_and(|provider_type| {
+            matches!(
+                provider_type,
+                ProviderType::GithubCopilot | ProviderType::CodexOauth
+            )
+        })
     }
 
     pub(crate) fn write_gemini_live(provider: &Provider) -> Result<(), AppError> {
@@ -2656,6 +2794,36 @@ impl ProviderService {
             Ok(())
         })
     }
+}
+
+fn auth_binding_mode_is(actual: &str, expected: &str) -> bool {
+    actual.trim().eq_ignore_ascii_case(expected)
+}
+
+fn provider_has_manual_auth_key(provider: &Provider) -> bool {
+    let env = provider.settings_config.get("env");
+    env.and_then(|value| {
+        [
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+        ]
+        .into_iter()
+        .find_map(|key| value.get(key))
+    })
+    .or_else(|| {
+        provider
+            .settings_config
+            .get("auth")
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+    })
+    .or_else(|| provider.settings_config.get("apiKey"))
+    .or_else(|| provider.settings_config.get("api_key"))
+    .and_then(serde_json::Value::as_str)
+    .map(str::trim)
+    .is_some_and(|value| !value.is_empty())
 }
 
 #[derive(Debug, Clone, Deserialize)]

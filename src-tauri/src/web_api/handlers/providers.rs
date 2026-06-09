@@ -312,7 +312,7 @@ pub async fn sync_current_providers_live(
     State(state): State<Arc<AppState>>,
 ) -> ApiResult<serde_json::Value> {
     state
-        .update_config(|config| ConfigService::sync_current_providers_to_live(config))
+        .update_config(ConfigService::sync_current_providers_to_live)
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({
         "success": true,

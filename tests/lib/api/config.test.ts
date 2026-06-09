@@ -18,7 +18,7 @@ describe("config API module", () => {
   });
 
   it("getClaudeCommonConfigSnippet returns snippet", async () => {
-    const snippet = "{\"theme\":\"dark\"}";
+    const snippet = '{"theme":"dark"}';
     adapterMocks.invoke.mockResolvedValueOnce(snippet);
 
     const result = await getClaudeCommonConfigSnippet();
@@ -30,7 +30,7 @@ describe("config API module", () => {
   });
 
   it("setClaudeCommonConfigSnippet invokes with snippet", async () => {
-    const snippet = "{\"theme\":\"light\"}";
+    const snippet = '{"theme":"light"}';
     adapterMocks.invoke.mockResolvedValueOnce(undefined);
 
     await setClaudeCommonConfigSnippet(snippet);
@@ -42,9 +42,9 @@ describe("config API module", () => {
   });
 
   it.each([
-    ["claude", "{\"fonts\":[\"inter\"]}"],
+    ["claude", '{"fonts":["inter"]}'],
     ["codex", "raw-codex-snippet"],
-    ["gemini", "{\"fonts\":[\"noto\"]}"],
+    ["gemini", '{"fonts":["noto"]}'],
   ] as const)(
     "getCommonConfigSnippet requests %s snippet",
     async (appType, snippet) => {
@@ -61,9 +61,9 @@ describe("config API module", () => {
   );
 
   it.each([
-    ["claude", "{\"editor\":\"vim\"}"],
-    ["codex", "{\"editor\":\"code\"}"],
-    ["gemini", "{\"editor\":\"zed\"}"],
+    ["claude", '{"editor":"vim"}'],
+    ["codex", '{"editor":"code"}'],
+    ["gemini", '{"editor":"zed"}'],
   ] as const)(
     "setCommonConfigSnippet sends %s payload",
     async (appType, snippet) => {

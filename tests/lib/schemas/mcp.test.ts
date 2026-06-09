@@ -10,10 +10,12 @@ describe("mcpServerSchema", () => {
   };
 
   it("requires a non-empty id", () => {
-    expect(mcpServerSchema.safeParse({ ...baseStdio, id: "" }).success).toBe(false);
-    expect(mcpServerSchema.safeParse({ server: baseStdio.server } as any).success).toBe(
+    expect(mcpServerSchema.safeParse({ ...baseStdio, id: "" }).success).toBe(
       false,
     );
+    expect(
+      mcpServerSchema.safeParse({ server: baseStdio.server } as any).success,
+    ).toBe(false);
   });
 
   it("accepts optional fields when omitted or provided", () => {
@@ -34,9 +36,9 @@ describe("mcpServerSchema", () => {
 
   it("defaults server.type to stdio when omitted", () => {
     expect(mcpServerSchema.safeParse(baseStdio).success).toBe(true);
-    expect(mcpServerSchema.safeParse({ id: "server-1", server: {} }).success).toBe(
-      false,
-    );
+    expect(
+      mcpServerSchema.safeParse({ id: "server-1", server: {} }).success,
+    ).toBe(false);
   });
 
   it("requires command for stdio servers", () => {

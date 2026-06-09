@@ -3,9 +3,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Download, Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -15,12 +17,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
-import type { AppId } from "@/lib/api";
+import { authApi, type AppId, type ManagedAuthAccount } from "@/lib/api";
+import {
+  fetchCodexOauthModels,
+  fetchGithubCopilotModels,
+  showFetchModelsError,
+  type FetchedModel,
+} from "@/lib/api/model-fetch";
 import type {
   ClaudeDesktopMode,
   ClaudeDesktopModelRoute,
   ProviderCategory,
   ProviderMeta,
+  ProviderAuthBinding,
 } from "@/types";
 import {
   providerPresets,
@@ -57,6 +66,7 @@ import { CodexFormFields } from "./CodexFormFields";
 import { GeminiFormFields } from "./GeminiFormFields";
 import { OpenCodeFormFields } from "./OpenCodeFormFields";
 import { OmoFormFields } from "./OmoFormFields";
+import { ModelDropdown } from "./shared";
 import {
   OPENCODE_DEFAULT_CONFIG,
   parseOpencodeConfig,
@@ -80,6 +90,7 @@ import {
 import { useOmoDraftState } from "./hooks/useOmoDraftState";
 import { useOmoModelSource } from "./hooks/useOmoModelSource";
 import { useOpencodeConfigState } from "./hooks/useOpencodeConfigState";
+import { toast } from "sonner";
 
 const CLAUDE_DEFAULT_CONFIG = JSON.stringify({ env: {} }, null, 2);
 const CLAUDE_DESKTOP_DEFAULT_CONFIG = JSON.stringify(
@@ -133,6 +144,123 @@ type ClaudeDesktopRouteRow = {
   supports1m: boolean;
 };
 
+type AuthMode = "managed" | "api_key";
+type ManagedProviderType = "github_copilot" | "codex_oauth";
+
+function normalizeManagedProviderType(
+  value?: string | null,
+): ManagedProviderType | undefined {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+  if (
+    normalized === "github_copilot" ||
+    normalized === "githubcopilot" ||
+    normalized === "copilot"
+  ) {
+    return "github_copilot";
+  }
+  if (
+    normalized === "codex_oauth" ||
+    normalized === "codexoauth" ||
+    normalized === "codex" ||
+    normalized === "chatgpt" ||
+    normalized === "chat_gpt"
+  ) {
+    return "codex_oauth";
+  }
+  return undefined;
+}
+
+function normalizeAuthMode(value?: string | null): AuthMode | undefined {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+  if (normalized === "managed") return "managed";
+  if (normalized === "api_key" || normalized === "apikey") return "api_key";
+  return undefined;
+}
+
+function isManagedAccountUsable(account: ManagedAuthAccount): boolean {
+  return account.status?.trim().toLowerCase() !== "logged_out";
+}
+
+function managedProviderTypeFromMeta(
+  meta?: ProviderMeta,
+): ManagedProviderType | undefined {
+  const providerType =
+    meta?.authBinding?.providerType ?? meta?.providerType ?? undefined;
+  return normalizeManagedProviderType(providerType);
+}
+
+function authModeFromMeta(
+  meta?: ProviderMeta,
+  settingsConfig?: Record<string, unknown>,
+): AuthMode {
+  const explicitMode = normalizeAuthMode(meta?.authBinding?.mode);
+  if (explicitMode) return explicitMode;
+  if (!managedProviderTypeFromMeta(meta)) return "api_key";
+  return hasManualAuthKey(settingsConfig) ? "api_key" : "managed";
+}
+
+function managedProviderTypeForPreset(
+  appId: AppId,
+  activePreset: { providerType?: string } | null,
+  initialMeta?: ProviderMeta,
+): ManagedProviderType | undefined {
+  const fromPreset = normalizeManagedProviderType(activePreset?.providerType);
+  if (fromPreset) {
+    return fromPreset;
+  }
+  if (activePreset) {
+    return undefined;
+  }
+  const fromMeta = managedProviderTypeFromMeta(initialMeta);
+  if (fromMeta) return fromMeta;
+  if (
+    appId === "codex" &&
+    normalizeManagedProviderType(initialMeta?.providerType) === "codex_oauth"
+  ) {
+    return "codex_oauth";
+  }
+  return undefined;
+}
+
+function providerTypeFromPresetForApp(
+  appId: AppId,
+  preset: PresetEntry["preset"],
+): ManagedProviderType | undefined {
+  const providerType =
+    appId === "claude-desktop"
+      ? (preset as ClaudeDesktopProviderPreset).providerType
+      : appId === "codex"
+        ? (preset as CodexProviderPreset).providerType
+        : appId === "claude"
+          ? (preset as ProviderPreset).providerType
+          : undefined;
+  return normalizeManagedProviderType(providerType);
+}
+
+function stripManagedAuthMeta(meta?: ProviderMeta): ProviderMeta | undefined {
+  if (!meta) return meta;
+  const {
+    authBinding: _authBinding,
+    githubAccountId: _githubAccountId,
+    promptCacheKey: _promptCacheKey,
+    codexFastMode: _codexFastMode,
+    providerType,
+    ...rest
+  } = meta;
+  return {
+    ...rest,
+    ...(providerType && !normalizeManagedProviderType(providerType)
+      ? { providerType }
+      : {}),
+  };
+}
+
 function routeRowsFromMeta(meta?: ProviderMeta): ClaudeDesktopRouteRow[] {
   const routes = meta?.claudeDesktopModelRoutes ?? {};
   return (["sonnet", "opus", "haiku"] as ClaudeDesktopRouteRole[]).map(
@@ -165,6 +293,68 @@ function routeMapFromRows(
     };
     return acc;
   }, {});
+}
+
+function hasManualAuthKey(settingsConfig?: Record<string, unknown>): boolean {
+  const env =
+    settingsConfig?.env && typeof settingsConfig.env === "object"
+      ? (settingsConfig.env as Record<string, unknown>)
+      : {};
+  const auth =
+    settingsConfig?.auth && typeof settingsConfig.auth === "object"
+      ? (settingsConfig.auth as Record<string, unknown>)
+      : {};
+  return [
+    env.ANTHROPIC_AUTH_TOKEN,
+    env.ANTHROPIC_API_KEY,
+    env.OPENROUTER_API_KEY,
+    env.OPENAI_API_KEY,
+    env.GEMINI_API_KEY,
+    auth.OPENAI_API_KEY,
+    settingsConfig?.apiKey,
+    settingsConfig?.api_key,
+  ].some((value) => typeof value === "string" && value.trim().length > 0);
+}
+
+function stripManualAuthKeysForManagedMode(
+  appId: AppId,
+  settingsConfig: string,
+  apiKeyField: string,
+): string {
+  if (appId === "codex") {
+    try {
+      const parsed = JSON.parse(settingsConfig) as Record<string, unknown>;
+      const auth =
+        parsed.auth && typeof parsed.auth === "object"
+          ? { ...(parsed.auth as Record<string, unknown>) }
+          : {};
+      auth.OPENAI_API_KEY = "";
+      return JSON.stringify({ ...parsed, auth });
+    } catch {
+      return settingsConfig;
+    }
+  }
+
+  if (appId === "claude" || appId === "claude-desktop") {
+    try {
+      const parsed = JSON.parse(settingsConfig) as Record<string, unknown>;
+      const env =
+        parsed.env && typeof parsed.env === "object"
+          ? { ...(parsed.env as Record<string, unknown>) }
+          : {};
+      env.ANTHROPIC_AUTH_TOKEN = "";
+      env.ANTHROPIC_API_KEY = "";
+      env.OPENROUTER_API_KEY = "";
+      env.OPENAI_API_KEY = "";
+      env.GEMINI_API_KEY = "";
+      env[apiKeyField] = "";
+      return JSON.stringify({ ...parsed, env });
+    } catch {
+      return settingsConfig;
+    }
+  }
+
+  return settingsConfig;
 }
 
 function buildClaudeDesktopConfig(
@@ -263,6 +453,32 @@ export function ProviderForm({
   const [claudeDesktopRoutes, setClaudeDesktopRoutes] = useState<
     ClaudeDesktopRouteRow[]
   >(() => routeRowsFromMeta(initialData?.meta));
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAuthAccount[]>(
+    [],
+  );
+  const [managedAccountsLoaded, setManagedAccountsLoaded] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>(
+    authModeFromMeta(initialData?.meta, initialData?.settingsConfig),
+  );
+  const [authAccountId, setAuthAccountId] = useState<string>(
+    initialData?.meta?.authBinding?.accountId ??
+      initialData?.meta?.githubAccountId ??
+      "default",
+  );
+  const [codexPromptCacheKey, setCodexPromptCacheKey] = useState(
+    initialData?.meta?.promptCacheKey ?? "",
+  );
+  const [codexFastMode, setCodexFastMode] = useState(
+    initialData?.meta?.codexFastMode ?? false,
+  );
+  const [codexFetchedModels, setCodexFetchedModels] = useState<FetchedModel[]>(
+    [],
+  );
+  const [isFetchingCodexModels, setIsFetchingCodexModels] = useState(false);
+  const [managedFetchedModels, setManagedFetchedModels] = useState<
+    FetchedModel[]
+  >([]);
+  const [isFetchingManagedModels, setIsFetchingManagedModels] = useState(false);
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     initialData ? null : "custom",
@@ -318,12 +534,40 @@ export function ProviderForm({
       setClaudeDesktopApiKey(apiKeyFromConfig(nextConfig, nextField));
       setClaudeDesktopRoutes(routeRowsFromMeta(initialData?.meta));
     }
+    setAuthMode(
+      authModeFromMeta(initialData?.meta, initialData?.settingsConfig),
+    );
+    setAuthAccountId(
+      initialData?.meta?.authBinding?.accountId ??
+        initialData?.meta?.githubAccountId ??
+        "default",
+    );
+    setCodexPromptCacheKey(initialData?.meta?.promptCacheKey ?? "");
+    setCodexFastMode(initialData?.meta?.codexFastMode ?? false);
 
     // 编辑模式不需要恢复 draftCustomEndpoints，端点已通过 API 管理
     if (!initialData) {
       setDraftCustomEndpoints([]);
     }
   }, [appId, initialData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    authApi
+      .listAccounts()
+      .then((accounts) => {
+        if (!cancelled) {
+          setManagedAccounts(accounts);
+          setManagedAccountsLoaded(true);
+        }
+      })
+      .catch((error) => {
+        console.warn("Failed to load managed auth accounts", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const defaultValues: ProviderFormData = useMemo(
     () => ({
@@ -479,15 +723,10 @@ export function ProviderForm({
       }));
     }
     if (appId === "claude-desktop") {
-      return claudeDesktopProviderPresets
-        .map<PresetEntry>((preset, index) => ({
-          id: `claude-desktop-${index}`,
-          preset,
-        }))
-        .filter((entry) => {
-          const preset = entry.preset as ClaudeDesktopProviderPreset;
-          return !preset.requiresOAuth;
-        });
+      return claudeDesktopProviderPresets.map<PresetEntry>((preset, index) => ({
+        id: `claude-desktop-${index}`,
+        preset,
+      }));
     }
     if (appId === "opencode") {
       return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
@@ -638,6 +877,177 @@ export function ProviderForm({
     category: appId,
   });
 
+  const managedProviderType = managedProviderTypeForPreset(
+    appId,
+    activePreset,
+    initialData?.meta,
+  );
+  const managedProviderAccounts = useMemo(
+    () =>
+      managedProviderType
+        ? managedAccounts.filter(
+            (account) =>
+              account.provider === managedProviderType &&
+              isManagedAccountUsable(account),
+          )
+        : [],
+    [managedAccounts, managedProviderType],
+  );
+  const shouldShowAuthBinding =
+    Boolean(managedProviderType) &&
+    (appId === "claude" || appId === "claude-desktop" || appId === "codex");
+  const usesManagedAuth = shouldShowAuthBinding && authMode === "managed";
+  const canFetchCodexManagedModels =
+    appId === "codex" &&
+    managedProviderType === "codex_oauth" &&
+    authMode === "managed";
+  const canFetchManagedModels =
+    (appId === "claude" || appId === "claude-desktop") &&
+    Boolean(managedProviderType) &&
+    authMode === "managed";
+  const shouldShowCodexModelField =
+    category !== "official" || managedProviderType === "codex_oauth";
+
+  useEffect(() => {
+    setCodexFetchedModels([]);
+  }, [appId, managedProviderType, authMode, authAccountId]);
+
+  useEffect(() => {
+    setManagedFetchedModels([]);
+  }, [appId, managedProviderType, authMode, authAccountId]);
+
+  useEffect(() => {
+    if (
+      !managedProviderType ||
+      authAccountId === "default" ||
+      authMode !== "managed"
+    ) {
+      return;
+    }
+    if (!managedAccountsLoaded) {
+      return;
+    }
+    const accountMatchesProvider = managedProviderAccounts.some(
+      (account) => account.id === authAccountId,
+    );
+    if (!accountMatchesProvider) {
+      setAuthAccountId("default");
+    }
+  }, [
+    authAccountId,
+    authMode,
+    managedProviderAccounts,
+    managedAccountsLoaded,
+    managedProviderType,
+  ]);
+
+  const handleFetchCodexManagedModels = useCallback(() => {
+    if (!canFetchCodexManagedModels) {
+      toast.info(
+        t("providerForm.fetchModelsManagedOnly", {
+          defaultValue: "只有 Codex OAuth 托管账号支持拉取 live models。",
+        }),
+      );
+      return;
+    }
+
+    setIsFetchingCodexModels(true);
+    fetchCodexOauthModels(authAccountId === "default" ? null : authAccountId)
+      .then((fetched) => {
+        setCodexFetchedModels(fetched);
+        if (fetched.length === 0) {
+          toast.info(t("providerForm.fetchModelsEmpty"));
+          return;
+        }
+        toast.success(
+          t("providerForm.fetchModelsSuccess", { count: fetched.length }),
+        );
+      })
+      .catch((err) => {
+        console.warn("[CodexOAuthModelFetch] Failed:", err);
+        showFetchModelsError(err, t);
+      })
+      .finally(() => setIsFetchingCodexModels(false));
+  }, [authAccountId, canFetchCodexManagedModels, t]);
+
+  const handleFetchManagedModels = useCallback(() => {
+    if (!canFetchManagedModels || !managedProviderType) {
+      toast.info(
+        t("providerForm.fetchModelsManagedOnly", {
+          defaultValue: "只有托管账号模式支持拉取 live models。",
+        }),
+      );
+      return;
+    }
+
+    const fetcher =
+      managedProviderType === "github_copilot"
+        ? fetchGithubCopilotModels
+        : fetchCodexOauthModels;
+
+    setIsFetchingManagedModels(true);
+    fetcher(authAccountId === "default" ? null : authAccountId)
+      .then((fetched) => {
+        setManagedFetchedModels(fetched);
+        if (fetched.length === 0) {
+          toast.info(t("providerForm.fetchModelsEmpty"));
+          return;
+        }
+        toast.success(
+          t("providerForm.fetchModelsSuccess", { count: fetched.length }),
+        );
+      })
+      .catch((err) => {
+        console.warn("[ManagedModelFetch] Failed:", err);
+        showFetchModelsError(err, t);
+      })
+      .finally(() => setIsFetchingManagedModels(false));
+  }, [authAccountId, canFetchManagedModels, managedProviderType, t]);
+
+  const buildAuthBindingMeta = (
+    currentMeta?: ProviderMeta,
+  ): ProviderMeta | undefined => {
+    if (!shouldShowAuthBinding || !managedProviderType) {
+      if (activePreset && !activePreset.providerType) {
+        return stripManagedAuthMeta(currentMeta);
+      }
+      return currentMeta;
+    }
+    const nextMeta: ProviderMeta = {
+      ...(currentMeta ?? {}),
+      providerType: managedProviderType,
+      authBinding:
+        authMode === "managed"
+          ? ({
+              mode: "managed",
+              providerType: managedProviderType,
+              useDefault: authAccountId === "default",
+              ...(authAccountId !== "default"
+                ? { accountId: authAccountId }
+                : {}),
+            } satisfies ProviderAuthBinding)
+          : ({
+              mode: "api_key",
+              providerType: managedProviderType,
+            } satisfies ProviderAuthBinding),
+    };
+    if (managedProviderType === "github_copilot") {
+      nextMeta.githubAccountId =
+        authMode === "managed" && authAccountId !== "default"
+          ? authAccountId
+          : undefined;
+    }
+    if (managedProviderType === "codex_oauth" && authMode === "managed") {
+      const cacheKey = codexPromptCacheKey.trim();
+      nextMeta.promptCacheKey = cacheKey || undefined;
+      nextMeta.codexFastMode = codexFastMode || undefined;
+    } else {
+      nextMeta.promptCacheKey = undefined;
+      nextMeta.codexFastMode = undefined;
+    }
+    return nextMeta;
+  };
+
   const handleSubmit = (values: ProviderFormData) => {
     // 验证模板变量（仅 Claude 模式）
     if (appId === "claude" && templateValueEntries.length > 0) {
@@ -747,6 +1157,13 @@ export function ProviderForm({
       websiteUrl: values.websiteUrl?.trim() ?? "",
       settingsConfig,
     };
+    if (usesManagedAuth) {
+      payload.settingsConfig = stripManualAuthKeysForManagedMode(
+        appId,
+        payload.settingsConfig,
+        claudeDesktopApiKeyField,
+      );
+    }
 
     if (activePreset) {
       payload.presetId = activePreset.id;
@@ -825,6 +1242,11 @@ export function ProviderForm({
       if (mergedMeta !== undefined) {
         payload.meta = mergedMeta;
       }
+    }
+
+    const authMeta = buildAuthBindingMeta(payload.meta ?? initialData?.meta);
+    if (authMeta) {
+      payload.meta = authMeta;
     }
 
     onSubmit(payload);
@@ -919,6 +1341,8 @@ export function ProviderForm({
     setSelectedPresetId(value);
     if (value === "custom") {
       setActivePreset(null);
+      setCodexPromptCacheKey("");
+      setCodexFastMode(false);
       form.reset(defaultValues);
 
       // Codex 自定义模式：加载模板
@@ -946,11 +1370,13 @@ export function ProviderForm({
       category: entry.preset.category,
       isPartner: entry.preset.isPartner,
       partnerPromotionKey: entry.preset.partnerPromotionKey,
-      providerType:
-        appId === "claude-desktop"
-          ? (entry.preset as ClaudeDesktopProviderPreset).providerType
-          : undefined,
+      providerType: providerTypeFromPresetForApp(appId, entry.preset),
     });
+    const nextProviderType = providerTypeFromPresetForApp(appId, entry.preset);
+    setAuthMode(nextProviderType ? "managed" : "api_key");
+    setAuthAccountId("default");
+    setCodexPromptCacheKey("");
+    setCodexFastMode(false);
 
     if (appId === "codex") {
       const preset = entry.preset as CodexProviderPreset;
@@ -1082,11 +1508,149 @@ export function ProviderForm({
         {/* 基础字段 */}
         <BasicFormFields form={form} />
 
+        {shouldShowAuthBinding && managedProviderType ? (
+          <div className="space-y-3 rounded-md border border-border-default p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  {t("providerForm.authBinding", {
+                    defaultValue: "认证方式",
+                  })}
+                  <Badge variant="secondary">
+                    {managedProviderType === "github_copilot"
+                      ? "GitHub Copilot"
+                      : "Codex OAuth"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("providerForm.authBindingHint", {
+                    defaultValue:
+                      "使用认证中心托管账号时，代理会动态注入真实 token。",
+                  })}
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>
+                  {t("providerForm.authMode", {
+                    defaultValue: "模式",
+                  })}
+                </Label>
+                <Select
+                  value={authMode}
+                  onValueChange={(value) => setAuthMode(value as AuthMode)}
+                >
+                  <SelectTrigger
+                    aria-label={t("providerForm.authMode", {
+                      defaultValue: "模式",
+                    })}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="managed">
+                      {t("providerForm.authManaged", {
+                        defaultValue: "使用托管账号",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="api_key">
+                      {t("providerForm.authApiKey", {
+                        defaultValue: "手动 API Key",
+                      })}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {authMode === "managed" ? (
+                <div className="space-y-2">
+                  <Label>
+                    {t("providerForm.authAccount", {
+                      defaultValue: "账号",
+                    })}
+                  </Label>
+                  <Select
+                    value={authAccountId}
+                    onValueChange={setAuthAccountId}
+                  >
+                    <SelectTrigger
+                      aria-label={t("providerForm.authAccount", {
+                        defaultValue: "账号",
+                      })}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">
+                        {t("providerForm.authDefaultAccount", {
+                          defaultValue: "默认账号",
+                        })}
+                      </SelectItem>
+                      {managedProviderAccounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.label}
+                          {account.isDefault
+                            ? ` (${t("providerForm.authDefaultAccount", {
+                                defaultValue: "默认账号",
+                              })})`
+                            : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {managedProviderAccounts.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("providerForm.authNoAccounts", {
+                        defaultValue:
+                          "认证中心还没有该类型账号；可先保存绑定默认账号，登录后自动生效。",
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {managedProviderType === "codex_oauth" && authMode === "managed" ? (
+              <div className="grid gap-3 rounded-md border border-border-default p-3 md:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label htmlFor="codex-prompt-cache-key">
+                    {t("providerForm.promptCacheKey", {
+                      defaultValue: "Prompt cache key",
+                    })}
+                  </Label>
+                  <Input
+                    id="codex-prompt-cache-key"
+                    value={codexPromptCacheKey}
+                    onChange={(event) =>
+                      setCodexPromptCacheKey(event.target.value)
+                    }
+                    placeholder="optional"
+                    autoComplete="off"
+                  />
+                </div>
+                <label className="flex items-center justify-between gap-3 self-end rounded-md border border-border-default px-3 py-2 text-sm md:min-w-[150px]">
+                  <span>
+                    {t("providerForm.codexFastMode", {
+                      defaultValue: "FAST mode",
+                    })}
+                  </span>
+                  <Switch
+                    aria-label={t("providerForm.codexFastMode", {
+                      defaultValue: "FAST mode",
+                    })}
+                    checked={codexFastMode}
+                    onCheckedChange={setCodexFastMode}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Claude 专属字段 */}
         {appId === "claude" && (
           <ClaudeFormFields
             providerId={providerId}
-            shouldShowApiKey={shouldShowApiKeyField}
+            shouldShowApiKey={shouldShowApiKeyField && !usesManagedAuth}
             apiKey={apiKey}
             onApiKeyChange={handleApiKeyChange}
             category={category}
@@ -1112,6 +1676,19 @@ export function ProviderForm({
             defaultSonnetModel={defaultSonnetModel}
             defaultOpusModel={defaultOpusModel}
             onModelChange={handleModelChange}
+            fetchedModels={managedFetchedModels}
+            isFetchingModels={isFetchingManagedModels}
+            onFetchModels={
+              managedProviderType ? handleFetchManagedModels : undefined
+            }
+            canFetchModels={canFetchManagedModels}
+            fetchModelsHint={
+              canFetchManagedModels
+                ? undefined
+                : t("providerForm.fetchModelsManagedOnly", {
+                    defaultValue: "只有托管账号模式支持拉取 live models。",
+                  })
+            }
             speedTestEndpoints={speedTestEndpoints}
           />
         )}
@@ -1241,34 +1818,63 @@ export function ProviderForm({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="claude-desktop-api-key">API Key</Label>
-              <Input
-                id="claude-desktop-api-key"
-                value={claudeDesktopApiKey}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setClaudeDesktopApiKey(value);
-                  form.setValue(
-                    "settingsConfig",
-                    buildClaudeDesktopConfig(
-                      claudeDesktopBaseUrl,
-                      value,
-                      claudeDesktopApiKeyField,
-                    ),
-                  );
-                }}
-                placeholder="sk-..."
-                autoComplete="off"
-              />
-            </div>
+            {!usesManagedAuth ? (
+              <div className="space-y-2">
+                <Label htmlFor="claude-desktop-api-key">API Key</Label>
+                <Input
+                  id="claude-desktop-api-key"
+                  value={claudeDesktopApiKey}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setClaudeDesktopApiKey(value);
+                    form.setValue(
+                      "settingsConfig",
+                      buildClaudeDesktopConfig(
+                        claudeDesktopBaseUrl,
+                        value,
+                        claudeDesktopApiKeyField,
+                      ),
+                    );
+                  }}
+                  placeholder="sk-..."
+                  autoComplete="off"
+                />
+              </div>
+            ) : null}
 
             <div className="space-y-3">
-              <Label>
-                {t("providerForm.claudeDesktopRoutes", {
-                  defaultValue: "模型角色映射",
-                })}
-              </Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label>
+                  {t("providerForm.claudeDesktopRoutes", {
+                    defaultValue: "模型角色映射",
+                  })}
+                </Label>
+                {managedProviderType ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFetchManagedModels}
+                    disabled={isFetchingManagedModels || !canFetchManagedModels}
+                    className="h-7 gap-1"
+                    title={
+                      canFetchManagedModels
+                        ? undefined
+                        : t("providerForm.fetchModelsManagedOnly", {
+                            defaultValue:
+                              "只有托管账号模式支持拉取 live models。",
+                          })
+                    }
+                  >
+                    {isFetchingManagedModels ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    {t("providerForm.fetchModels")}
+                  </Button>
+                ) : null}
+              </div>
               <div className="space-y-3">
                 {claudeDesktopRoutes.map((row, index) => (
                   <div
@@ -1278,21 +1884,37 @@ export function ProviderForm({
                     <div className="text-sm font-medium capitalize leading-9">
                       {row.role}
                     </div>
-                    <Input
-                      value={row.model}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setClaudeDesktopRoutes((rows) =>
-                          rows.map((item, itemIndex) =>
-                            itemIndex === index
-                              ? { ...item, model: value }
-                              : item,
-                          ),
-                        );
-                      }}
-                      placeholder="upstream-model"
-                      autoComplete="off"
-                    />
+                    <div className="flex gap-1">
+                      <Input
+                        value={row.model}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setClaudeDesktopRoutes((rows) =>
+                            rows.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, model: value }
+                                : item,
+                            ),
+                          );
+                        }}
+                        placeholder="upstream-model"
+                        autoComplete="off"
+                      />
+                      {managedFetchedModels.length > 0 ? (
+                        <ModelDropdown
+                          models={managedFetchedModels}
+                          onSelect={(id) => {
+                            setClaudeDesktopRoutes((rows) =>
+                              rows.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, model: id }
+                                  : item,
+                              ),
+                            );
+                          }}
+                        />
+                      ) : null}
+                    </div>
                     <Input
                       value={row.labelOverride}
                       onChange={(event) => {
@@ -1334,6 +1956,7 @@ export function ProviderForm({
         {appId === "codex" && (
           <CodexFormFields
             providerId={providerId}
+            shouldShowApiKey={!usesManagedAuth}
             codexApiKey={codexApiKey}
             onApiKeyChange={handleCodexApiKeyChange}
             category={category}
@@ -1349,9 +1972,25 @@ export function ProviderForm({
             onCustomEndpointsChange={
               isEditMode ? undefined : setDraftCustomEndpoints
             }
-            shouldShowModelField={category !== "official"}
+            shouldShowModelField={shouldShowCodexModelField}
             modelName={codexModelName}
             onModelNameChange={handleCodexModelNameChange}
+            fetchedModels={codexFetchedModels}
+            isFetchingModels={isFetchingCodexModels}
+            onFetchModels={
+              managedProviderType === "codex_oauth"
+                ? handleFetchCodexManagedModels
+                : undefined
+            }
+            canFetchModels={canFetchCodexManagedModels}
+            fetchModelsHint={
+              canFetchCodexManagedModels
+                ? undefined
+                : t("providerForm.fetchModelsManagedOnly", {
+                    defaultValue:
+                      "只有 Codex OAuth 托管账号支持拉取 live models。",
+                  })
+            }
             speedTestEndpoints={speedTestEndpoints}
           />
         )}

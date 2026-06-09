@@ -37,7 +37,7 @@ describe("BasicFormFields", () => {
 
     expect(screen.getByText("provider.name")).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText("provider.namePlaceholder")
+      screen.getByPlaceholderText("provider.namePlaceholder"),
     ).toBeInTheDocument();
   });
 
@@ -53,7 +53,7 @@ describe("BasicFormFields", () => {
 
     expect(screen.getByText("provider.notes")).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText("provider.notesPlaceholder")
+      screen.getByPlaceholderText("provider.notesPlaceholder"),
     ).toBeInTheDocument();
   });
 

@@ -59,7 +59,10 @@ describe("generateUUID", () => {
   });
 
   it("falls back to Math.random when crypto.getRandomValues is unavailable", () => {
-    vi.stubGlobal("crypto", { randomUUID: undefined, getRandomValues: undefined });
+    vi.stubGlobal("crypto", {
+      randomUUID: undefined,
+      getRandomValues: undefined,
+    });
 
     const mathRandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.123456);
 

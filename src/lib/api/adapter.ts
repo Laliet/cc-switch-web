@@ -1446,6 +1446,86 @@ export function commandToEndpoint(
     }
     case "sync_current_providers_live":
       return { method: "POST", url: `${apiBase}/providers/sync-current` };
+    case "get_codex_oauth_models":
+      return {
+        method: "GET",
+        url: `${apiBase}/model-fetch/codex-oauth${queryString({
+          accountId: args.accountId,
+        })}`,
+      };
+    case "get_github_copilot_models":
+      return {
+        method: "GET",
+        url: `${apiBase}/model-fetch/github-copilot${queryString({
+          accountId: args.accountId,
+        })}`,
+      };
+    case "list_managed_auth_accounts":
+      return {
+        method: "GET",
+        url: `${apiBase}/auth/accounts${queryString({
+          provider: args.provider,
+        })}`,
+      };
+    case "import_managed_auth_account":
+      return {
+        method: "POST",
+        url: `${apiBase}/auth/accounts`,
+        body: requireArg(args, "input", cmd),
+      };
+    case "set_default_managed_auth_account": {
+      const provider = requireArg(args, "provider", cmd);
+      const accountId = requireArg(args, "accountId", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/auth/accounts/default${queryString({
+          provider,
+          accountId,
+        })}`,
+      };
+    }
+    case "delete_managed_auth_account": {
+      const provider = requireArg(args, "provider", cmd);
+      const accountId = requireArg(args, "accountId", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/auth/accounts${queryString({
+          provider,
+          accountId,
+        })}`,
+      };
+    }
+    case "logout_managed_auth_account": {
+      const provider = requireArg(args, "provider", cmd);
+      const accountId = requireArg(args, "accountId", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/auth/accounts/logout${queryString({
+          provider,
+          accountId,
+        })}`,
+      };
+    }
+    case "start_managed_auth_device_login":
+      return {
+        method: "POST",
+        url: `${apiBase}/auth/device/start`,
+        body: requireArg(args, "request", cmd),
+      };
+    case "poll_managed_auth_device_login":
+      return {
+        method: "POST",
+        url: `${apiBase}/auth/device/poll`,
+        body: requireArg(args, "request", cmd),
+      };
+    case "query_managed_auth_usage":
+      return {
+        method: "GET",
+        url: `${apiBase}/auth/usage${queryString({
+          provider: args.provider,
+          accountId: args.accountId,
+        })}`,
+      };
     case "open_external":
       return {
         method: "POST",

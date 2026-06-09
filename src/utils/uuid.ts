@@ -6,7 +6,9 @@ function formatUuidV4FromBytes(bytes: Uint8Array): string {
   bytesCopy[6] = (bytesCopy[6] & 0x0f) | 0x40;
   bytesCopy[8] = (bytesCopy[8] & 0x3f) | 0x80;
 
-  const hex = Array.from(bytesCopy, (byte) => byte.toString(16).padStart(2, "0"));
+  const hex = Array.from(bytesCopy, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  );
 
   return [
     hex.slice(0, 4).join(""),
@@ -20,8 +22,7 @@ function formatUuidV4FromBytes(bytes: Uint8Array): string {
 function generateMathRandomUuidV4(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
     const randomNibble = Math.floor(Math.random() * 16);
-    const value =
-      char === "x" ? randomNibble : (randomNibble & 0x3) | 0x8;
+    const value = char === "x" ? randomNibble : (randomNibble & 0x3) | 0x8;
     return value.toString(16);
   });
 }

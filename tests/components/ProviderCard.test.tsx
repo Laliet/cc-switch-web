@@ -232,7 +232,9 @@ describe("ProviderCard", () => {
   it("does not show routing support badge for Gemini OAuth providers", () => {
     renderProviderCard({ category: "official" }, { appId: "gemini" });
 
-    expect(screen.queryByText("provider.routingSupport")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("provider.routingSupport"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows routing support badge for Claude Desktop proxy providers", () => {
@@ -250,7 +252,9 @@ describe("ProviderCard", () => {
       { appId: "claude-desktop" },
     );
 
-    expect(screen.queryByText("provider.routingSupport")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("provider.routingSupport"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders health indicator tooltip and availability", () => {
@@ -272,9 +276,9 @@ describe("ProviderCard", () => {
 
     expect(indicator).toBeInTheDocument();
     expect(indicator).toHaveTextContent("98.8%");
-    expect(
-      indicator.querySelector("span[aria-hidden='true']"),
-    ).toHaveClass("bg-green-500");
+    expect(indicator.querySelector("span[aria-hidden='true']")).toHaveClass(
+      "bg-green-500",
+    );
   });
 
   it("shows placeholder availability when none provided", () => {
@@ -295,9 +299,9 @@ describe("ProviderCard", () => {
 
     expect(indicator).toBeInTheDocument();
     expect(indicator).toHaveTextContent("--%");
-    expect(
-      indicator.querySelector("span[aria-hidden='true']"),
-    ).toHaveClass("bg-yellow-500");
+    expect(indicator.querySelector("span[aria-hidden='true']")).toHaveClass(
+      "bg-yellow-500",
+    );
   });
 
   it("shows drag handle and duplicate button in edit mode", async () => {

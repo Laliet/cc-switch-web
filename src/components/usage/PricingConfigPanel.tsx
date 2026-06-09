@@ -76,7 +76,9 @@ export function PricingConfigPanel() {
       setEditorOpen(false);
       toast.success(`Pricing saved, ${updated} historical logs backfilled`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Pricing save failed");
+      toast.error(
+        error instanceof Error ? error.message : "Pricing save failed",
+      );
     }
   };
 
@@ -215,7 +217,10 @@ export function PricingConfigPanel() {
             <Button variant="outline" onClick={() => setEditorOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void saveDraft()} disabled={update.isPending}>
+            <Button
+              onClick={() => void saveDraft()}
+              disabled={update.isPending}
+            >
               Save
             </Button>
           </DialogFooter>

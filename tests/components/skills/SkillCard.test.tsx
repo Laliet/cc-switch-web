@@ -43,7 +43,8 @@ const renderSkill = (
 ) => {
   const skill = createSkill(skillOverrides);
   const onInstall = options.onInstall ?? vi.fn().mockResolvedValue(undefined);
-  const onUninstall = options.onUninstall ?? vi.fn().mockResolvedValue(undefined);
+  const onUninstall =
+    options.onUninstall ?? vi.fn().mockResolvedValue(undefined);
 
   const renderResult = render(
     <SkillCard skill={skill} onInstall={onInstall} onUninstall={onUninstall} />,

@@ -205,6 +205,28 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS managed_auth_accounts (
+                id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                label TEXT NOT NULL,
+                username TEXT,
+                avatar_url TEXT,
+                plan TEXT,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT,
+                expires_at TEXT,
+                scopes TEXT,
+                token_type TEXT,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                status TEXT,
+                PRIMARY KEY (provider, id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_managed_auth_accounts_provider_default
+                ON managed_auth_accounts(provider, is_default);
             ",
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -227,6 +249,9 @@ impl Database {
         }
         if version < 3 {
             Self::migrate_v2_to_v3(&conn)?;
+        }
+        if version < 4 {
+            Self::migrate_v3_to_v4(&conn)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -345,6 +370,39 @@ impl Database {
                 last_line_offset INTEGER NOT NULL DEFAULT 0,
                 last_synced_at INTEGER NOT NULL DEFAULT 0
             )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn migrate_v3_to_v4(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS managed_auth_accounts (
+                id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                label TEXT NOT NULL,
+                username TEXT,
+                avatar_url TEXT,
+                plan TEXT,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT,
+                expires_at TEXT,
+                scopes TEXT,
+                token_type TEXT,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                status TEXT,
+                PRIMARY KEY (provider, id)
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_managed_auth_accounts_provider_default
+             ON managed_auth_accounts(provider, is_default)",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

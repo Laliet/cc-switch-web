@@ -7,11 +7,24 @@ import { server } from "./msw/server";
 import { resetProviderState } from "./msw/state";
 import "./msw/tauriMocks";
 
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 beforeAll(async () => {
   if (typeof window !== "undefined") {
     // 让 isWeb() 返回 false，走 tauri invoke 路径，便于复用 TAURI MSW handlers
     (window as any).__TAURI__ = {};
   }
+  if (typeof Element !== "undefined") {
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.setPointerCapture ??= () => {};
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.scrollIntoView ??= () => {};
+  }
+  globalThis.ResizeObserver ??= MockResizeObserver;
   process.env.HOME = "/home/mock";
   vi.mock("@tauri-apps/api/path", () => ({
     homeDir: async () => "/home/mock",

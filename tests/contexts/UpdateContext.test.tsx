@@ -73,7 +73,7 @@ describe("UpdateContext", () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     expect(() => render(<TestConsumer />)).toThrow(
-      "useUpdate must be used within UpdateProvider"
+      "useUpdate must be used within UpdateProvider",
     );
 
     consoleSpy.mockRestore();
@@ -83,7 +83,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     expect(screen.getByTestId("hasUpdate")).toHaveTextContent("false");
@@ -106,7 +106,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -125,7 +125,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -152,7 +152,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -166,7 +166,7 @@ describe("UpdateContext", () => {
     expect(screen.getByTestId("isDismissed")).toHaveTextContent("true");
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       "ccswitch:update:dismissedVersion",
-      "2.0.0"
+      "2.0.0",
     );
   });
 
@@ -184,7 +184,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -199,7 +199,7 @@ describe("UpdateContext", () => {
     await user.click(screen.getByRole("button", { name: "Reset Dismiss" }));
     expect(screen.getByTestId("isDismissed")).toHaveTextContent("false");
     expect(localStorageMock.removeItem).toHaveBeenCalledWith(
-      "ccswitch:update:dismissedVersion"
+      "ccswitch:update:dismissedVersion",
     );
   });
 
@@ -222,7 +222,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -252,7 +252,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -263,10 +263,10 @@ describe("UpdateContext", () => {
 
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       "ccswitch:update:dismissedVersion",
-      "1.5.0"
+      "1.5.0",
     );
     expect(localStorageMock.removeItem).toHaveBeenCalledWith(
-      "dismissedUpdateVersion"
+      "dismissedUpdateVersion",
     );
   });
 
@@ -286,7 +286,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));
@@ -314,7 +314,7 @@ describe("UpdateContext", () => {
     render(
       <UpdateProvider>
         <TestConsumer />
-      </UpdateProvider>
+      </UpdateProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "Check Update" }));

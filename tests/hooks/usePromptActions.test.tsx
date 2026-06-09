@@ -16,7 +16,8 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
   promptsApi: {
     getPrompts: (...args: unknown[]) => getPromptsMock(...args),
-    getCurrentFileContent: (...args: unknown[]) => getCurrentFileContentMock(...args),
+    getCurrentFileContent: (...args: unknown[]) =>
+      getCurrentFileContentMock(...args),
     upsertPrompt: (...args: unknown[]) => upsertPromptMock(...args),
     deletePrompt: (...args: unknown[]) => deletePromptMock(...args),
     enablePrompt: (...args: unknown[]) => enablePromptMock(...args),
@@ -127,14 +128,24 @@ describe("usePromptActions", () => {
   it("toggleEnabled enables target prompt and disables others", async () => {
     const initialPrompts = {
       "prompt-1": createPrompt({ id: "prompt-1", enabled: true }),
-      "prompt-2": createPrompt({ id: "prompt-2", name: "Prompt 2", enabled: false }),
+      "prompt-2": createPrompt({
+        id: "prompt-2",
+        name: "Prompt 2",
+        enabled: false,
+      }),
     };
     const updatedPrompts = {
       "prompt-1": createPrompt({ id: "prompt-1", enabled: false }),
-      "prompt-2": createPrompt({ id: "prompt-2", name: "Prompt 2", enabled: true }),
+      "prompt-2": createPrompt({
+        id: "prompt-2",
+        name: "Prompt 2",
+        enabled: true,
+      }),
     };
 
-    getPromptsMock.mockResolvedValueOnce(initialPrompts).mockResolvedValueOnce(updatedPrompts);
+    getPromptsMock
+      .mockResolvedValueOnce(initialPrompts)
+      .mockResolvedValueOnce(updatedPrompts);
     enablePromptMock.mockResolvedValueOnce(undefined);
 
     const { result } = renderHook(() => usePromptActions("claude"));
@@ -162,7 +173,9 @@ describe("usePromptActions", () => {
       "prompt-1": createPrompt({ id: "prompt-1", enabled: false }),
     };
 
-    getPromptsMock.mockResolvedValueOnce(initialPrompts).mockResolvedValueOnce(updatedPrompts);
+    getPromptsMock
+      .mockResolvedValueOnce(initialPrompts)
+      .mockResolvedValueOnce(updatedPrompts);
     upsertPromptMock.mockResolvedValueOnce(undefined);
 
     const { result } = renderHook(() => usePromptActions("claude"));
@@ -186,7 +199,11 @@ describe("usePromptActions", () => {
   it("toggleEnabled rolls back on failure", async () => {
     const initialPrompts = {
       "prompt-1": createPrompt({ id: "prompt-1", enabled: true }),
-      "prompt-2": createPrompt({ id: "prompt-2", name: "Prompt 2", enabled: false }),
+      "prompt-2": createPrompt({
+        id: "prompt-2",
+        name: "Prompt 2",
+        enabled: false,
+      }),
     };
 
     getPromptsMock.mockResolvedValueOnce(initialPrompts);

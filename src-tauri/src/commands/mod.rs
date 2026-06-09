@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+mod auth;
 mod config;
 mod deeplink;
 mod env;
@@ -18,6 +19,7 @@ mod stream_check;
 mod usage;
 mod webdav;
 
+pub use auth::*;
 pub use config::*;
 pub use deeplink::*;
 pub use env::*;

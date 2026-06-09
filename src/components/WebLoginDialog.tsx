@@ -82,9 +82,7 @@ export function WebLoginDialog({ open, onLoginSuccess }: WebLoginDialogProps) {
     setError(null);
 
     try {
-      const encoded = base64EncodeUtf8(
-        `${trimmedUsername}:${trimmedPassword}`,
-      );
+      const encoded = base64EncodeUtf8(`${trimmedUsername}:${trimmedPassword}`);
       const normalizedApiBase = normalizeWebApiBase(apiBase);
       const previousApiBase = getStoredWebApiBase();
       const nextApiBase = normalizedApiBase ?? null;
@@ -209,8 +207,9 @@ export function WebLoginDialog({ open, onLoginSuccess }: WebLoginDialogProps) {
               </Button>
             </div>
             <p id={apiBaseHelperId} className="text-xs text-muted-foreground">
-              支持 https://example.com/api 或 /api，留空使用默认值。局域网地址在服务端启用
-              ALLOW_LAN_CORS 后会自动放行。
+              支持 https://example.com/api 或
+              /api，留空使用默认值。局域网地址在服务端启用 ALLOW_LAN_CORS
+              后会自动放行。
             </p>
             {apiBaseError ? (
               <p id={apiBaseErrorId} className="text-xs text-destructive">

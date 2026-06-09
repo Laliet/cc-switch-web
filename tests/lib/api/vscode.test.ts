@@ -60,11 +60,7 @@ describe("vscode API module", () => {
     });
 
     invokeMock.mockResolvedValueOnce(undefined);
-    await vscodeApi.removeCustomEndpoint(
-      "codex",
-      "provider-1",
-      "https://new",
-    );
+    await vscodeApi.removeCustomEndpoint("codex", "provider-1", "https://new");
     expect(invokeMock).toHaveBeenCalledWith("remove_custom_endpoint", {
       app: "codex",
       providerId: "provider-1",

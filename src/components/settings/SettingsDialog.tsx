@@ -31,6 +31,7 @@ import { WebDavSettingsSection } from "@/components/settings/WebDavSettingsSecti
 import { NetworkSettingsSection } from "@/components/settings/NetworkSettingsSection";
 import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
+import { AuthCenterSection } from "@/components/settings/AuthCenterSection";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -286,9 +287,12 @@ export function SettingsDialog({
               onValueChange={setActiveTab}
               className="flex flex-col h-full"
             >
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="general">
                   {t("settings.tabGeneral")}
+                </TabsTrigger>
+                <TabsTrigger value="auth">
+                  {t("settings.tabAuth", { defaultValue: "Auth Center" })}
                 </TabsTrigger>
                 <TabsTrigger value="advanced">
                   {t("settings.tabAdvanced")}
@@ -318,6 +322,13 @@ export function SettingsDialog({
                     />
                   </>
                 ) : null}
+              </TabsContent>
+
+              <TabsContent
+                value="auth"
+                className="space-y-6 mt-6 min-h-[400px]"
+              >
+                <AuthCenterSection />
               </TabsContent>
 
               <TabsContent
@@ -455,7 +466,7 @@ export function SettingsDialog({
                                 })
                               : t("settings.webCredentials.submit", {
                                   defaultValue: "更新凭据",
-                              })}
+                                })}
                           </Button>
                         </div>
                       </form>

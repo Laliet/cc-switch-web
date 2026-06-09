@@ -189,8 +189,7 @@ export function useSettings(): UseSettingsResult {
       const claudeDirChanged = sanitizedClaudeDir !== previousClaudeDir;
       const codexDirChanged = sanitizedCodexDir !== previousCodexDir;
       const geminiDirChanged = sanitizedGeminiDir !== previousGeminiDir;
-      const opencodeDirChanged =
-        sanitizedOpencodeDir !== previousOpencodeDir;
+      const opencodeDirChanged = sanitizedOpencodeDir !== previousOpencodeDir;
       if (
         claudeDirChanged ||
         codexDirChanged ||

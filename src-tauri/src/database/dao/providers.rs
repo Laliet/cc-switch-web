@@ -99,6 +99,7 @@ impl Database {
                         || m.codex_fast_mode.is_some()
                         || m.provider_type.is_some()
                         || m.github_account_id.is_some()
+                        || m.auth_binding.is_some()
                 }),
             };
 

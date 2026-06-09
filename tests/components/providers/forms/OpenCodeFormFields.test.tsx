@@ -210,10 +210,14 @@ describe("mergeFetchedModelsIntoConfig", () => {
     };
 
     expect(
-      mergeFetchedModelsIntoConfig(current, [
-        { id: "gpt-5.4", ownedBy: "openai" },
-        { id: "gpt-5.4-mini", ownedBy: "openai" },
-      ], "@ai-sdk/openai"),
+      mergeFetchedModelsIntoConfig(
+        current,
+        [
+          { id: "gpt-5.4", ownedBy: "openai" },
+          { id: "gpt-5.4-mini", ownedBy: "openai" },
+        ],
+        "@ai-sdk/openai",
+      ),
     ).toEqual({
       "gpt-5.4": {
         name: "GPT 5.4",

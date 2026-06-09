@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod failover;
 mod mcp;

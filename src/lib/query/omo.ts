@@ -17,8 +17,7 @@ function splitOmoLiveSettings(
       categories && typeof categories === "object" && !Array.isArray(categories)
         ? (categories as Record<string, Record<string, unknown>>)
         : undefined,
-    otherFields:
-      Object.keys(otherFields).length > 0 ? otherFields : undefined,
+    otherFields: Object.keys(otherFields).length > 0 ? otherFields : undefined,
     filePath:
       appId === "omo-slim"
         ? "oh-my-opencode-slim.jsonc"

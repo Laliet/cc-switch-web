@@ -536,9 +536,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                             }
                             placeholder="sk-xxxxx"
                             autoComplete="off"
-                            className={
-                              showApiKey ? "" : "secret-text-security"
-                            }
+                            className={showApiKey ? "" : "secret-text-security"}
                           />
                           {script.apiKey && (
                             <button

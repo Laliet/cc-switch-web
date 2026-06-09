@@ -19,8 +19,7 @@ interface CollapsibleProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const Collapsible = React.forwardRef<HTMLDivElement, CollapsibleProps>(
   ({ open, defaultOpen = false, onOpenChange, className, ...props }, ref) => {
-    const [uncontrolledOpen, setUncontrolledOpen] =
-      React.useState(defaultOpen);
+    const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
     const isControlled = open !== undefined;
     const isOpen = isControlled ? open : uncontrolledOpen;
 

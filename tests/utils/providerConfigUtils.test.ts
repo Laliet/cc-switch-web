@@ -233,13 +233,13 @@ describe("TOML common config helpers", () => {
   it("removes snippet when disabling", () => {
     const toml = 'a = 1\n\nfoo = "bar"\n\nb = 2\n';
     const result = updateTomlCommonConfigSnippet(toml, 'foo = "bar"', false);
-    expect(result.updatedConfig).toBe('a = 1\nb = 2\n');
+    expect(result.updatedConfig).toBe("a = 1\nb = 2\n");
   });
 
   it("checks snippets ignoring whitespace", () => {
-    expect(
-      hasTomlCommonConfigSnippet('foo = "bar"\n', 'foo   =   "bar"'),
-    ).toBe(true);
+    expect(hasTomlCommonConfigSnippet('foo = "bar"\n', 'foo   =   "bar"')).toBe(
+      true,
+    );
     expect(hasTomlCommonConfigSnippet('foo = "bar"\n', "")).toBe(false);
   });
 });
@@ -249,7 +249,7 @@ describe("Codex base_url helpers", () => {
     expect(extractCodexBaseUrl('base_url = "https://api.example.com"\n')).toBe(
       "https://api.example.com",
     );
-    expect(extractCodexBaseUrl('base_url = “https://api.example.com/”\n')).toBe(
+    expect(extractCodexBaseUrl("base_url = “https://api.example.com/”\n")).toBe(
       "https://api.example.com/",
     );
   });
@@ -295,10 +295,10 @@ describe("Codex model helpers", () => {
       'model_provider = "openai"\nmodel = "gpt-4"\nfoo = 1\n',
     );
 
-    const prepended = setCodexModelName('foo = 1\n', "gpt-4");
+    const prepended = setCodexModelName("foo = 1\n", "gpt-4");
     expect(prepended.startsWith('model = "gpt-4"\n')).toBe(true);
 
     const removed = setCodexModelName('model = "old"\nfoo = 1\n', " ");
-    expect(removed).toBe('foo = 1\n');
+    expect(removed).toBe("foo = 1\n");
   });
 });

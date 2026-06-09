@@ -33,6 +33,9 @@ export interface ClaudeDesktopStatus {
   staleRawModels: boolean;
   missingRouteMappings: boolean;
   gatewayTokenConfigured: boolean;
+  needsRestart: boolean;
+  restartHint?: string | null;
+  issues: string[];
 }
 
 export const providersApi = {

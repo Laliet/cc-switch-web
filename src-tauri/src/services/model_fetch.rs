@@ -8,6 +8,18 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use crate::{
+    error::AppError,
+    services::auth::{
+        fetch_github_copilot_api_endpoint, github_token_source, GITHUB_COPILOT_API_VERSION,
+        GITHUB_COPILOT_EDITOR_VERSION, GITHUB_COPILOT_INTEGRATION_ID,
+        GITHUB_COPILOT_PLUGIN_VERSION, GITHUB_COPILOT_USER_AGENT,
+    },
+    services::{CodexOAuthManager, CopilotAuthManager},
+    store::AppState,
+};
+use std::sync::Arc;
+
 /// 获取到的模型信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +129,117 @@ pub async fn fetch_models(
         "All candidates failed: {}",
         last_err.unwrap_or_else(|| "no candidates".to_string())
     ))
+}
+
+/// Fetch live models for Codex OAuth/ChatGPT-backed accounts.
+pub async fn fetch_codex_oauth_models(
+    state: &Arc<AppState>,
+    account_id: Option<&str>,
+) -> Result<Vec<FetchedModel>, AppError> {
+    let (account, tokens) = CodexOAuthManager::resolve_token(state, account_id).await?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| AppError::Config(format!("Failed to build HTTP client: {e}")))?;
+    let response = client
+        .get("https://chatgpt.com/backend-api/codex/models")
+        .query(&[("client_version", env!("CARGO_PKG_VERSION"))])
+        .bearer_auth(&tokens.access_token)
+        .header("accept", "application/json")
+        .header("originator", "cc-switch")
+        .header("chatgpt-account-id", account.id.as_str())
+        .send()
+        .await
+        .map_err(|err| AppError::Config(format!("Failed to fetch Codex OAuth models: {err}")))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(AppError::Unauthorized(format!(
+            "Codex OAuth models rejected token: {}",
+            truncate_body(body)
+        )));
+    }
+    if !status.is_success() {
+        return Err(AppError::Config(format!(
+            "Failed to fetch Codex OAuth models with HTTP {status}: {}",
+            truncate_body(body)
+        )));
+    }
+
+    let raw: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| AppError::Config(format!("Failed to parse Codex models: {e}")))?;
+    let mut models = extract_models(&raw, "@ai-sdk/openai-compatible");
+    if models.is_empty() {
+        models = extract_codex_models_flexible(&raw);
+    }
+    if models.is_empty() {
+        return Err(AppError::Config(
+            "Codex models response did not contain model ids".to_string(),
+        ));
+    }
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(models)
+}
+
+/// Fetch live models for GitHub Copilot-backed accounts.
+///
+/// GitHub does not expose this as a regular OpenAI-compatible endpoint. We use
+/// the Copilot API surface with the Auth Center token and parse the response
+/// flexibly because the payload shape can differ across Copilot clients.
+pub async fn fetch_github_copilot_models(
+    state: &Arc<AppState>,
+    account_id: Option<&str>,
+) -> Result<Vec<FetchedModel>, AppError> {
+    let (_account, tokens) = CopilotAuthManager::resolve_token(state, account_id).await?;
+    let github_token = github_token_source(&tokens)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
+        .user_agent(GITHUB_COPILOT_USER_AGENT)
+        .build()
+        .map_err(|e| AppError::Config(format!("Failed to build HTTP client: {e}")))?;
+    let api_base = fetch_github_copilot_api_endpoint(&client, github_token).await?;
+    let url = format!("{api_base}/models");
+    let response = client
+        .get(url)
+        .bearer_auth(&tokens.access_token)
+        .header("accept", "application/json")
+        .header("content-type", "application/json")
+        .header("copilot-integration-id", GITHUB_COPILOT_INTEGRATION_ID)
+        .header("editor-version", GITHUB_COPILOT_EDITOR_VERSION)
+        .header("editor-plugin-version", GITHUB_COPILOT_PLUGIN_VERSION)
+        .header("user-agent", GITHUB_COPILOT_USER_AGENT)
+        .header("x-github-api-version", GITHUB_COPILOT_API_VERSION)
+        .send()
+        .await
+        .map_err(|err| AppError::Config(format!("Failed to fetch GitHub Copilot models: {err}")))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(AppError::Unauthorized(format!(
+            "GitHub Copilot models rejected token: {}",
+            truncate_body(body)
+        )));
+    }
+    if !status.is_success() {
+        return Err(AppError::Config(format!(
+            "Failed to fetch GitHub Copilot models with HTTP {status}: {}",
+            truncate_body(body)
+        )));
+    }
+
+    let raw: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| AppError::Config(format!("Failed to parse Copilot models: {e}")))?;
+    let mut models = extract_copilot_models(&raw);
+    if models.is_empty() {
+        models = extract_codex_models_flexible(&raw);
+    }
+    if models.is_empty() {
+        return Err(AppError::Config(
+            "Copilot models response did not contain model ids".to_string(),
+        ));
+    }
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(models)
 }
 
 /// 构造「模型列表端点」的候选 URL 列表
@@ -274,6 +397,92 @@ fn extract_model_entry(item: &serde_json::Value, primary_key: &str) -> Option<Fe
         .and_then(|v| v.as_str())
         .map(str::to_string);
     Some(FetchedModel { id, owned_by })
+}
+
+fn extract_copilot_models(raw: &serde_json::Value) -> Vec<FetchedModel> {
+    let Some(items) = raw.get("data").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter(|item| {
+            item.get("model_picker_enabled")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        })
+        .filter_map(|item| {
+            let id = item
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            let owned_by = item
+                .get("vendor")
+                .or_else(|| item.get("owned_by"))
+                .or_else(|| item.get("ownedBy"))
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string);
+            Some(FetchedModel {
+                id: id.to_string(),
+                owned_by,
+            })
+        })
+        .collect()
+}
+
+fn extract_codex_models_flexible(raw: &serde_json::Value) -> Vec<FetchedModel> {
+    let mut models = Vec::new();
+    collect_model_ids(raw, &mut models);
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models.dedup_by(|a, b| a.id == b.id);
+    models
+}
+
+fn collect_model_ids(value: &serde_json::Value, models: &mut Vec<FetchedModel>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["id", "slug", "model", "name"] {
+                if let Some(id) = map
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    if looks_like_model_id(id) {
+                        models.push(FetchedModel {
+                            id: normalize_model_id(id),
+                            owned_by: map
+                                .get("owned_by")
+                                .or_else(|| map.get("ownedBy"))
+                                .and_then(|v| v.as_str())
+                                .map(ToString::to_string),
+                        });
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_model_ids(child, models);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_model_ids(item, models);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn looks_like_model_id(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("gpt")
+        || lower.contains("o3")
+        || lower.contains("o4")
+        || lower.contains("o5")
+        || lower.contains("claude")
+        || lower.contains("gemini")
+        || lower.contains("codex")
 }
 
 fn normalize_model_id(id: &str) -> String {
@@ -586,6 +795,22 @@ mod tests {
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].id, "gemini-3-pro-preview");
         assert_eq!(data[1].id, "gemini-3-flash-preview");
+    }
+
+    #[test]
+    fn test_flexible_managed_model_parser_accepts_claude_and_gemini_ids() {
+        let json = r#"{
+            "models": [
+                { "slug": "claude-sonnet-4.6", "ownedBy": "github-copilot" },
+                { "name": "gemini-3-pro-preview", "owned_by": "google" }
+            ]
+        }"#;
+        let raw: serde_json::Value = serde_json::from_str(json).unwrap();
+        let data = extract_codex_models_flexible(&raw);
+
+        assert_eq!(data.len(), 2);
+        assert!(data.iter().any(|model| model.id == "claude-sonnet-4.6"));
+        assert!(data.iter().any(|model| model.id == "gemini-3-pro-preview"));
     }
 
     #[tokio::test]

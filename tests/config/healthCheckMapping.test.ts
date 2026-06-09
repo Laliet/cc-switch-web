@@ -15,19 +15,29 @@ describe("health check provider mapping", () => {
   });
 
   it("getRelayPulseProviderFromUrl normalizes hostnames before matching", () => {
-    expect(getRelayPulseProviderFromUrl("https://www.foxcode.io/api")).toBe("foxcode");
-    expect(getRelayPulseProviderFromUrl("https://api.augmunt.com/v1")).toBe("augmunt");
+    expect(getRelayPulseProviderFromUrl("https://www.foxcode.io/api")).toBe(
+      "foxcode",
+    );
+    expect(getRelayPulseProviderFromUrl("https://api.augmunt.com/v1")).toBe(
+      "augmunt",
+    );
     expect(getRelayPulseProviderFromUrl("invalid-url")).toBeUndefined();
   });
 
   it("getRelayPulseProviderFromProvider extracts mapping from name, env, config and website", () => {
-    const byName: Provider = { id: "1", name: "Galaxy Code", settingsConfig: {} };
+    const byName: Provider = {
+      id: "1",
+      name: "Galaxy Code",
+      settingsConfig: {},
+    };
     expect(getRelayPulseProviderFromProvider(byName)).toBe("galaxycode");
 
     const byEnv: Provider = {
       id: "2",
       name: "Unknown",
-      settingsConfig: { env: { ANTHROPIC_BASE_URL: "https://api.privnode.com" } },
+      settingsConfig: {
+        env: { ANTHROPIC_BASE_URL: "https://api.privnode.com" },
+      },
     };
     expect(getRelayPulseProviderFromProvider(byEnv)).toBe("privnode");
 
@@ -48,8 +58,16 @@ describe("health check provider mapping", () => {
   });
 
   it("isProviderMonitored reports monitoring status", () => {
-    const monitored: Provider = { id: "5", name: "Right.codes", settingsConfig: {} };
-    const unmonitored: Provider = { id: "6", name: "not-tracked", settingsConfig: {} };
+    const monitored: Provider = {
+      id: "5",
+      name: "Right.codes",
+      settingsConfig: {},
+    };
+    const unmonitored: Provider = {
+      id: "6",
+      name: "not-tracked",
+      settingsConfig: {},
+    };
 
     expect(isProviderMonitored(monitored)).toBe(true);
     expect(isProviderMonitored(unmonitored)).toBe(false);

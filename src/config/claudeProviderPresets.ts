@@ -38,6 +38,9 @@ export interface ProviderPreset {
   templateValues?: Record<string, TemplateValueConfig>; // editorValue 存储编辑器中的实时输入值
   // 新增：请求地址候选列表（用于地址管理/测速）
   endpointCandidates?: string[];
+  // OAuth 托管认证 provider 类型
+  providerType?: "github_copilot" | "codex_oauth";
+  requiresOAuth?: boolean;
   // 新增：视觉主题配置
   theme?: PresetTheme;
 }
@@ -80,6 +83,44 @@ export const providerPresets: ProviderPreset[] = [
     },
   },
   {
+    name: "GitHub Copilot",
+    websiteUrl: "https://github.com/features/copilot",
+    settingsConfig: anthropicCompatiblePreset(
+      "https://api.githubcopilot.com",
+      claudeRoleModelEnv(
+        "claude-sonnet-4.6",
+        "claude-sonnet-4.6",
+        "claude-haiku-4.5",
+      ),
+    ),
+    endpointCandidates: ["https://api.githubcopilot.com"],
+    category: "third_party",
+    providerType: "github_copilot",
+    requiresOAuth: true,
+    theme: {
+      icon: "generic",
+      backgroundColor: "#111827",
+      textColor: "#FFFFFF",
+    },
+  },
+  {
+    name: "Codex OAuth",
+    websiteUrl: "https://chatgpt.com/codex",
+    settingsConfig: anthropicCompatiblePreset(
+      "https://chatgpt.com/backend-api/codex",
+      claudeRoleModelEnv("gpt-5-codex", "gpt-5-codex", "gpt-5-codex"),
+    ),
+    endpointCandidates: ["https://chatgpt.com/backend-api/codex"],
+    category: "third_party",
+    providerType: "codex_oauth",
+    requiresOAuth: true,
+    theme: {
+      icon: "codex",
+      backgroundColor: "#111827",
+      textColor: "#FFFFFF",
+    },
+  },
+  {
     name: "PatewayAI",
     websiteUrl: "https://api.pateway.ai",
     apiKeyUrl: "https://api.pateway.ai",
@@ -97,7 +138,11 @@ export const providerPresets: ProviderPreset[] = [
       "https://www.volcengine.com/activity/agentplan?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
     settingsConfig: anthropicCompatiblePreset(
       "https://ark.cn-beijing.volces.com/api/coding",
-      claudeRoleModelEnv("ark-code-latest", "ark-code-latest", "ark-code-latest"),
+      claudeRoleModelEnv(
+        "ark-code-latest",
+        "ark-code-latest",
+        "ark-code-latest",
+      ),
     ),
     endpointCandidates: ["https://ark.cn-beijing.volces.com/api/coding"],
     category: "cn_official",
@@ -112,7 +157,11 @@ export const providerPresets: ProviderPreset[] = [
       "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=ccswitch&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=ccswitch",
     settingsConfig: anthropicCompatiblePreset(
       "https://ark.ap-southeast.bytepluses.com/api/coding",
-      claudeRoleModelEnv("ark-code-latest", "ark-code-latest", "ark-code-latest"),
+      claudeRoleModelEnv(
+        "ark-code-latest",
+        "ark-code-latest",
+        "ark-code-latest",
+      ),
     ),
     endpointCandidates: ["https://ark.ap-southeast.bytepluses.com/api/coding"],
     category: "cn_official",

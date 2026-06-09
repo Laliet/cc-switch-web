@@ -20,6 +20,8 @@ export interface CodexProviderPreset {
   endpointCandidates?: string[];
   // 新增：视觉主题配置
   theme?: PresetTheme;
+  providerType?: "codex_oauth";
+  requiresOAuth?: boolean;
 }
 
 function toTomlString(value: string): string {
@@ -104,6 +106,26 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     theme: {
       icon: "codex",
       backgroundColor: "#1F2937", // gray-800
+      textColor: "#FFFFFF",
+    },
+  },
+  {
+    name: "Codex OAuth",
+    websiteUrl: "https://chatgpt.com/codex",
+    isOfficial: true,
+    category: "official",
+    providerType: "codex_oauth",
+    requiresOAuth: true,
+    auth: generateThirdPartyAuth(""),
+    config: generateThirdPartyConfig(
+      "codex_oauth",
+      "https://chatgpt.com/backend-api/codex",
+      "gpt-5-codex",
+    ),
+    endpointCandidates: ["https://chatgpt.com/backend-api/codex"],
+    theme: {
+      icon: "codex",
+      backgroundColor: "#111827",
       textColor: "#FFFFFF",
     },
   },

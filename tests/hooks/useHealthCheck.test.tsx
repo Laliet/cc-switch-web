@@ -55,10 +55,9 @@ describe("useHealthCheck", () => {
     ];
 
     const { wrapper } = createWrapper();
-    const { result } = renderHook(
-      () => useHealthCheck("claude", providers),
-      { wrapper },
-    );
+    const { result } = renderHook(() => useHealthCheck("claude", providers), {
+      wrapper,
+    });
 
     await waitFor(() => expect(result.current.healthMap.p1).toBeDefined());
     expect(result.current.healthMap.p1.status).toBe("unknown");
@@ -87,10 +86,9 @@ describe("useHealthCheck", () => {
 
     const providers = [{ id: "p1", name: "Mapped", settingsConfig: {} }];
     const { wrapper } = createWrapper();
-    const { result } = renderHook(
-      () => useHealthCheck("codex", providers),
-      { wrapper },
-    );
+    const { result } = renderHook(() => useHealthCheck("codex", providers), {
+      wrapper,
+    });
 
     await waitFor(() => expect(result.current.healthMap.p1).toBeDefined());
     expect(result.current.healthMap.p1.status).toBe("available");
@@ -116,10 +114,9 @@ describe("useHealthCheck", () => {
 
     const providers = [{ id: "p1", name: "Mapped", settingsConfig: {} }];
     const { wrapper } = createWrapper();
-    const { result } = renderHook(
-      () => useHealthCheck("claude", providers),
-      { wrapper },
-    );
+    const { result } = renderHook(() => useHealthCheck("claude", providers), {
+      wrapper,
+    });
 
     await waitFor(() => expect(result.current.healthMap.p1).toBeDefined());
 

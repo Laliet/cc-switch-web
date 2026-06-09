@@ -130,7 +130,7 @@ describe("tomlToMcpServer", () => {
       'args = [1, "two"]',
       'env = { ONE = 1, TWO = "2" }',
       'cwd = "/work"',
-      'timeout_ms = 2500',
+      "timeout_ms = 2500",
     ].join("\n");
 
     expect(tomlToMcpServer(toml)).toEqual({
@@ -183,10 +183,7 @@ describe("tomlToMcpServer", () => {
 
 describe("extractIdFromToml", () => {
   it("extracts id from [mcp_servers.<id>] section", () => {
-    const toml = [
-      "[mcp_servers.sample-server]",
-      'command = "node"',
-    ].join("\n");
+    const toml = ["[mcp_servers.sample-server]", 'command = "node"'].join("\n");
 
     expect(extractIdFromToml(toml)).toBe("sample-server");
   });

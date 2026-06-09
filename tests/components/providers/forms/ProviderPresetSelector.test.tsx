@@ -22,7 +22,7 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 }
 
 const createPreset = (
-  overrides: Partial<ProviderPreset> = {}
+  overrides: Partial<ProviderPreset> = {},
 ): ProviderPreset => ({
   name: overrides.name ?? "Test Preset",
   category: overrides.category ?? "third_party",
@@ -55,11 +55,11 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(
-      screen.getByRole("button", { name: "providerPreset.custom" })
+      screen.getByRole("button", { name: "providerPreset.custom" }),
     ).toBeInTheDocument();
   });
 
@@ -67,11 +67,15 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
-    expect(screen.getByRole("button", { name: "Preset 1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preset 2" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Preset 1" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Preset 2" }),
+    ).toBeInTheDocument();
   });
 
   it("calls onPresetChange when custom button clicked", async () => {
@@ -79,11 +83,16 @@ describe("ProviderPresetSelector", () => {
     const onPresetChange = vi.fn();
     render(
       <TestWrapper>
-        <ProviderPresetSelector {...defaultProps} onPresetChange={onPresetChange} />
-      </TestWrapper>
+        <ProviderPresetSelector
+          {...defaultProps}
+          onPresetChange={onPresetChange}
+        />
+      </TestWrapper>,
     );
 
-    await user.click(screen.getByRole("button", { name: "providerPreset.custom" }));
+    await user.click(
+      screen.getByRole("button", { name: "providerPreset.custom" }),
+    );
 
     expect(onPresetChange).toHaveBeenCalledWith("custom");
   });
@@ -93,8 +102,11 @@ describe("ProviderPresetSelector", () => {
     const onPresetChange = vi.fn();
     render(
       <TestWrapper>
-        <ProviderPresetSelector {...defaultProps} onPresetChange={onPresetChange} />
-      </TestWrapper>
+        <ProviderPresetSelector
+          {...defaultProps}
+          onPresetChange={onPresetChange}
+        />
+      </TestWrapper>,
     );
 
     await user.click(screen.getByRole("button", { name: "Preset 1" }));
@@ -106,10 +118,12 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} selectedPresetId="custom" />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
-    const customBtn = screen.getByRole("button", { name: "providerPreset.custom" });
+    const customBtn = screen.getByRole("button", {
+      name: "providerPreset.custom",
+    });
     expect(customBtn).toHaveClass("bg-blue-500");
   });
 
@@ -117,7 +131,7 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} selectedPresetId="preset-1" />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const presetBtn = screen.getByRole("button", { name: "Preset 1" });
@@ -128,11 +142,11 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} category="official" />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(
-      screen.getByText("💡 官方供应商使用浏览器登录，无需配置 API Key")
+      screen.getByText("💡 官方供应商使用浏览器登录，无需配置 API Key"),
     ).toBeInTheDocument();
   });
 
@@ -140,11 +154,11 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} category="third_party" />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(
-      screen.getByText("💡 第三方供应商需要填写 API Key 和请求地址")
+      screen.getByText("💡 第三方供应商需要填写 API Key 和请求地址"),
     ).toBeInTheDocument();
   });
 
@@ -152,11 +166,11 @@ describe("ProviderPresetSelector", () => {
     render(
       <TestWrapper>
         <ProviderPresetSelector {...defaultProps} category="custom" />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(
-      screen.getByText("💡 自定义配置需手动填写所有必要字段")
+      screen.getByText("💡 自定义配置需手动填写所有必要字段"),
     ).toBeInTheDocument();
   });
 
@@ -176,7 +190,7 @@ describe("ProviderPresetSelector", () => {
           {...defaultProps}
           groupedPresets={partnerPresets}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const partnerBtn = screen.getByRole("button", { name: "Partner Preset" });
@@ -202,11 +216,11 @@ describe("ProviderPresetSelector", () => {
           {...defaultProps}
           groupedPresets={themedPresets}
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     expect(
-      screen.getByRole("button", { name: "Claude Preset" })
+      screen.getByRole("button", { name: "Claude Preset" }),
     ).toBeInTheDocument();
   });
 
@@ -230,7 +244,7 @@ describe("ProviderPresetSelector", () => {
           groupedPresets={themedPresets}
           selectedPresetId="themed-1"
         />
-      </TestWrapper>
+      </TestWrapper>,
     );
 
     const btn = screen.getByRole("button", { name: "Themed Preset" });

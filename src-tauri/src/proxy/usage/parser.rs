@@ -158,7 +158,9 @@ impl TokenUsage {
         for event in events {
             if event.get("type").and_then(|v| v.as_str()) == Some("response.completed") {
                 if let Some(response) = event.get("response") {
-                    return Self::from_codex_response_auto(response);
+                    if let Some(usage) = Self::from_codex_response_auto(response) {
+                        return Some(usage);
+                    }
                 }
             }
         }
@@ -210,11 +212,12 @@ impl TokenUsage {
     }
 
     fn from_openai_stream_events(events: &[Value]) -> Option<Self> {
-        events
-            .iter()
-            .rev()
-            .find(|event| event.get("usage").is_some_and(|usage| !usage.is_null()))
-            .and_then(Self::from_openai_response)
+        events.iter().rev().find_map(|event| {
+            if event.get("usage").is_some_and(|usage| !usage.is_null()) {
+                return Self::from_openai_response(event);
+            }
+            None
+        })
     }
 
     fn from_gemini_response(body: &Value) -> Option<Self> {
@@ -305,5 +308,61 @@ mod tests {
         });
 
         assert!(TokenUsage::from_response("codex", &body).is_none());
+    }
+
+    #[test]
+    fn ignores_empty_openai_responses_usage_without_panicking() {
+        let body = json!({
+            "model": "gpt-5.1-codex",
+            "usage": {}
+        });
+
+        assert!(TokenUsage::from_response("codex", &body).is_none());
+    }
+
+    #[test]
+    fn openai_stream_usage_skips_trailing_empty_usage_event() {
+        let events = vec![
+            json!({
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 3,
+                    "input_tokens_details": { "cached_tokens": 2 }
+                }
+            }),
+            json!({ "usage": {} }),
+        ];
+
+        let usage = TokenUsage::from_stream_events("claude-desktop", &events).expect("usage");
+        assert_eq!(usage.input_tokens, 12);
+        assert_eq!(usage.output_tokens, 3);
+        assert_eq!(usage.cache_read_tokens, 2);
+    }
+
+    #[test]
+    fn codex_stream_usage_skips_empty_completed_response_and_uses_later_valid_event() {
+        let events = vec![
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "usage": null
+                }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "model": "gpt-5.1-codex",
+                    "usage": {
+                        "input_tokens": 20,
+                        "output_tokens": 5
+                    }
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_stream_events("codex", &events).expect("usage");
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.output_tokens, 5);
+        assert_eq!(usage.model.as_deref(), Some("gpt-5.1-codex"));
     }
 }

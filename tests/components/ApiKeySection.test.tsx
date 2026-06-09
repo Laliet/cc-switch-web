@@ -13,9 +13,10 @@ describe("ApiKeySection websiteUrl safety", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("link", { name: /获取 API Key/i }),
-    ).toHaveAttribute("href", "https://example.com/get-key");
+    expect(screen.getByRole("link", { name: /获取 API Key/i })).toHaveAttribute(
+      "href",
+      "https://example.com/get-key",
+    );
 
     rerender(
       <ApiKeySection
@@ -29,4 +30,3 @@ describe("ApiKeySection websiteUrl safety", () => {
     expect(screen.queryByRole("link", { name: /获取 API Key/i })).toBeNull();
   });
 });
-

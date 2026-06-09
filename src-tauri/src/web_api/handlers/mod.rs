@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use crate::{app_config::AppType, error::AppError};
 
+pub mod auth;
 pub mod config;
 pub mod health;
 pub mod mcp;

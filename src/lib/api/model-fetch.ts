@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./adapter";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 
@@ -38,6 +38,19 @@ export async function fetchCodexOauthModels(
   accountId?: string | null,
 ): Promise<FetchedModel[]> {
   return invoke("get_codex_oauth_models", {
+    accountId: accountId || null,
+  });
+}
+
+/**
+ * 获取 GitHub Copilot 托管账号可用模型列表
+ *
+ * 由后端使用认证中心 token 访问 Copilot API，并返回服务端实际响应解析出的模型。
+ */
+export async function fetchGithubCopilotModels(
+  accountId?: string | null,
+): Promise<FetchedModel[]> {
+  return invoke("get_github_copilot_models", {
     accountId: accountId || null,
   });
 }

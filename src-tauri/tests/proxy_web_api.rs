@@ -1,4 +1,5 @@
 #![cfg(feature = "web-server")]
+#![allow(clippy::await_holding_lock)]
 
 use std::{collections::HashMap, env, ffi::OsString, sync::Arc, time::Duration};
 

@@ -8,6 +8,7 @@ mod backup;
 mod dao;
 mod migration;
 mod schema;
+mod token_crypto;
 
 pub use dao::{
     FailoverQueueItem, ModelPricing, ModelPricingRecord, ProviderHealthRecord,
@@ -19,8 +20,9 @@ use crate::{config::get_app_config_dir, error::AppError};
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{path::PathBuf, sync::Mutex};
+use token_crypto::TokenCipher;
 
-pub(crate) const SCHEMA_VERSION: i32 = 3;
+pub(crate) const SCHEMA_VERSION: i32 = 4;
 pub(crate) const SETTINGS_CONFIG_VERSION: &str = "config_version";
 pub(crate) const SETTINGS_COMMON_SNIPPETS: &str = "common_config_snippets";
 pub(crate) const SETTINGS_DB_MIGRATED_FROM_JSON: &str = "migrated_from_config_json";
@@ -52,6 +54,7 @@ pub(crate) fn from_json_string<T: DeserializeOwned>(
 
 pub struct Database {
     pub(crate) conn: Mutex<Connection>,
+    pub(crate) token_cipher: TokenCipher,
 }
 
 impl Database {
@@ -69,8 +72,10 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        let token_cipher = TokenCipher::load_or_create(&managed_auth_key_path()?)?;
         let db = Self {
             conn: Mutex::new(conn),
+            token_cipher,
         };
         db.create_tables()?;
         db.apply_schema_migrations()?;
@@ -85,6 +90,7 @@ impl Database {
             .map_err(|e| AppError::Database(e.to_string()))?;
         let db = Self {
             conn: Mutex::new(conn),
+            token_cipher: TokenCipher::ephemeral()?,
         };
         db.create_tables()?;
         db.apply_schema_migrations()?;
@@ -95,6 +101,10 @@ impl Database {
 
 pub fn database_path() -> Result<PathBuf, AppError> {
     Ok(get_app_config_dir()?.join("cc-switch.db"))
+}
+
+fn managed_auth_key_path() -> Result<PathBuf, AppError> {
+    Ok(get_app_config_dir()?.join("managed-auth.key"))
 }
 
 #[cfg(test)]
@@ -116,24 +126,26 @@ mod tests {
     #[test]
     fn proxy_config_roundtrips_through_sqlite() {
         let db = Database::memory().expect("memory db");
-        let mut config = ProxySettings::default();
-        config.enabled = true;
-        config.host = "0.0.0.0".to_string();
-        config.port = 4567;
-        config.upstream_proxy = Some("http://127.0.0.1:7890".to_string());
-        config.bind_app = "codex".to_string();
-        config.auto_start = true;
-        config.enable_logging = true;
-        config.live_takeover_active = true;
-        config.streaming_first_byte_timeout = 11;
-        config.streaming_idle_timeout = 22;
-        config.non_streaming_timeout = 33;
-        config.circuit_failure_threshold = 4;
-        config.circuit_recovery_threshold = 2;
-        config.circuit_recovery_wait_seconds = 45;
-        config.circuit_error_rate_threshold = 65.0;
-        config.rectify_thinking_signature = false;
-        config.rectify_thinking_budget = true;
+        let mut config = ProxySettings {
+            enabled: true,
+            host: "0.0.0.0".to_string(),
+            port: 4567,
+            upstream_proxy: Some("http://127.0.0.1:7890".to_string()),
+            bind_app: "codex".to_string(),
+            auto_start: true,
+            enable_logging: true,
+            live_takeover_active: true,
+            streaming_first_byte_timeout: 11,
+            streaming_idle_timeout: 22,
+            non_streaming_timeout: 33,
+            circuit_failure_threshold: 4,
+            circuit_recovery_threshold: 2,
+            circuit_recovery_wait_seconds: 45,
+            circuit_error_rate_threshold: 65.0,
+            rectify_thinking_signature: false,
+            rectify_thinking_budget: true,
+            ..ProxySettings::default()
+        };
         config.apps.claude.enabled = true;
         config.apps.claude.auto_failover_enabled = true;
         config.apps.claude.max_retries = 2;
@@ -321,11 +333,13 @@ mod tests {
     #[test]
     fn mcp_prompts_and_common_snippets_roundtrip_through_sqlite() {
         let db = Database::memory().expect("memory db");
-        let mut config = MultiAppConfig::default();
-        config.common_config_snippets = CommonConfigSnippets {
-            claude: Some("claude snippet".to_string()),
-            codex: Some("codex snippet".to_string()),
-            gemini: None,
+        let mut config = MultiAppConfig {
+            common_config_snippets: CommonConfigSnippets {
+                claude: Some("claude snippet".to_string()),
+                codex: Some("codex snippet".to_string()),
+                gemini: None,
+            },
+            ..MultiAppConfig::default()
         };
         let mut servers = HashMap::new();
         servers.insert(
@@ -402,55 +416,57 @@ mod tests {
     fn skills_roundtrip_through_sqlite() {
         let db = Database::memory().expect("memory db");
         let installed_at = Utc::now();
-        let mut config = MultiAppConfig::default();
-        config.skills = SkillStore {
-            repos: vec![
-                SkillRepo {
-                    owner: "owner".to_string(),
-                    name: "repo".to_string(),
-                    branch: "main".to_string(),
-                    enabled: true,
-                    skills_path: None,
-                },
-                SkillRepo {
-                    owner: "owner".to_string(),
-                    name: "repo2".to_string(),
-                    branch: "dev".to_string(),
-                    enabled: false,
-                    skills_path: Some("skills".to_string()),
-                },
-            ],
-            skills: HashMap::from([(
-                "owner/repo:skill-a".to_string(),
-                SkillState {
-                    installed: true,
-                    installed_at,
-                },
-            )]),
-            repo_cache: HashMap::from([(
-                "owner/repo/main".to_string(),
-                SkillRepoCache {
-                    skills: vec![Skill {
-                        key: "owner/repo:skill-a".to_string(),
-                        name: "Skill A".to_string(),
-                        description: "Desc".to_string(),
-                        directory: "skill-a".to_string(),
-                        parent_path: None,
-                        depth: 0,
-                        readme_url: Some("https://readme.example".to_string()),
-                        installed: true,
-                        installed_apps: vec!["claude".to_string()],
-                        repo_owner: Some("owner".to_string()),
-                        repo_name: Some("repo".to_string()),
-                        repo_branch: Some("main".to_string()),
+        let config = MultiAppConfig {
+            skills: SkillStore {
+                repos: vec![
+                    SkillRepo {
+                        owner: "owner".to_string(),
+                        name: "repo".to_string(),
+                        branch: "main".to_string(),
+                        enabled: true,
                         skills_path: None,
-                        commands: Vec::new(),
-                    }],
-                    fetched_at: installed_at,
-                    etag: Some("etag".to_string()),
-                    last_modified: Some("today".to_string()),
-                },
-            )]),
+                    },
+                    SkillRepo {
+                        owner: "owner".to_string(),
+                        name: "repo2".to_string(),
+                        branch: "dev".to_string(),
+                        enabled: false,
+                        skills_path: Some("skills".to_string()),
+                    },
+                ],
+                skills: HashMap::from([(
+                    "owner/repo:skill-a".to_string(),
+                    SkillState {
+                        installed: true,
+                        installed_at,
+                    },
+                )]),
+                repo_cache: HashMap::from([(
+                    "owner/repo/main".to_string(),
+                    SkillRepoCache {
+                        skills: vec![Skill {
+                            key: "owner/repo:skill-a".to_string(),
+                            name: "Skill A".to_string(),
+                            description: "Desc".to_string(),
+                            directory: "skill-a".to_string(),
+                            parent_path: None,
+                            depth: 0,
+                            readme_url: Some("https://readme.example".to_string()),
+                            installed: true,
+                            installed_apps: vec!["claude".to_string()],
+                            repo_owner: Some("owner".to_string()),
+                            repo_name: Some("repo".to_string()),
+                            repo_branch: Some("main".to_string()),
+                            skills_path: None,
+                            commands: Vec::new(),
+                        }],
+                        fetched_at: installed_at,
+                        etag: Some("etag".to_string()),
+                        last_modified: Some("today".to_string()),
+                    },
+                )]),
+            },
+            ..MultiAppConfig::default()
         };
 
         db.replace_config(&config).expect("replace config");

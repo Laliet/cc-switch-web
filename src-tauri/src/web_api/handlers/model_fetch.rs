@@ -4,6 +4,9 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::services::model_fetch::{self, FetchedModel};
+use crate::store::AppState;
+use axum::extract::{Query, State};
+use std::sync::Arc;
 
 use super::{ApiError, ApiResult};
 
@@ -29,5 +32,37 @@ pub async fn fetch_models_for_config(
     )
     .await
     .map_err(ApiError::bad_request)?;
+    Ok(Json(models))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexOauthModelsQuery {
+    pub account_id: Option<String>,
+}
+
+pub async fn get_codex_oauth_models(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CodexOauthModelsQuery>,
+) -> ApiResult<Vec<FetchedModel>> {
+    let models = model_fetch::fetch_codex_oauth_models(&state, query.account_id.as_deref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(models))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubCopilotModelsQuery {
+    pub account_id: Option<String>,
+}
+
+pub async fn get_github_copilot_models(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<GithubCopilotModelsQuery>,
+) -> ApiResult<Vec<FetchedModel>> {
+    let models = model_fetch::fetch_github_copilot_models(&state, query.account_id.as_deref())
+        .await
+        .map_err(ApiError::from)?;
     Ok(Json(models))
 }

@@ -46,14 +46,12 @@ afterEach(() => {
 describe("healthCheck API module (web mode)", () => {
   it("fetchAllHealthStatus uses web endpoint and caches results", async () => {
     const payload = createRelayPulsePayload();
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: async () => payload,
-      } as Response);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => payload,
+    } as Response);
 
     window.sessionStorage.setItem(WEB_AUTH_STORAGE_KEY, "encoded");
 
@@ -131,14 +129,12 @@ describe("healthCheck API module (web mode)", () => {
 
   it("uses the configured web API base for the relay-pulse proxy", async () => {
     const payload = createRelayPulsePayload();
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: async () => payload,
-      } as Response);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => payload,
+    } as Response);
 
     window.localStorage.setItem(
       WEB_API_BASE_STORAGE_KEY,

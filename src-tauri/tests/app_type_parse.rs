@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
 use cc_switch_lib::{
-    AppType, ClaudeDesktopMode, ClaudeDesktopModelRoute, MultiAppConfig, ProviderMeta,
+    AppType, ClaudeDesktopMode, ClaudeDesktopModelRoute, ManagedAuthProvider, MultiAppConfig,
+    ProviderAuthBinding, ProviderMeta, ProviderType,
 };
 
 #[test]
@@ -92,6 +93,12 @@ fn provider_meta_claude_desktop_fields_roundtrip_with_camel_case() {
         codex_fast_mode: Some(false),
         provider_type: Some("custom".to_string()),
         github_account_id: Some("github-1".to_string()),
+        auth_binding: Some(ProviderAuthBinding {
+            mode: "managed".to_string(),
+            provider_type: Some("github_copilot".to_string()),
+            account_id: Some("github-1".to_string()),
+            use_default: Some(false),
+        }),
         ..ProviderMeta::default()
     };
     meta.claude_desktop_model_routes.insert(
@@ -120,6 +127,10 @@ fn provider_meta_claude_desktop_fields_roundtrip_with_camel_case() {
     assert_eq!(value["codexFastMode"], false);
     assert_eq!(value["providerType"], "custom");
     assert_eq!(value["githubAccountId"], "github-1");
+    assert_eq!(value["authBinding"]["mode"], "managed");
+    assert_eq!(value["authBinding"]["providerType"], "github_copilot");
+    assert_eq!(value["authBinding"]["accountId"], "github-1");
+    assert_eq!(value["authBinding"]["useDefault"], false);
 
     let decoded: ProviderMeta = serde_json::from_value(value).expect("deserialize provider meta");
     assert_eq!(decoded.claude_desktop_mode, Some(ClaudeDesktopMode::Proxy));
@@ -129,6 +140,81 @@ fn provider_meta_claude_desktop_fields_roundtrip_with_camel_case() {
             .get("claude-sonnet-4-20250514")
             .map(|route| route.model.as_str()),
         Some("sonnet-real")
+    );
+    assert_eq!(
+        decoded
+            .auth_binding
+            .as_ref()
+            .and_then(|binding| binding.provider_type.as_deref()),
+        Some("github_copilot")
+    );
+}
+
+#[test]
+fn provider_type_accepts_oauth_aliases_and_maps_managed_provider() {
+    assert_eq!(
+        ProviderType::parse("github_copilot"),
+        Some(ProviderType::GithubCopilot)
+    );
+    assert_eq!(
+        ProviderType::parse("github-copilot"),
+        Some(ProviderType::GithubCopilot)
+    );
+    assert_eq!(
+        ProviderType::parse("GitHub Copilot"),
+        Some(ProviderType::GithubCopilot)
+    );
+    assert_eq!(
+        ProviderType::parse(" copilot "),
+        Some(ProviderType::GithubCopilot)
+    );
+    assert_eq!(
+        ProviderType::parse("codex_oauth"),
+        Some(ProviderType::CodexOauth)
+    );
+    assert_eq!(
+        ProviderType::parse("codex-oauth"),
+        Some(ProviderType::CodexOauth)
+    );
+    assert_eq!(
+        ProviderType::parse("Codex OAuth"),
+        Some(ProviderType::CodexOauth)
+    );
+    assert_eq!(
+        ProviderType::parse("ChatGPT"),
+        Some(ProviderType::CodexOauth)
+    );
+    assert_eq!(
+        ProviderType::GithubCopilot.managed_auth_provider().as_str(),
+        "github_copilot"
+    );
+    assert_eq!(
+        ProviderType::CodexOauth.managed_auth_provider().as_str(),
+        "codex_oauth"
+    );
+}
+
+#[test]
+fn managed_auth_provider_deserialize_accepts_oauth_aliases() {
+    assert_eq!(
+        serde_json::from_value::<ManagedAuthProvider>(serde_json::json!("github-copilot"))
+            .expect("github alias"),
+        ManagedAuthProvider::GithubCopilot
+    );
+    assert_eq!(
+        serde_json::from_value::<ManagedAuthProvider>(serde_json::json!("GitHub Copilot"))
+            .expect("github display alias"),
+        ManagedAuthProvider::GithubCopilot
+    );
+    assert_eq!(
+        serde_json::from_value::<ManagedAuthProvider>(serde_json::json!("ChatGPT"))
+            .expect("chatgpt alias"),
+        ManagedAuthProvider::CodexOauth
+    );
+    assert_eq!(
+        serde_json::from_value::<ManagedAuthProvider>(serde_json::json!("Codex OAuth"))
+            .expect("codex display alias"),
+        ManagedAuthProvider::CodexOauth
     );
 }
 

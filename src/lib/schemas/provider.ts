@@ -49,10 +49,9 @@ export const providerSchema = z.object({
   websiteUrl: z
     .union([
       z.literal(""),
-      z
-        .string()
-        .url("请输入有效的网址")
-        .refine(isHttpOrHttpsUrl, { message: "网址必须使用 http 或 https 协议" }),
+      z.string().url("请输入有效的网址").refine(isHttpOrHttpsUrl, {
+        message: "网址必须使用 http 或 https 协议",
+      }),
     ])
     .optional(),
   notes: z.string().optional(),

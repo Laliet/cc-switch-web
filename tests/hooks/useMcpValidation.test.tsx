@@ -23,7 +23,8 @@ describe("useMcpValidation", () => {
     validateTomlMock.mockReturnValue("");
   });
 
-  const getHookResult = () => renderHook(() => useMcpValidation()).result.current;
+  const getHookResult = () =>
+    renderHook(() => useMcpValidation()).result.current;
 
   describe("validateJson", () => {
     it("returns empty string for blank text", () => {
@@ -65,7 +66,9 @@ describe("useMcpValidation", () => {
     it("propagates errors returned by validateToml", () => {
       validateTomlMock.mockReturnValue("parse-error-detail");
       const { validateTomlConfig } = getHookResult();
-      expect(validateTomlConfig("foo")).toBe("mcp.error.tomlInvalid: parse-error-detail");
+      expect(validateTomlConfig("foo")).toBe(
+        "mcp.error.tomlInvalid: parse-error-detail",
+      );
       expect(tomlToMcpServerMock).not.toHaveBeenCalled();
     });
 
@@ -101,7 +104,9 @@ describe("useMcpValidation", () => {
         throw new Error("normalize failed");
       });
       const { validateTomlConfig } = getHookResult();
-      expect(validateTomlConfig("foo")).toBe("mcp.error.tomlInvalid: normalize failed");
+      expect(validateTomlConfig("foo")).toBe(
+        "mcp.error.tomlInvalid: normalize failed",
+      );
     });
 
     it("returns empty string when validation passes", () => {
@@ -129,17 +134,23 @@ describe("useMcpValidation", () => {
 
     it("requires command for stdio type", () => {
       const { validateJsonConfig } = getHookResult();
-      expect(validateJsonConfig('{"type":"stdio"}')).toBe("mcp.error.commandRequired");
+      expect(validateJsonConfig('{"type":"stdio"}')).toBe(
+        "mcp.error.commandRequired",
+      );
     });
 
     it("requires url for http type", () => {
       const { validateJsonConfig } = getHookResult();
-      expect(validateJsonConfig('{"type":"http","url":""}')).toBe("mcp.wizard.urlRequired");
+      expect(validateJsonConfig('{"type":"http","url":""}')).toBe(
+        "mcp.wizard.urlRequired",
+      );
     });
 
     it("requires url for sse type", () => {
       const { validateJsonConfig } = getHookResult();
-      expect(validateJsonConfig('{"type":"sse","url":""}')).toBe("mcp.wizard.urlRequired");
+      expect(validateJsonConfig('{"type":"sse","url":""}')).toBe(
+        "mcp.wizard.urlRequired",
+      );
     });
 
     it("returns empty string when json config valid", () => {

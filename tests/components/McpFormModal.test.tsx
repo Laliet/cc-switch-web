@@ -1,5 +1,11 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+} from "@testing-library/react";
 import type { McpServer } from "@/types";
 import McpFormModal from "@/components/mcp/McpFormModal";
 
@@ -53,7 +59,9 @@ vi.mock("@/components/ui/input", () => ({
   Input: ({ value, onChange, ...rest }: any) => (
     <input
       value={value}
-      onChange={(event) => onChange?.({ target: { value: event.target.value } })}
+      onChange={(event) =>
+        onChange?.({ target: { value: event.target.value } })
+      }
       {...rest}
     />
   ),
@@ -63,7 +71,9 @@ vi.mock("@/components/ui/textarea", () => ({
   Textarea: ({ value, onChange, ...rest }: any) => (
     <textarea
       value={value}
-      onChange={(event) => onChange?.({ target: { value: event.target.value } })}
+      onChange={(event) =>
+        onChange?.({ target: { value: event.target.value } })
+      }
       {...rest}
     />
   ),
@@ -109,9 +119,8 @@ vi.mock("@/components/mcp/McpWizardModal", () => ({
 }));
 
 vi.mock("@/hooks/useMcp", async () => {
-  const actual = await vi.importActual<typeof import("@/hooks/useMcp")>(
-    "@/hooks/useMcp",
-  );
+  const actual =
+    await vi.importActual<typeof import("@/hooks/useMcp")>("@/hooks/useMcp");
   return {
     ...actual,
     useUpsertMcpServer: () => ({
@@ -130,8 +139,11 @@ describe("McpFormModal", () => {
   const renderForm = (
     props?: Partial<React.ComponentProps<typeof McpFormModal>>,
   ) => {
-    const { onSave: overrideOnSave, onClose: overrideOnClose, ...rest } =
-      props ?? {};
+    const {
+      onSave: overrideOnSave,
+      onClose: overrideOnClose,
+      ...rest
+    } = props ?? {};
     const onSave = overrideOnSave ?? vi.fn().mockResolvedValue(undefined);
     const onClose = overrideOnClose ?? vi.fn();
     render(
@@ -149,7 +161,9 @@ describe("McpFormModal", () => {
   it("应用预设后填充 ID 与配置内容", async () => {
     renderForm();
     await waitFor(() =>
-      expect(screen.getByPlaceholderText("mcp.form.titlePlaceholder")).toBeInTheDocument(),
+      expect(
+        screen.getByPlaceholderText("mcp.form.titlePlaceholder"),
+      ).toBeInTheDocument(),
     );
 
     fireEvent.click(screen.getByText("preset-stdio"));
@@ -162,7 +176,9 @@ describe("McpFormModal", () => {
     const configTextarea = screen.getByPlaceholderText(
       "mcp.form.jsonPlaceholder",
     ) as HTMLTextAreaElement;
-    expect(configTextarea.value).toBe('{\n  "type": "stdio",\n  "command": "preset-cmd"\n}');
+    expect(configTextarea.value).toBe(
+      '{\n  "type": "stdio",\n  "command": "preset-cmd"\n}',
+    );
   });
 
   it("JSON 模式下格式化按钮保留 MCP 包装输入并成功格式化", async () => {
@@ -197,15 +213,21 @@ describe("McpFormModal", () => {
 
     fireEvent.click(screen.getByText("mcp.form.additionalInfo"));
 
-    fireEvent.change(screen.getByPlaceholderText("mcp.form.descriptionPlaceholder"), {
-      target: { value: " Description " },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("mcp.form.descriptionPlaceholder"),
+      {
+        target: { value: " Description " },
+      },
+    );
     fireEvent.change(screen.getByPlaceholderText("mcp.form.tagsPlaceholder"), {
       target: { value: " tag1 , tag2 " },
     });
-    fireEvent.change(screen.getByPlaceholderText("mcp.form.homepagePlaceholder"), {
-      target: { value: " https://example.com " },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("mcp.form.homepagePlaceholder"),
+      {
+        target: { value: " https://example.com " },
+      },
+    );
     fireEvent.change(screen.getByPlaceholderText("mcp.form.docsPlaceholder"), {
       target: { value: " https://docs.example.com " },
     });
@@ -276,7 +298,9 @@ describe("McpFormModal", () => {
     const configTextarea = screen.getByPlaceholderText(
       "mcp.form.jsonPlaceholder",
     ) as HTMLTextAreaElement;
-    expect(configTextarea.value).toBe('{"type":"stdio","command":"wizard-cmd"}');
+    expect(configTextarea.value).toBe(
+      '{"type":"stdio","command":"wizard-cmd"}',
+    );
   });
 
   it("TOML 模式下自动提取 ID 并成功保存", async () => {
@@ -361,7 +385,7 @@ type = "stdio"
     const configTextarea = screen.getByPlaceholderText(
       "mcp.form.jsonPlaceholder",
     ) as HTMLTextAreaElement;
-    expect(configTextarea.value).toContain("\"command\": \"old\"");
+    expect(configTextarea.value).toContain('"command": "old"');
 
     fireEvent.change(configTextarea, {
       target: { value: '{"type":"stdio","command":"updated"}' },

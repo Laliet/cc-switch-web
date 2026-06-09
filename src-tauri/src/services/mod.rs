@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod config;
 pub mod env_checker;
 pub mod env_manager;
@@ -13,6 +14,7 @@ pub mod sql_helpers;
 pub mod stream_check;
 pub mod usage_stats;
 
+pub use auth::{AuthService, CodexOAuthManager, CopilotAuthManager};
 pub use config::ConfigService;
 pub use mcp::McpService;
 pub use prompt::PromptService;

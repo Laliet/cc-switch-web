@@ -703,6 +703,7 @@ fn insert_header(headers: &mut HeaderMap, key: &str, value: &str) {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::provider::Provider;

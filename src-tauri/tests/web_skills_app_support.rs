@@ -1,6 +1,6 @@
 #![cfg(feature = "web-server")]
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::{
     body::{to_bytes, Body},
@@ -9,11 +9,12 @@ use axum::{
 use base64::Engine;
 use cc_switch_lib::{web_api, AppState, MultiAppConfig};
 use serial_test::serial;
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 #[path = "support.rs"]
 mod support;
-use support::{ensure_test_home, reset_test_fs, test_mutex};
+use support::{ensure_test_home, reset_test_fs};
 
 fn basic_auth_header(user: &str, password: &str) -> HeaderValue {
     let raw = format!("{user}:{password}");
@@ -21,11 +22,23 @@ fn basic_auth_header(user: &str, password: &str) -> HeaderValue {
     HeaderValue::from_str(&format!("Basic {encoded}")).expect("basic auth header")
 }
 
-fn make_app(password: &str, csrf: &str) -> axum::Router {
+fn make_app_with_state(password: &str, csrf: &str) -> (axum::Router, Arc<AppState>) {
     std::env::set_var("WEB_CSRF_TOKEN", csrf);
     let state =
         Arc::new(AppState::new_for_tests(MultiAppConfig::default()).expect("test app state"));
-    web_api::create_router(state, password.to_string())
+    (
+        web_api::create_router(state.clone(), password.to_string()),
+        state,
+    )
+}
+
+fn make_app(password: &str, csrf: &str) -> axum::Router {
+    make_app_with_state(password, csrf).0
+}
+
+fn async_test_mutex() -> &'static Mutex<()> {
+    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+    TEST_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
 async fn dispatch(app: axum::Router, request: Request<Body>) -> axum::response::Response {
@@ -46,15 +59,15 @@ async fn response_error_message(res: axum::response::Response) -> String {
 
 #[tokio::test]
 #[serial]
-async fn skills_list_rejects_omo_query() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+async fn skills_list_rejects_claude_desktop_query() {
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 
     let app = make_app("password", "csrf-token");
     let req = Request::builder()
         .method(Method::GET)
-        .uri("/api/skills?app=omo")
+        .uri("/api/skills?app=claude-desktop")
         .header(AUTHORIZATION, basic_auth_header("admin", "password"))
         .body(Body::empty())
         .expect("build request");
@@ -62,16 +75,13 @@ async fn skills_list_rejects_omo_query() {
     let res = dispatch(app, req).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let error = response_error_message(res).await;
-    assert!(
-        error.contains("暂未支持") || error.contains("not supported yet"),
-        "unexpected error message: {error}"
-    );
+    assert_unsupported_error(&error);
 }
 
 #[tokio::test]
 #[serial]
-async fn skills_install_rejects_upcoming_app_payload() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+async fn skills_install_rejects_claude_desktop_payload() {
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 
@@ -85,7 +95,7 @@ async fn skills_install_rejects_upcoming_app_payload() {
         .body(Body::from(
             serde_json::json!({
                 "directory": "skills/demo",
-                "app": "omo"
+                "app": "claude-desktop"
             })
             .to_string(),
         ))
@@ -94,8 +104,15 @@ async fn skills_install_rejects_upcoming_app_payload() {
     let res = dispatch(app, req).await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     let error = response_error_message(res).await;
+    assert_unsupported_error(&error);
+}
+
+fn assert_unsupported_error(error: &str) {
     assert!(
-        error.contains("暂未支持") || error.contains("not supported yet"),
+        error.contains("暂未支持")
+            || error.contains("暂不支持")
+            || error.contains("not supported yet")
+            || error.contains("does not support"),
         "unexpected error message: {error}"
     );
 }
@@ -103,7 +120,7 @@ async fn skills_install_rejects_upcoming_app_payload() {
 #[tokio::test]
 #[serial]
 async fn config_get_dir_supports_opencode() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 
@@ -122,7 +139,7 @@ async fn config_get_dir_supports_opencode() {
 #[tokio::test]
 #[serial]
 async fn mcp_get_config_rejects_upcoming_app() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 
@@ -146,7 +163,7 @@ async fn mcp_get_config_rejects_upcoming_app() {
 #[tokio::test]
 #[serial]
 async fn providers_list_supports_opencode() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 
@@ -165,7 +182,7 @@ async fn providers_list_supports_opencode() {
 #[tokio::test]
 #[serial]
 async fn prompts_list_rejects_upcoming_app() {
-    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
 

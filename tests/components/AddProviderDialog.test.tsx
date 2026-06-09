@@ -4,7 +4,9 @@ import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import type { ProviderFormValues } from "@/components/providers/forms/ProviderForm";
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Dialog: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   DialogContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -25,7 +27,11 @@ vi.mock("@/components/ui/dialog", () => ({
 let mockFormValues: ProviderFormValues;
 
 vi.mock("@/components/providers/forms/ProviderForm", () => ({
-  ProviderForm: ({ onSubmit }: { onSubmit: (values: ProviderFormValues) => void }) => (
+  ProviderForm: ({
+    onSubmit,
+  }: {
+    onSubmit: (values: ProviderFormValues) => void;
+  }) => (
     <form
       id="provider-form"
       onSubmit={(event) => {

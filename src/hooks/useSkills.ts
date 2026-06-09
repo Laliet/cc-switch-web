@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { skillsApi, type SkillRepo, type SkillsResponse } from "@/lib/api/skills";
+import {
+  skillsApi,
+  type SkillRepo,
+  type SkillsResponse,
+} from "@/lib/api/skills";
 import type { AppId } from "@/lib/api";
 
 /**

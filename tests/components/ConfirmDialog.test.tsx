@@ -82,9 +82,7 @@ describe("ConfirmDialog", () => {
     const onConfirm = vi.fn();
     renderDialog({ onConfirm });
 
-    await user.click(
-      screen.getByRole("button", { name: "common.confirm" }),
-    );
+    await user.click(screen.getByRole("button", { name: "common.confirm" }));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });

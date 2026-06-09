@@ -288,7 +288,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Focus Mode")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Focus Mode")).toBeInTheDocument(),
+    );
 
     await user.type(
       screen.getByPlaceholderText("skills.searchPlaceholder"),
@@ -350,7 +352,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Repo Skill")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Repo Skill")).toBeInTheDocument(),
+    );
 
     const [, repoSelect] = screen.getAllByRole("combobox");
     await user.selectOptions(repoSelect, "acme/skills@dev");
@@ -425,10 +429,7 @@ describe("SkillsPage", () => {
     getAllMock
       .mockResolvedValueOnce({ skills: [notInstalled, installed] })
       .mockResolvedValueOnce({
-        skills: [
-          { ...notInstalled, installed: true },
-          installed,
-        ],
+        skills: [{ ...notInstalled, installed: true }, installed],
       })
       .mockResolvedValueOnce({
         skills: [
@@ -439,10 +440,14 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Not Installed")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Not Installed")).toBeInTheDocument(),
+    );
 
     const notInstalledCard = screen.getByTestId("skill-card-skill-1");
-    await user.click(within(notInstalledCard).getByRole("button", { name: "install" }));
+    await user.click(
+      within(notInstalledCard).getByRole("button", { name: "install" }),
+    );
 
     await waitFor(() => {
       expect(installMock).toHaveBeenCalledWith(
@@ -455,7 +460,9 @@ describe("SkillsPage", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("skills.installSuccess");
 
     const installedCard = screen.getByTestId("skill-card-skill-2");
-    await user.click(within(installedCard).getByRole("button", { name: "uninstall" }));
+    await user.click(
+      within(installedCard).getByRole("button", { name: "uninstall" }),
+    );
 
     await waitFor(() => {
       expect(uninstallMock).toHaveBeenCalledWith("skills/installed", "claude");
@@ -516,7 +523,9 @@ describe("SkillsPage", () => {
     getAllMock
       .mockResolvedValueOnce({ skills: [skill] })
       .mockResolvedValueOnce({
-        skills: [{ ...skill, installed: true, installedApps: ["claude", "codex"] }],
+        skills: [
+          { ...skill, installed: true, installedApps: ["claude", "codex"] },
+        ],
       });
 
     render(<SkillsPage />);
@@ -533,7 +542,11 @@ describe("SkillsPage", () => {
         expect.objectContaining({ duration: 7000 }),
       ),
     );
-    expect(installMock).toHaveBeenCalledWith("skills/shared", undefined, "claude");
+    expect(installMock).toHaveBeenCalledWith(
+      "skills/shared",
+      undefined,
+      "claude",
+    );
   });
 
   it("renders error boundary fallback and retries", async () => {
@@ -575,7 +588,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
     expect(screen.getByText("skills.emptyDescription")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "skills.addRepo" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.addRepo" }),
+    ).toBeInTheDocument();
   });
 
   it("shows no results state when filters match nothing", async () => {
@@ -585,7 +600,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Focus Mode")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Focus Mode")).toBeInTheDocument(),
+    );
 
     await user.type(
       screen.getByPlaceholderText("skills.searchPlaceholder"),
@@ -596,7 +613,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.noResults")).toBeInTheDocument(),
     );
     expect(screen.getByText("skills.noResultsDescription")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "skills.clearFilters" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "skills.clearFilters" }),
+    ).toBeInTheDocument();
   });
 
   it("clears filters when clear button clicked", async () => {
@@ -606,7 +625,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Focus Mode")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Focus Mode")).toBeInTheDocument(),
+    );
 
     await user.type(
       screen.getByPlaceholderText("skills.searchPlaceholder"),
@@ -617,7 +638,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.noResults")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.clearFilters" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.clearFilters" }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText("Focus Mode")).toBeInTheDocument(),
@@ -626,7 +649,9 @@ describe("SkillsPage", () => {
 
   it("shows error toast on install failure", async () => {
     const user = userEvent.setup();
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const skill = createSkill({
       key: "skill-1",
       name: "Fail Skill",
@@ -638,7 +663,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Fail Skill")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Fail Skill")).toBeInTheDocument(),
+    );
 
     const card = screen.getByTestId("skill-card-skill-1");
     await user.click(within(card).getByRole("button", { name: "install" }));
@@ -649,7 +676,9 @@ describe("SkillsPage", () => {
 
   it("maps unsupported-app install error to localized toast message", async () => {
     const user = userEvent.setup();
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const skill = createSkill({
       key: "skill-1",
       name: "Coming Soon Skill",
@@ -657,7 +686,9 @@ describe("SkillsPage", () => {
       installed: false,
     });
     getAllMock.mockResolvedValue({ skills: [skill] });
-    installMock.mockRejectedValueOnce(new Error("App 'omo' is not supported yet."));
+    installMock.mockRejectedValueOnce(
+      new Error("App 'omo' is not supported yet."),
+    );
 
     render(<SkillsPage />);
 
@@ -680,7 +711,9 @@ describe("SkillsPage", () => {
 
   it("shows error toast on uninstall failure", async () => {
     const user = userEvent.setup();
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const skill = createSkill({
       key: "skill-1",
       name: "Fail Skill",
@@ -692,7 +725,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Fail Skill")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Fail Skill")).toBeInTheDocument(),
+    );
 
     const card = screen.getByTestId("skill-card-skill-1");
     await user.click(within(card).getByRole("button", { name: "uninstall" }));
@@ -717,7 +752,9 @@ describe("SkillsPage", () => {
   });
 
   it("shows error toast on load failure", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     getAllMock.mockRejectedValueOnce(new Error("Network error"));
 
     render(<SkillsPage />);
@@ -735,7 +772,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Skill One")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Skill One")).toBeInTheDocument(),
+    );
     expect(getAllMock).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
@@ -753,7 +792,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.repoManager" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.repoManager" }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText("repo-manager")).toBeInTheDocument(),
@@ -781,7 +822,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.repoManager" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.repoManager" }),
+    );
     await user.click(await screen.findByTestId("repo-add"));
 
     await waitFor(() =>
@@ -815,7 +858,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.repoManager" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.repoManager" }),
+    );
     await user.click(await screen.findByTestId("repo-add"));
 
     await waitFor(() =>
@@ -849,7 +894,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.repoManager" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.repoManager" }),
+    );
     await user.click(await screen.findByTestId("repo-remove"));
 
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
@@ -877,7 +924,9 @@ describe("SkillsPage", () => {
       expect(screen.getByText("skills.empty")).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: "skills.repoManager" }));
+    await user.click(
+      screen.getByRole("button", { name: "skills.repoManager" }),
+    );
     await user.click(await screen.findByTestId("repo-remove"));
 
     await waitFor(() =>
@@ -909,7 +958,9 @@ describe("SkillsPage", () => {
 
     render(<SkillsPage />);
 
-    await waitFor(() => expect(screen.getByText("Repo Skill")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Repo Skill")).toBeInTheDocument(),
+    );
 
     const [, repoSelect] = screen.getAllByRole("combobox");
     await user.selectOptions(repoSelect, "acme/skills@main");
@@ -919,6 +970,8 @@ describe("SkillsPage", () => {
 
     await user.click(screen.getByRole("button", { name: "skills.refresh" }));
 
-    await waitFor(() => expect(screen.getByText("Local Skill")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Local Skill")).toBeInTheDocument(),
+    );
   });
 });

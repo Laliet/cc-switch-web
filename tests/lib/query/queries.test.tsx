@@ -70,18 +70,16 @@ describe("useProvidersQuery", () => {
   });
 
   it("imports defaults only after an empty provider list is confirmed", async () => {
-    getAllMock
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({
-        "claude-1": {
-          id: "claude-1",
-          name: "Claude Default",
-          settingsConfig: {},
-          category: "official",
-          createdAt: 1,
-          sortIndex: 0,
-        },
-      });
+    getAllMock.mockResolvedValueOnce({}).mockResolvedValueOnce({
+      "claude-1": {
+        id: "claude-1",
+        name: "Claude Default",
+        settingsConfig: {},
+        category: "official",
+        createdAt: 1,
+        sortIndex: 0,
+      },
+    });
     getCurrentMock.mockResolvedValueOnce("").mockResolvedValueOnce("claude-1");
     getBackupMock.mockResolvedValueOnce(null);
     importDefaultMock.mockResolvedValueOnce(true);

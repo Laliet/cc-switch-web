@@ -88,7 +88,10 @@ export function UniversalProvidersSection({
     setDraft((current) => ({ ...current, ...updates }));
   };
 
-  const updateApp = (app: Exclude<ProxyAppId, "opencode">, checked: boolean) => {
+  const updateApp = (
+    app: Exclude<ProxyAppId, "opencode">,
+    checked: boolean,
+  ) => {
     setDraft((current) => ({
       ...current,
       apps: {
@@ -389,7 +392,9 @@ export function UniversalProvidersSection({
               >
                 <Checkbox
                   checked={draft.apps[app]}
-                  onCheckedChange={(checked) => updateApp(app, checked === true)}
+                  onCheckedChange={(checked) =>
+                    updateApp(app, checked === true)
+                  }
                 />
                 <span>{t(`apps.${app}`, { defaultValue: app })}</span>
               </label>

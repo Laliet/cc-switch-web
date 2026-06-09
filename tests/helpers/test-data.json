@@ -44,11 +44,7 @@
       "name": "Test Local MCP",
       "server": {
         "command": "python",
-        "args": [
-          "-m",
-          "http.server",
-          "8765"
-        ]
+        "args": ["-m", "http.server", "8765"]
       },
       "apps": {
         "claude": false,
@@ -58,18 +54,11 @@
       "description": "MCP server used by bash API tests",
       "homepage": "https://example.com",
       "docs": "https://example.com/docs",
-      "tags": [
-        "test",
-        "ci"
-      ]
+      "tags": ["test", "ci"]
     },
     "update": {
       "description": "Updated by test suite",
-      "tags": [
-        "test",
-        "ci",
-        "updated"
-      ]
+      "tags": ["test", "ci", "updated"]
     }
   }
 }

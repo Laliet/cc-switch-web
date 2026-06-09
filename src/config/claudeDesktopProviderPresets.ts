@@ -142,6 +142,31 @@ const brandedRoutes = (
     });
 };
 
+const oauthRoutes = (
+  sonnet: string,
+  opus: string,
+  haiku: string,
+): ClaudeDesktopRoutePreset[] => [
+  {
+    routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.sonnet,
+    upstreamModel: sonnet,
+    labelOverride: sonnet,
+    supports1m: true,
+  },
+  {
+    routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.opus,
+    upstreamModel: opus,
+    labelOverride: opus,
+    supports1m: true,
+  },
+  {
+    routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.haiku,
+    upstreamModel: haiku,
+    labelOverride: haiku,
+    supports1m: true,
+  },
+];
+
 export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
   {
     name: "Shengsuanyun",
@@ -270,7 +295,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     apiFormat: "openai_chat",
     providerType: "github_copilot",
     requiresOAuth: true,
-    modelRoutes: brandedRoutes(
+    modelRoutes: oauthRoutes(
       "claude-sonnet-4.6",
       "claude-sonnet-4.6",
       "claude-haiku-4.5",
@@ -288,7 +313,7 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     apiFormat: "openai_responses",
     providerType: "codex_oauth",
     requiresOAuth: true,
-    modelRoutes: brandedRoutes("gpt-5.4", "gpt-5.4", "gpt-5.4-mini"),
+    modelRoutes: oauthRoutes("gpt-5.5", "gpt-5.5", "gpt-5.4-mini"),
     icon: "openai",
     iconColor: "#000000",
   },

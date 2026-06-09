@@ -82,11 +82,14 @@ describe("useImportExport (web mode)", () => {
     const input = originalCreateElement("input") as HTMLInputElement;
     const file = {
       name: "config.json",
-      text: vi.fn().mockResolvedValue("{\"ok\":true}"),
+      text: vi.fn().mockResolvedValue('{"ok":true}'),
     } as unknown as File;
     const fileList = createFileList(file);
 
-    Object.defineProperty(input, "files", { value: fileList, configurable: true });
+    Object.defineProperty(input, "files", {
+      value: fileList,
+      configurable: true,
+    });
     Object.defineProperty(input, "click", {
       value: () => input.onchange?.(new Event("change")),
     });
@@ -102,7 +105,9 @@ describe("useImportExport (web mode)", () => {
       await result.current.selectImportFile();
     });
 
-    await waitFor(() => expect(result.current.selectedFile).toBe("config.json"));
+    await waitFor(() =>
+      expect(result.current.selectedFile).toBe("config.json"),
+    );
     expect(result.current.status).toBe("idle");
     expect(result.current.errorMessage).toBeNull();
   });
@@ -115,7 +120,10 @@ describe("useImportExport (web mode)", () => {
     } as unknown as File;
     const fileList = createFileList(file);
 
-    Object.defineProperty(input, "files", { value: fileList, configurable: true });
+    Object.defineProperty(input, "files", {
+      value: fileList,
+      configurable: true,
+    });
     Object.defineProperty(input, "click", {
       value: () => input.onchange?.(new Event("change")),
     });
@@ -139,11 +147,14 @@ describe("useImportExport (web mode)", () => {
     const input = originalCreateElement("input") as HTMLInputElement;
     const file = {
       name: "config.json",
-      text: vi.fn().mockResolvedValue("{\"ok\":true}"),
+      text: vi.fn().mockResolvedValue('{"ok":true}'),
     } as unknown as File;
     const fileList = createFileList(file);
 
-    Object.defineProperty(input, "files", { value: fileList, configurable: true });
+    Object.defineProperty(input, "files", {
+      value: fileList,
+      configurable: true,
+    });
     Object.defineProperty(input, "click", {
       value: () => input.onchange?.(new Event("change")),
     });
@@ -206,13 +217,11 @@ describe("useImportExport (web mode)", () => {
 
     window.sessionStorage.setItem(WEB_AUTH_STORAGE_KEY, "encoded");
 
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ config: true }),
-      } as Response);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ config: true }),
+    } as Response);
 
     try {
       const { result } = renderHook(() => useImportExport());

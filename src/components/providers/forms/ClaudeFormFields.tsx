@@ -1,10 +1,13 @@
 import { useTranslation } from "react-i18next";
+import { Download, Loader2 } from "lucide-react";
 import { FormLabel } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import EndpointSpeedTest from "./EndpointSpeedTest";
-import { ApiKeySection, EndpointField } from "./shared";
+import { ApiKeySection, EndpointField, ModelDropdown } from "./shared";
 import type { ProviderCategory } from "@/types";
 import type { TemplateValueConfig } from "@/config/claudeProviderPresets";
+import type { FetchedModel } from "@/lib/api/model-fetch";
 
 interface EndpointCandidate {
   url: string;
@@ -50,6 +53,11 @@ interface ClaudeFormFieldsProps {
       | "ANTHROPIC_DEFAULT_OPUS_MODEL",
     value: string,
   ) => void;
+  fetchedModels?: FetchedModel[];
+  isFetchingModels?: boolean;
+  onFetchModels?: () => void;
+  canFetchModels?: boolean;
+  fetchModelsHint?: string;
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
@@ -81,6 +89,11 @@ export function ClaudeFormFields({
   defaultSonnetModel,
   defaultOpusModel,
   onModelChange,
+  fetchedModels = [],
+  isFetchingModels = false,
+  onFetchModels,
+  canFetchModels = true,
+  fetchModelsHint,
   speedTestEndpoints,
 }: ClaudeFormFieldsProps) {
   const { t } = useTranslation();
@@ -165,24 +178,55 @@ export function ClaudeFormFields({
       {/* 模型选择器 */}
       {shouldShowModelSelector && (
         <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <FormLabel>
+              {t("providerForm.modelConfig", { defaultValue: "模型配置" })}
+            </FormLabel>
+            {onFetchModels ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onFetchModels}
+                disabled={isFetchingModels || !canFetchModels}
+                className="h-7 gap-1"
+                title={fetchModelsHint}
+              >
+                {isFetchingModels ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {t("providerForm.fetchModels")}
+              </Button>
+            ) : null}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 主模型 */}
             <div className="space-y-2">
               <FormLabel htmlFor="claudeModel">
                 {t("providerForm.anthropicModel", { defaultValue: "主模型" })}
               </FormLabel>
-              <Input
-                id="claudeModel"
-                type="text"
-                value={claudeModel}
-                onChange={(e) =>
-                  onModelChange("ANTHROPIC_MODEL", e.target.value)
-                }
-                placeholder={t("providerForm.modelPlaceholder", {
-                  defaultValue: "",
-                })}
-                autoComplete="off"
-              />
+              <div className="flex gap-1">
+                <Input
+                  id="claudeModel"
+                  type="text"
+                  value={claudeModel}
+                  onChange={(e) =>
+                    onModelChange("ANTHROPIC_MODEL", e.target.value)
+                  }
+                  placeholder={t("providerForm.modelPlaceholder", {
+                    defaultValue: "",
+                  })}
+                  autoComplete="off"
+                />
+                {fetchedModels.length > 0 ? (
+                  <ModelDropdown
+                    models={fetchedModels}
+                    onSelect={(id) => onModelChange("ANTHROPIC_MODEL", id)}
+                  />
+                ) : null}
+              </div>
             </div>
 
             {/* 默认 Haiku */}
@@ -192,18 +236,31 @@ export function ClaudeFormFields({
                   defaultValue: "Haiku 默认模型",
                 })}
               </FormLabel>
-              <Input
-                id="claudeDefaultHaikuModel"
-                type="text"
-                value={defaultHaikuModel}
-                onChange={(e) =>
-                  onModelChange("ANTHROPIC_DEFAULT_HAIKU_MODEL", e.target.value)
-                }
-                placeholder={t("providerForm.haikuModelPlaceholder", {
-                  defaultValue: "",
-                })}
-                autoComplete="off"
-              />
+              <div className="flex gap-1">
+                <Input
+                  id="claudeDefaultHaikuModel"
+                  type="text"
+                  value={defaultHaikuModel}
+                  onChange={(e) =>
+                    onModelChange(
+                      "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                      e.target.value,
+                    )
+                  }
+                  placeholder={t("providerForm.haikuModelPlaceholder", {
+                    defaultValue: "",
+                  })}
+                  autoComplete="off"
+                />
+                {fetchedModels.length > 0 ? (
+                  <ModelDropdown
+                    models={fetchedModels}
+                    onSelect={(id) =>
+                      onModelChange("ANTHROPIC_DEFAULT_HAIKU_MODEL", id)
+                    }
+                  />
+                ) : null}
+              </div>
             </div>
 
             {/* 默认 Sonnet */}
@@ -213,21 +270,31 @@ export function ClaudeFormFields({
                   defaultValue: "Sonnet 默认模型",
                 })}
               </FormLabel>
-              <Input
-                id="claudeDefaultSonnetModel"
-                type="text"
-                value={defaultSonnetModel}
-                onChange={(e) =>
-                  onModelChange(
-                    "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                    e.target.value,
-                  )
-                }
-                placeholder={t("providerForm.modelPlaceholder", {
-                  defaultValue: "",
-                })}
-                autoComplete="off"
-              />
+              <div className="flex gap-1">
+                <Input
+                  id="claudeDefaultSonnetModel"
+                  type="text"
+                  value={defaultSonnetModel}
+                  onChange={(e) =>
+                    onModelChange(
+                      "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                      e.target.value,
+                    )
+                  }
+                  placeholder={t("providerForm.modelPlaceholder", {
+                    defaultValue: "",
+                  })}
+                  autoComplete="off"
+                />
+                {fetchedModels.length > 0 ? (
+                  <ModelDropdown
+                    models={fetchedModels}
+                    onSelect={(id) =>
+                      onModelChange("ANTHROPIC_DEFAULT_SONNET_MODEL", id)
+                    }
+                  />
+                ) : null}
+              </div>
             </div>
 
             {/* 默认 Opus */}
@@ -237,18 +304,31 @@ export function ClaudeFormFields({
                   defaultValue: "Opus 默认模型",
                 })}
               </FormLabel>
-              <Input
-                id="claudeDefaultOpusModel"
-                type="text"
-                value={defaultOpusModel}
-                onChange={(e) =>
-                  onModelChange("ANTHROPIC_DEFAULT_OPUS_MODEL", e.target.value)
-                }
-                placeholder={t("providerForm.modelPlaceholder", {
-                  defaultValue: "",
-                })}
-                autoComplete="off"
-              />
+              <div className="flex gap-1">
+                <Input
+                  id="claudeDefaultOpusModel"
+                  type="text"
+                  value={defaultOpusModel}
+                  onChange={(e) =>
+                    onModelChange(
+                      "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                      e.target.value,
+                    )
+                  }
+                  placeholder={t("providerForm.modelPlaceholder", {
+                    defaultValue: "",
+                  })}
+                  autoComplete="off"
+                />
+                {fetchedModels.length > 0 ? (
+                  <ModelDropdown
+                    models={fetchedModels}
+                    onSelect={(id) =>
+                      onModelChange("ANTHROPIC_DEFAULT_OPUS_MODEL", id)
+                    }
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">

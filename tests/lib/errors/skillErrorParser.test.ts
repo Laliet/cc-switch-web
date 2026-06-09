@@ -1,6 +1,9 @@
 import type { TFunction } from "i18next";
 import { describe, expect, it, vi } from "vitest";
-import { formatSkillError, parseSkillError } from "@/lib/errors/skillErrorParser";
+import {
+  formatSkillError,
+  parseSkillError,
+} from "@/lib/errors/skillErrorParser";
 
 const createT = (): TFunction =>
   vi.fn((key: string, context?: Record<string, string>) => {
@@ -98,7 +101,7 @@ describe("formatSkillError", () => {
 
     expect(formatSkillError(input, t)).toEqual({
       title: "skills.installFailed",
-      description: "skills.error.skillNotFound:{\"name\":\"demo\"}",
+      description: 'skills.error.skillNotFound:{"name":"demo"}',
     });
   });
 
@@ -107,7 +110,7 @@ describe("formatSkillError", () => {
 
     expect(formatSkillError("App 'omo' is not supported yet.", t)).toEqual({
       title: "skills.installFailed",
-      description: "skills.error.appNotSupported:{\"app\":\"omo\"}",
+      description: 'skills.error.appNotSupported:{"app":"omo"}',
     });
   });
 
@@ -131,7 +134,7 @@ describe("formatSkillError", () => {
     expect(formatSkillError(input, t)).toEqual({
       title: "skills.installFailed",
       description:
-        "skills.error.downloadFailed:{\"reason\":\"offline\"}\n\nskills.error.suggestion.checkNetwork",
+        'skills.error.downloadFailed:{"reason":"offline"}\n\nskills.error.suggestion.checkNetwork',
     });
   });
 

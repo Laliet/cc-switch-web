@@ -51,7 +51,12 @@ impl ProviderAdapter for OpencodeAdapter {
             .unwrap_or_default()
             .trim()
             .to_string();
-        Ok((!api_key.is_empty()).then_some(AuthInfo { api_key }))
+        Ok((!api_key.is_empty()).then_some(AuthInfo {
+            api_key,
+            provider_type: None,
+            api_format: None,
+            account_id: None,
+        }))
     }
 
     fn build_url(&self, base_url: &str, uri: &Uri) -> Result<String, AppError> {

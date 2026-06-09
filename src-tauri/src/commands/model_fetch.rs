@@ -25,3 +25,23 @@ pub async fn fetch_models_for_config(
     )
     .await
 }
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_codex_oauth_models(
+    state: tauri::State<'_, crate::store::AppState>,
+    account_id: Option<String>,
+) -> Result<Vec<FetchedModel>, String> {
+    model_fetch::fetch_codex_oauth_models(&state.inner().db_state(), account_id.as_deref())
+        .await
+        .map_err(String::from)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_github_copilot_models(
+    state: tauri::State<'_, crate::store::AppState>,
+    account_id: Option<String>,
+) -> Result<Vec<FetchedModel>, String> {
+    model_fetch::fetch_github_copilot_models(&state.inner().db_state(), account_id.as_deref())
+        .await
+        .map_err(String::from)
+}

@@ -50,6 +50,8 @@ describe("deeplink API module", () => {
     const result = await deeplinkApi.importFromDeeplink(request);
 
     expect(result).toBe("provider-id");
-    expect(invokeMock).toHaveBeenCalledWith("import_from_deeplink", { request });
+    expect(invokeMock).toHaveBeenCalledWith("import_from_deeplink", {
+      request,
+    });
   });
 });

@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 
 interface ClaudeDesktopPanelProps {
   onProvidersChanged?: () => void;
+  refreshKey?: number;
 }
 
 export function ClaudeDesktopPanel({
   onProvidersChanged,
+  refreshKey = 0,
 }: ClaudeDesktopPanelProps) {
   const [status, setStatus] = useState<ClaudeDesktopStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -43,35 +45,50 @@ export function ClaudeDesktopPanel({
 
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+  }, [loadStatus, refreshKey]);
 
   const issues = useMemo(() => {
     if (!status) return [];
+    if (status.issues?.length) return status.issues;
     const next: string[] = [];
     if (!status.supported) {
-      next.push("3P profile management is currently supported on macOS and Windows.");
+      next.push(
+        "3P profile management is currently supported on macOS and Windows.",
+      );
     }
     if (status.supported && !status.configured) {
-      next.push("CC Switch profile has not been applied to Claude Desktop yet.");
+      next.push(
+        "CC Switch profile has not been applied to Claude Desktop yet.",
+      );
     }
     if (
       status.expectedBaseUrl &&
       status.actualBaseUrl &&
       status.expectedBaseUrl !== status.actualBaseUrl
     ) {
-      next.push("Claude Desktop profile base URL does not match the selected provider.");
+      next.push(
+        "Claude Desktop profile base URL does not match the selected provider.",
+      );
     }
     if (status.mode === "proxy" && !status.proxyRunning) {
-      next.push("Local proxy is not running, so proxy-mode Desktop routes will fail.");
+      next.push(
+        "Local proxy is not running, so proxy-mode Desktop routes will fail.",
+      );
     }
     if (status.staleRawModels) {
-      next.push("Profile contains raw upstream model IDs; reapply the provider profile.");
+      next.push(
+        "Profile contains raw upstream model IDs; reapply the provider profile.",
+      );
     }
     if (status.missingRouteMappings) {
-      next.push("Current provider is missing Claude Desktop model route mappings.");
+      next.push(
+        "Current provider is missing Claude Desktop model route mappings.",
+      );
     }
     if (status.mode === "proxy" && !status.gatewayTokenConfigured) {
-      next.push("Gateway token is not configured for the local Claude Desktop route.");
+      next.push(
+        "Gateway token is not configured for the local Claude Desktop route.",
+      );
     }
     return next;
   }, [status]);
@@ -142,7 +159,7 @@ export function ClaudeDesktopPanel({
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatusTile
           label="3P profile"
           value={status?.configured ? "Applied" : "Not applied"}
@@ -151,7 +168,11 @@ export function ClaudeDesktopPanel({
         />
         <StatusTile
           label="Mode"
-          value={status?.mode === "proxy" ? "Local routing" : status?.mode ?? "Unknown"}
+          value={
+            status?.mode === "proxy"
+              ? "Local routing"
+              : (status?.mode ?? "Unknown")
+          }
           ok={Boolean(status?.mode)}
           loading={isLoading && !status}
         />
@@ -161,7 +182,19 @@ export function ClaudeDesktopPanel({
           ok={Boolean(status?.proxyRunning)}
           loading={isLoading && !status}
         />
+        <StatusTile
+          label="Desktop restart"
+          value={status?.needsRestart ? "Required" : "Not required"}
+          ok={Boolean(status && !status.needsRestart)}
+          loading={isLoading && !status}
+        />
       </div>
+
+      {status?.restartHint ? (
+        <div className="mt-4 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
+          {status.restartHint}
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 text-xs md:grid-cols-2">
         <InfoLine label="Profile path" value={status?.profilePath} />
@@ -172,8 +205,15 @@ export function ClaudeDesktopPanel({
 
       <div className="mt-4 flex flex-wrap gap-2">
         <CapabilityBadge icon={Route} label="Provider cards show route mode" />
-        <CapabilityBadge icon={GitBranch} label="Failover routes use Proxy settings" />
-        <CapabilityBadge icon={AlertTriangle} label="MCP / Prompt unsupported" muted />
+        <CapabilityBadge
+          icon={GitBranch}
+          label="Failover routes use Proxy settings"
+        />
+        <CapabilityBadge
+          icon={AlertTriangle}
+          label="MCP / Prompt unsupported"
+          muted
+        />
       </div>
 
       {issues.length > 0 ? (
@@ -214,7 +254,11 @@ function StatusTile({
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 flex items-center gap-2 text-sm font-medium">
         <span
-          className={ok ? "h-2 w-2 rounded-full bg-emerald-500" : "h-2 w-2 rounded-full bg-amber-500"}
+          className={
+            ok
+              ? "h-2 w-2 rounded-full bg-emerald-500"
+              : "h-2 w-2 rounded-full bg-amber-500"
+          }
         />
         {loading ? "Loading..." : value}
       </div>

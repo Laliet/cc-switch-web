@@ -10,8 +10,9 @@ use crate::config::get_home_dir;
 use crate::config::{atomic_write, delete_file, read_json_file, write_json_file};
 use crate::database::{Database, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID};
 use crate::error::AppError;
-use crate::provider::{ClaudeDesktopMode, Provider, ProviderMeta};
+use crate::provider::{ClaudeDesktopMode, Provider, ProviderApiFormat, ProviderMeta, ProviderType};
 use crate::store::AppState;
+use crate::ManagedAuthProvider;
 
 pub const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
 pub const PROFILE_NAME: &str = "CC Switch";
@@ -128,6 +129,9 @@ pub struct ClaudeDesktopStatus {
     pub stale_raw_models: bool,
     pub missing_route_mappings: bool,
     pub gateway_token_configured: bool,
+    pub needs_restart: bool,
+    pub restart_hint: Option<String>,
+    pub issues: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +169,12 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
             stale_raw_models: false,
             missing_route_mappings: false,
             gateway_token_configured: false,
+            needs_restart: false,
+            restart_hint: None,
+            issues: vec![
+                "Claude Desktop 3P profile management is only supported on macOS and Windows."
+                    .to_string(),
+            ],
         });
     }
 
@@ -209,6 +219,43 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
         matches!(provider_mode(provider), ClaudeDesktopMode::Proxy)
             && proxy_model_routes(provider).is_err()
     });
+    let needs_restart = configured;
+    let mut issues = Vec::new();
+    if !configured {
+        issues.push("CC Switch profile has not been applied to Claude Desktop yet.".to_string());
+    }
+    if expected_base_url.is_some()
+        && actual_base_url.is_some()
+        && expected_base_url != actual_base_url
+    {
+        issues.push(
+            "Claude Desktop profile base URL does not match the selected provider.".to_string(),
+        );
+    }
+    if matches!(mode, Some(ClaudeDesktopMode::Proxy)) && !proxy_running {
+        issues.push(
+            "Local proxy is not running, so proxy-mode Desktop routes will fail.".to_string(),
+        );
+    }
+    if stale_raw_models {
+        issues.push(
+            "Profile contains raw upstream model IDs; reapply the provider profile.".to_string(),
+        );
+    }
+    if missing_route_mappings {
+        issues.push("Current provider is missing Claude Desktop model route mappings.".to_string());
+    }
+    if matches!(mode, Some(ClaudeDesktopMode::Proxy)) && !gateway_token_configured {
+        issues.push(
+            "Gateway token is not configured for the local Claude Desktop route.".to_string(),
+        );
+    }
+    if let Some(provider) = current_provider.as_ref() {
+        issues.extend(provider_status_issues(db, provider, proxy_running));
+    }
+    let restart_hint = needs_restart.then(|| {
+        "Restart Claude Desktop after applying or switching a 3P provider so it reloads the CC Switch profile.".to_string()
+    });
 
     Ok(ClaudeDesktopStatus {
         supported: true,
@@ -223,7 +270,178 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
         stale_raw_models,
         missing_route_mappings,
         gateway_token_configured,
+        needs_restart,
+        restart_hint,
+        issues,
     })
+}
+
+fn provider_status_issues(db: &Database, provider: &Provider, proxy_running: bool) -> Vec<String> {
+    if is_official_provider(provider) {
+        return Vec::new();
+    }
+
+    let mut issues = Vec::new();
+    if let Err(err) = validate_provider(provider) {
+        issues.push(format!(
+            "Current Claude Desktop provider is not compatible: {err}"
+        ));
+    }
+
+    if matches!(provider_mode(provider), ClaudeDesktopMode::Proxy)
+        && provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.provider_type())
+            .is_some_and(|provider_type| {
+                matches!(
+                    provider_type,
+                    ProviderType::GithubCopilot | ProviderType::CodexOauth
+                )
+            })
+        && !proxy_running
+    {
+        issues.push(
+            "OAuth-backed Claude Desktop providers require the local proxy to be running."
+                .to_string(),
+        );
+    }
+
+    if let Some(issue) = managed_auth_binding_issue(provider) {
+        issues.push(issue);
+    } else if let Some((managed_provider, account_id)) = managed_auth_requirement(provider) {
+        let found = if let Some(account_id) = account_id.as_deref() {
+            db.get_managed_auth_account(managed_provider, account_id)
+        } else {
+            db.get_default_managed_auth_account(managed_provider)
+        }
+        .ok()
+        .flatten()
+        .is_some_and(managed_auth_secret_is_usable);
+        if !found {
+            let account_hint = account_id
+                .as_deref()
+                .map(|id| format!(" account '{id}'"))
+                .unwrap_or_else(|| " default account".to_string());
+            issues.push(format!(
+                "Missing {} managed auth{}; sign in from Auth Center or choose another account.",
+                managed_provider.as_str(),
+                account_hint,
+            ));
+        }
+    }
+
+    issues
+}
+
+fn managed_auth_secret_is_usable(secret: crate::auth::ManagedAuthAccountSecret) -> bool {
+    let logged_out = secret
+        .account
+        .status
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|status| status.eq_ignore_ascii_case("logged_out"));
+    !logged_out && !secret.tokens.access_token.trim().is_empty()
+}
+
+fn managed_auth_binding_issue(provider: &Provider) -> Option<String> {
+    let meta = provider.meta.as_ref()?;
+    let provider_type = meta.provider_type()?;
+    let binding = meta.auth_binding.as_ref()?;
+    if !auth_binding_mode_is(&binding.mode, "managed") {
+        return None;
+    }
+    let account_id = binding
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if account_id.is_none() && binding.use_default == Some(false) {
+        return Some(format!(
+            "Managed {} auth binding requires an accountId when useDefault is false.",
+            provider_type.as_str()
+        ));
+    }
+    None
+}
+
+fn managed_auth_requirement(provider: &Provider) -> Option<(ManagedAuthProvider, Option<String>)> {
+    let meta = provider.meta.as_ref()?;
+    let provider_type = meta.provider_type()?;
+    if !matches!(
+        provider_type,
+        ProviderType::GithubCopilot | ProviderType::CodexOauth
+    ) {
+        return None;
+    }
+    let binding = meta.auth_binding.as_ref();
+    if binding.is_some_and(|binding| auth_binding_mode_is(&binding.mode, "api_key")) {
+        return None;
+    }
+    if binding.is_none()
+        && meta
+            .github_account_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+        && has_manual_auth_key(provider)
+    {
+        return None;
+    }
+    Some((
+        provider_type.managed_auth_provider(),
+        binding
+            .and_then(|binding| binding.account_id.as_deref())
+            .or(meta.github_account_id.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string),
+    ))
+}
+
+fn auth_binding_mode_is(actual: &str, expected: &str) -> bool {
+    normalize_auth_binding_mode(actual) == normalize_auth_binding_mode(expected)
+}
+
+fn normalize_auth_binding_mode(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch == '-' || ch.is_ascii_whitespace() {
+                '_'
+            } else {
+                ch.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+fn has_manual_auth_key(provider: &Provider) -> bool {
+    let env = provider.settings_config.get("env");
+    env.and_then(|value| {
+        [
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+        ]
+        .into_iter()
+        .find_map(|key| value.get(key))
+    })
+    .or_else(|| {
+        provider
+            .settings_config
+            .get("auth")
+            .and_then(|auth| auth.get("OPENAI_API_KEY"))
+    })
+    .or_else(|| provider.settings_config.get("apiKey"))
+    .or_else(|| provider.settings_config.get("api_key"))
+    .and_then(Value::as_str)
+    .map(str::trim)
+    .is_some_and(|value| !value.is_empty())
 }
 
 pub fn default_proxy_routes() -> Vec<ClaudeDesktopDefaultRoute> {
@@ -447,14 +665,14 @@ pub fn validate_direct_provider(provider: &Provider) -> Result<(), AppError> {
     }
 
     if let Some(meta) = provider.meta.as_ref() {
-        if let Some(api_format) = meta.api_format.as_deref() {
-            if !api_format.trim().is_empty() && api_format != "anthropic" {
-                return Err(AppError::localized(
-                    "claude_desktop.provider.api_format_unsupported",
-                    "Claude Desktop 直连模式只支持原生 Anthropic Messages API",
-                    "Claude Desktop direct mode only supports native Anthropic Messages API",
-                ));
-            }
+        if meta.api_format_raw().is_some()
+            && meta.api_format() != Some(ProviderApiFormat::Anthropic)
+        {
+            return Err(AppError::localized(
+                "claude_desktop.provider.api_format_unsupported",
+                "Claude Desktop 直连模式只支持原生 Anthropic Messages API",
+                "Claude Desktop direct mode only supports native Anthropic Messages API",
+            ));
         }
         if matches!(meta.claude_desktop_mode, Some(ClaudeDesktopMode::Proxy)) {
             return Err(AppError::localized(
@@ -464,8 +682,8 @@ pub fn validate_direct_provider(provider: &Provider) -> Result<(), AppError> {
             ));
         }
         if matches!(
-            meta.provider_type.as_deref(),
-            Some("github_copilot") | Some("codex_oauth")
+            meta.provider_type(),
+            Some(ProviderType::GithubCopilot | ProviderType::CodexOauth)
         ) {
             return Err(AppError::localized(
                 "claude_desktop.provider.type_unsupported",
@@ -498,20 +716,15 @@ pub fn validate_proxy_provider(provider: &Provider) -> Result<(), AppError> {
             "Claude Desktop proxy provider configuration must be a JSON object",
         ));
     }
-    if let Some(api_format) = provider
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.api_format.as_deref())
-    {
-        if !matches!(
-            api_format,
-            "" | "anthropic" | "openai_chat" | "openai_responses" | "gemini_native"
-        ) {
-            return Err(AppError::localized(
-                "claude_desktop.provider.api_format_unsupported",
-                format!("Claude Desktop 本地路由模式不支持 API 格式: {api_format}"),
-                format!("Claude Desktop proxy mode does not support API format: {api_format}"),
-            ));
+    if let Some(meta) = provider.meta.as_ref() {
+        if let Some(api_format) = meta.api_format_raw() {
+            if meta.api_format().is_none() {
+                return Err(AppError::localized(
+                    "claude_desktop.provider.api_format_unsupported",
+                    format!("Claude Desktop 本地路由模式不支持 API 格式: {api_format}"),
+                    format!("Claude Desktop proxy mode does not support API format: {api_format}"),
+                ));
+            }
         }
     }
     proxy_model_routes(provider)?;
@@ -536,11 +749,8 @@ fn has_proxy_base_url_and_key(provider: &Provider) -> bool {
         .map(str::trim)
         .is_some_and(|value| !value.is_empty());
 
-    if provider
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.provider_type.as_deref())
-        .is_some_and(|value| matches!(value, "github_copilot" | "codex_oauth"))
+    if managed_auth_binding_issue(provider).is_none()
+        && managed_auth_requirement(provider).is_some()
     {
         return has_base_url;
     }
@@ -755,21 +965,26 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
             )
         })?;
     body["model"] = json!(route.upstream_model);
-    if uses_openai_compatible_api(provider) {
-        map_openai_compatible_tool_choice(&mut body)?;
+    match proxy_api_format(provider) {
+        Some("openai_chat") => {
+            map_openai_compatible_tool_choice(&mut body)?;
+            body = map_anthropic_messages_to_openai_chat(body)?;
+        }
+        Some("openai_responses") => {
+            map_openai_responses_tool_choice(&mut body)?;
+            body = map_anthropic_messages_to_openai_responses(body)?;
+        }
+        _ => {}
     }
     Ok(body)
 }
 
-fn uses_openai_compatible_api(provider: &Provider) -> bool {
-    matches!(
-        provider
-            .meta
-            .as_ref()
-            .and_then(|meta| meta.api_format.as_deref())
-            .map(str::trim),
-        Some("openai_chat" | "openai_responses")
-    )
+pub fn proxy_api_format(provider: &Provider) -> Option<&'static str> {
+    provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.api_format())
+        .map(ProviderApiFormat::as_str)
 }
 
 fn map_openai_compatible_tool_choice(body: &mut Value) -> Result<(), AppError> {
@@ -782,12 +997,9 @@ fn map_openai_compatible_tool_choice(body: &mut Value) -> Result<(), AppError> {
             *tool_choice = json!("required");
             Ok(())
         }
-        Value::String(choice)
-            if matches!(
-                choice.as_str(),
-                "auto" | "none" | "required" | "required_auto"
-            ) =>
-        {
+        Value::String(choice) if matches!(choice.as_str(), "auto" | "none" | "required") => Ok(()),
+        Value::String(choice) if choice == "required_auto" => {
+            *tool_choice = json!("required");
             Ok(())
         }
         Value::Object(choice) => {
@@ -809,9 +1021,14 @@ fn map_openai_compatible_tool_choice(body: &mut Value) -> Result<(), AppError> {
                     *tool_choice = json!("required");
                     Ok(())
                 }
-                "tool" => {
+                "tool" | "function" => {
                     let name = choice
                         .get("name")
+                        .or_else(|| {
+                            choice
+                                .get("function")
+                                .and_then(|function| function.get("name"))
+                        })
                         .and_then(Value::as_str)
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
@@ -843,6 +1060,300 @@ fn map_openai_compatible_tool_choice(body: &mut Value) -> Result<(), AppError> {
             "Claude Desktop tool_choice has an invalid shape",
         )),
     }
+}
+
+fn map_openai_responses_tool_choice(body: &mut Value) -> Result<(), AppError> {
+    let Some(tool_choice) = body.get_mut("tool_choice") else {
+        return Ok(());
+    };
+
+    match tool_choice {
+        Value::String(choice) if choice == "any" || choice == "required_auto" => {
+            *tool_choice = json!("required");
+            Ok(())
+        }
+        Value::String(choice) if matches!(choice.as_str(), "auto" | "none" | "required") => Ok(()),
+        Value::Object(choice) => {
+            let choice_type = choice
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            match choice_type {
+                "auto" => {
+                    *tool_choice = json!("auto");
+                    Ok(())
+                }
+                "none" => {
+                    *tool_choice = json!("none");
+                    Ok(())
+                }
+                "any" => {
+                    *tool_choice = json!("required");
+                    Ok(())
+                }
+                "tool" | "function" => {
+                    let name = choice
+                        .get("name")
+                        .or_else(|| {
+                            choice
+                                .get("function")
+                                .and_then(|function| function.get("name"))
+                        })
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            AppError::localized(
+                                "claude_desktop.provider.tool_choice_name_missing",
+                                "Claude Desktop tool_choice 指定工具时缺少 name",
+                                "Claude Desktop tool_choice is missing name for a forced tool",
+                            )
+                        })?;
+                    *tool_choice = json!({
+                        "type": "function",
+                        "name": name,
+                    });
+                    Ok(())
+                }
+                _ => Err(AppError::localized(
+                    "claude_desktop.provider.tool_choice_unsupported",
+                    format!("Claude Desktop 本地路由暂不支持 tool_choice 类型: {choice_type}"),
+                    format!("Claude Desktop proxy mode does not support tool_choice type: {choice_type}"),
+                )),
+            }
+        }
+        _ => Err(AppError::localized(
+            "claude_desktop.provider.tool_choice_invalid",
+            "Claude Desktop tool_choice 格式无效",
+            "Claude Desktop tool_choice has an invalid shape",
+        )),
+    }
+}
+
+fn map_anthropic_messages_to_openai_chat(body: Value) -> Result<Value, AppError> {
+    let mut obj = body.as_object().cloned().ok_or_else(|| {
+        AppError::localized(
+            "claude_desktop.provider.body_invalid",
+            "Claude Desktop 请求体必须是 JSON 对象",
+            "Claude Desktop request body must be a JSON object",
+        )
+    })?;
+
+    if let Some(system) = obj.remove("system") {
+        if let Some(content) = anthropic_content_to_text(&system) {
+            let message = json!({
+                "role": "system",
+                "content": content,
+            });
+            match obj.get_mut("messages") {
+                Some(Value::Array(messages)) => messages.insert(0, message),
+                _ => {
+                    obj.insert("messages".to_string(), json!([message]));
+                }
+            }
+        }
+    }
+    if let Some(messages) = obj.get_mut("messages") {
+        normalize_openai_chat_messages(messages);
+    }
+    if let Some(tools) = obj.get_mut("tools") {
+        *tools = map_anthropic_tools_to_openai_chat(tools);
+    }
+    rename_field(&mut obj, "stop_sequences", "stop");
+
+    Ok(Value::Object(obj))
+}
+
+fn map_anthropic_messages_to_openai_responses(body: Value) -> Result<Value, AppError> {
+    let mut obj = body.as_object().cloned().ok_or_else(|| {
+        AppError::localized(
+            "claude_desktop.provider.body_invalid",
+            "Claude Desktop 请求体必须是 JSON 对象",
+            "Claude Desktop request body must be a JSON object",
+        )
+    })?;
+
+    if let Some(system) = obj.remove("system") {
+        if let Some(instructions) = anthropic_content_to_text(&system) {
+            obj.insert("instructions".to_string(), Value::String(instructions));
+        }
+    }
+    if let Some(messages) = obj.remove("messages") {
+        obj.insert(
+            "input".to_string(),
+            map_anthropic_messages_to_responses_input(messages),
+        );
+    }
+    if let Some(max_tokens) = obj.remove("max_tokens") {
+        obj.insert("max_output_tokens".to_string(), max_tokens);
+    }
+    if let Some(tools) = obj.get_mut("tools") {
+        *tools = map_anthropic_tools_to_openai_responses(tools);
+    }
+    rename_field(&mut obj, "stop_sequences", "stop");
+
+    Ok(Value::Object(obj))
+}
+
+fn rename_field(obj: &mut serde_json::Map<String, Value>, from: &str, to: &str) {
+    if obj.contains_key(to) {
+        obj.remove(from);
+        return;
+    }
+    if let Some(value) = obj.remove(from) {
+        obj.insert(to.to_string(), value);
+    }
+}
+
+fn normalize_openai_chat_messages(messages: &mut Value) {
+    let Value::Array(items) = messages else {
+        return;
+    };
+    for message in items {
+        let Some(obj) = message.as_object_mut() else {
+            continue;
+        };
+        let Some(content) = obj.get_mut("content") else {
+            continue;
+        };
+        if let Some(text) = anthropic_content_to_text(content) {
+            *content = Value::String(text);
+        }
+    }
+}
+
+fn map_anthropic_messages_to_responses_input(messages: Value) -> Value {
+    let Value::Array(items) = messages else {
+        return messages;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|message| {
+                let Some(mut obj) = message.as_object().cloned() else {
+                    return message;
+                };
+                if let Some(content) = obj.get_mut("content") {
+                    if let Some(text) = anthropic_content_to_text(content) {
+                        *content = Value::String(text);
+                    }
+                }
+                Value::Object(obj)
+            })
+            .collect(),
+    )
+}
+
+fn anthropic_content_to_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(|item| {
+                    item.as_str()
+                        .map(str::to_string)
+                        .or_else(|| item.get("text").and_then(Value::as_str).map(str::to_string))
+                        .or_else(|| item.get("content").and_then(anthropic_content_to_text))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn map_anthropic_tools_to_openai_chat(tools: &Value) -> Value {
+    let Value::Array(items) = tools else {
+        return tools.clone();
+    };
+    Value::Array(
+        items
+            .iter()
+            .map(|tool| {
+                if tool.get("type").and_then(Value::as_str) == Some("function") {
+                    return tool.clone();
+                }
+                let Some(name) = tool.get("name").and_then(Value::as_str) else {
+                    return tool.clone();
+                };
+                let mut function = serde_json::Map::new();
+                function.insert("name".to_string(), Value::String(name.to_string()));
+                if let Some(description) = tool.get("description").and_then(Value::as_str) {
+                    function.insert(
+                        "description".to_string(),
+                        Value::String(description.to_string()),
+                    );
+                }
+                if let Some(parameters) =
+                    tool.get("input_schema").or_else(|| tool.get("parameters"))
+                {
+                    function.insert("parameters".to_string(), parameters.clone());
+                }
+                json!({
+                    "type": "function",
+                    "function": Value::Object(function),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn map_anthropic_tools_to_openai_responses(tools: &Value) -> Value {
+    let Value::Array(items) = tools else {
+        return tools.clone();
+    };
+    Value::Array(
+        items
+            .iter()
+            .map(|tool| {
+                if tool.get("type").and_then(Value::as_str) == Some("function")
+                    && tool.get("name").is_some()
+                {
+                    return tool.clone();
+                }
+                let Some(name) = tool
+                    .get("name")
+                    .or_else(|| {
+                        tool.get("function")
+                            .and_then(|function| function.get("name"))
+                    })
+                    .and_then(Value::as_str)
+                else {
+                    return tool.clone();
+                };
+                let mut mapped = serde_json::Map::new();
+                mapped.insert("type".to_string(), Value::String("function".to_string()));
+                mapped.insert("name".to_string(), Value::String(name.to_string()));
+                if let Some(description) = tool
+                    .get("description")
+                    .or_else(|| {
+                        tool.get("function")
+                            .and_then(|function| function.get("description"))
+                    })
+                    .and_then(Value::as_str)
+                {
+                    mapped.insert(
+                        "description".to_string(),
+                        Value::String(description.to_string()),
+                    );
+                }
+                if let Some(parameters) = tool
+                    .get("input_schema")
+                    .or_else(|| tool.get("parameters"))
+                    .or_else(|| {
+                        tool.get("function")
+                            .and_then(|function| function.get("parameters"))
+                    })
+                {
+                    mapped.insert("parameters".to_string(), parameters.clone());
+                }
+                Value::Object(mapped)
+            })
+            .collect(),
+    )
 }
 
 pub fn proxy_gateway_base_url_from_db(db: &Database) -> Result<String, AppError> {
@@ -1262,13 +1773,12 @@ pub(crate) fn suggested_routes_from_claude_provider(
         .get("env")
         .and_then(Value::as_object)?;
     let mut routes = HashMap::new();
-    let supports_1m_default = !matches!(
-        provider
-            .meta
-            .as_ref()
-            .and_then(|meta| meta.provider_type.as_deref()),
-        Some("github_copilot") | Some("codex_oauth")
-    );
+    let supports_1m_default = !provider.meta.as_ref().is_some_and(|meta| {
+        matches!(
+            meta.provider_type(),
+            Some(ProviderType::GithubCopilot | ProviderType::CodexOauth)
+        )
+    });
 
     for spec in DEFAULT_PROXY_ROUTES {
         add_suggested_route(
@@ -1465,6 +1975,304 @@ mod tests {
     }
 
     #[test]
+    fn provider_status_issues_report_missing_managed_auth_account() {
+        let db = Database::memory().expect("memory db");
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: Some("github-missing".to_string()),
+                    use_default: Some(false),
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let issues = provider_status_issues(&db, &provider, true);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.contains("Missing github_copilot managed auth account")));
+        assert!(issues.iter().any(|issue| issue.contains("github-missing")));
+    }
+
+    #[test]
+    fn provider_status_issues_report_logged_out_managed_auth_account() {
+        let db = Database::memory().expect("memory db");
+        db.upsert_managed_auth_account(crate::auth::ManagedAuthAccountInput {
+            provider: crate::auth::ManagedAuthProvider::GithubCopilot,
+            id: Some("github-logged-out".to_string()),
+            label: "GitHub Logged Out".to_string(),
+            username: None,
+            avatar_url: None,
+            plan: None,
+            make_default: true,
+            tokens: crate::auth::ManagedAuthTokenSet {
+                access_token: "token-before-logout".to_string(),
+                refresh_token: None,
+                expires_at: None,
+                scope: None,
+                token_type: Some("Bearer".to_string()),
+            },
+        })
+        .expect("insert account");
+        db.logout_managed_auth_account(
+            crate::auth::ManagedAuthProvider::GithubCopilot,
+            "github-logged-out",
+        )
+        .expect("logout account");
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: Some("github-logged-out".to_string()),
+                    use_default: Some(false),
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let issues = provider_status_issues(&db, &provider, true);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.contains("Missing github_copilot managed auth account")));
+    }
+
+    #[test]
+    fn provider_status_issues_report_specific_managed_binding_without_account_id() {
+        let db = Database::memory().expect("memory db");
+        db.upsert_managed_auth_account(crate::auth::ManagedAuthAccountInput {
+            provider: crate::auth::ManagedAuthProvider::GithubCopilot,
+            id: Some("github-default".to_string()),
+            label: "GitHub Default".to_string(),
+            username: None,
+            avatar_url: None,
+            plan: None,
+            make_default: true,
+            tokens: crate::auth::ManagedAuthTokenSet {
+                access_token: "default-token".to_string(),
+                refresh_token: None,
+                expires_at: None,
+                scope: None,
+                token_type: Some("Bearer".to_string()),
+            },
+        })
+        .expect("insert default account");
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: Some("  ".to_string()),
+                    use_default: Some(false),
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let issues = provider_status_issues(&db, &provider, true);
+
+        assert!(issues
+            .iter()
+            .any(|issue| issue.contains("requires an accountId")));
+        assert!(!issues
+            .iter()
+            .any(|issue| issue.contains("Missing github_copilot managed auth default account")));
+    }
+
+    #[test]
+    fn provider_status_issues_do_not_require_auth_center_for_manual_mode() {
+        let db = Database::memory().expect("memory db");
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: " api-key ".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: None,
+                    use_default: None,
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let issues = provider_status_issues(&db, &provider, true);
+
+        assert!(!issues
+            .iter()
+            .any(|issue| issue.contains("Missing github_copilot managed auth")));
+    }
+
+    #[test]
+    fn provider_status_issues_do_not_require_auth_center_for_legacy_manual_key() {
+        let db = Database::memory().expect("memory db");
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
+                    "ANTHROPIC_AUTH_TOKEN": "manual-token"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let issues = provider_status_issues(&db, &provider, true);
+
+        assert!(!issues
+            .iter()
+            .any(|issue| issue.contains("Missing github_copilot managed auth")));
+    }
+
+    #[test]
+    fn proxy_manual_oauth_provider_requires_manual_api_key() {
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: " API_KEY ".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: None,
+                    use_default: None,
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let err = validate_proxy_provider(&provider).expect_err("missing manual key");
+
+        assert!(err.to_string().contains("缺少 Base URL 或 API Key"));
+    }
+
+    #[test]
+    fn proxy_managed_binding_without_required_account_id_does_not_skip_key_check() {
+        let provider = provider_with_meta(
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com"
+                }
+            }),
+            ProviderMeta {
+                claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+                provider_type: Some("github_copilot".to_string()),
+                auth_binding: Some(crate::provider::ProviderAuthBinding {
+                    mode: "managed".to_string(),
+                    provider_type: Some("github_copilot".to_string()),
+                    account_id: Some("   ".to_string()),
+                    use_default: Some(false),
+                }),
+                claude_desktop_model_routes: HashMap::from([(
+                    "claude-sonnet-4-6".to_string(),
+                    ClaudeDesktopModelRoute {
+                        model: "claude-sonnet-4.6".to_string(),
+                        label_override: None,
+                        supports_1m: Some(true),
+                    },
+                )]),
+                api_format: Some("openai_chat".to_string()),
+                ..ProviderMeta::default()
+            },
+        );
+
+        let err = validate_proxy_provider(&provider).expect_err("invalid binding needs auth");
+
+        assert!(err.to_string().contains("缺少 Base URL 或 API Key"));
+    }
+
+    #[test]
     fn proxy_request_model_is_remapped_to_upstream_model() {
         let provider = proxy_provider(HashMap::from([(
             "claude-haiku-4-5".to_string(),
@@ -1532,10 +2340,30 @@ mod tests {
             &provider,
         )
         .expect("mapped forced tool");
+        let mapped_function = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": {
+                    "type": "function",
+                    "function": { "name": "lookup_price" }
+                }
+            }),
+            &provider,
+        )
+        .expect("mapped forced function");
+        let mapped_required_auto = map_proxy_request_model(
+            json!({
+                "model": "claude-haiku-4-5",
+                "tool_choice": "required_auto"
+            }),
+            &provider,
+        )
+        .expect("mapped required_auto");
 
         assert_eq!(mapped_auto["tool_choice"], "auto");
         assert_eq!(mapped_any["tool_choice"], "required");
         assert_eq!(mapped_none["tool_choice"], "none");
+        assert_eq!(mapped_required_auto["tool_choice"], "required");
         assert_eq!(
             mapped_tool["tool_choice"],
             json!({
@@ -1545,6 +2373,125 @@ mod tests {
                 }
             })
         );
+        assert_eq!(
+            mapped_function["tool_choice"],
+            json!({
+                "type": "function",
+                "function": {
+                    "name": "lookup_price"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn openai_chat_proxy_request_maps_messages_tools_and_system_prompt() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-4.1".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_chat"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "system": "You are concise.",
+                "stop_sequences": ["END"],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": "hello" }
+                        ]
+                    }
+                ],
+                "tools": [
+                    {
+                        "name": "lookup_price",
+                        "description": "Look up a price",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "symbol": { "type": "string" }
+                            }
+                        }
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["model"], "gpt-4.1");
+        assert_eq!(mapped["messages"][0]["role"], "system");
+        assert_eq!(mapped["messages"][0]["content"], "You are concise.");
+        assert_eq!(mapped["messages"][1]["content"], "hello");
+        assert_eq!(mapped["stop"], json!(["END"]));
+        assert!(mapped.get("stop_sequences").is_none());
+        assert_eq!(mapped["tools"][0]["type"], "function");
+        assert_eq!(mapped["tools"][0]["function"]["name"], "lookup_price");
+    }
+
+    #[test]
+    fn openai_responses_proxy_request_maps_input_tools_max_tokens_and_tool_choice() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-5.1-codex".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_responses"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "system": [{ "type": "text", "text": "Use short answers." }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": "hello" }
+                        ]
+                    }
+                ],
+                "max_tokens": 2048,
+                "stop_sequences": ["END"],
+                "tool_choice": { "type": "tool", "name": "lookup_price" },
+                "tools": [
+                    {
+                        "name": "lookup_price",
+                        "input_schema": { "type": "object" }
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["model"], "gpt-5.1-codex");
+        assert_eq!(mapped["instructions"], "Use short answers.");
+        assert!(mapped.get("messages").is_none());
+        assert_eq!(mapped["input"][0]["content"], "hello");
+        assert_eq!(mapped["max_output_tokens"], 2048);
+        assert!(mapped.get("max_tokens").is_none());
+        assert_eq!(mapped["stop"], json!(["END"]));
+        assert!(mapped.get("stop_sequences").is_none());
+        assert_eq!(
+            mapped["tool_choice"],
+            json!({ "type": "function", "name": "lookup_price" })
+        );
+        assert_eq!(mapped["tools"][0]["type"], "function");
+        assert_eq!(mapped["tools"][0]["name"], "lookup_price");
     }
 
     #[test]

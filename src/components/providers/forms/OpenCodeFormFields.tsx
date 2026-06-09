@@ -284,7 +284,11 @@ export function OpenCodeFormFields({
         if (fetched.length === 0) {
           toast.info(t("providerForm.fetchModelsEmpty"));
         } else {
-          const mergedModels = mergeFetchedModelsIntoConfig(models, fetched, npm);
+          const mergedModels = mergeFetchedModelsIntoConfig(
+            models,
+            fetched,
+            npm,
+          );
           if (mergedModels !== models) {
             onModelsChange(mergedModels);
           }

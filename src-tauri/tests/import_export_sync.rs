@@ -1180,10 +1180,12 @@ fn export_config_to_file_writes_target_path() {
     reset_test_fs();
     let home = ensure_test_home();
 
-    let mut config = MultiAppConfig::default();
-    config.version = 42;
+    let config = MultiAppConfig {
+        version: 42,
+        ..MultiAppConfig::default()
+    };
     let app_state = AppState::new_for_tests(config).expect("test app state");
-    let export_path = export_path(&home, "exported-config.json");
+    let export_path = export_path(home, "exported-config.json");
     if export_path.exists() {
         fs::remove_file(&export_path).expect("cleanup export target");
     }

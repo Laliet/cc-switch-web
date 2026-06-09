@@ -49,4 +49,3 @@ describe("providerSchema.websiteUrl", () => {
     expect(ftpResult.success).toBe(false);
   });
 });
-

@@ -61,7 +61,10 @@ export function DeepLinkImportDialog() {
           console.log("Deep link import event received:", {
             app: event.payload?.app,
             name: event.payload?.name,
-            apiKey: maskApiKey(event.payload?.apiKey, { keepStart: 2, keepEnd: 2 }),
+            apiKey: maskApiKey(event.payload?.apiKey, {
+              keepStart: 2,
+              keepEnd: 2,
+            }),
           });
           setRequest(event.payload);
           setIsOpen(true);

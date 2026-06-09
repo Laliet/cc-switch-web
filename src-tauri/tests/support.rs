@@ -6,19 +6,19 @@ use cc_switch_lib::{update_settings, AppSettings};
 /// 为测试设置隔离的 HOME 目录，避免污染真实用户数据。
 pub fn ensure_test_home() -> &'static Path {
     static HOME: OnceLock<PathBuf> = OnceLock::new();
-    HOME.get_or_init(|| {
+    let home = HOME.get_or_init(|| {
         let base = std::env::temp_dir().join("cc-switch-test-home");
         if base.exists() {
             let _ = std::fs::remove_dir_all(&base);
         }
         std::fs::create_dir_all(&base).expect("create test home");
-        std::env::set_var("HOME", &base);
-        std::env::set_var("CC_SWITCH_ACCOUNT_HOME", &base);
-        #[cfg(windows)]
-        std::env::set_var("USERPROFILE", &base);
         base
-    })
-    .as_path()
+    });
+    std::env::set_var("HOME", home);
+    std::env::set_var("CC_SWITCH_ACCOUNT_HOME", home);
+    #[cfg(windows)]
+    std::env::set_var("USERPROFILE", home);
+    home.as_path()
 }
 
 /// 清理测试目录中生成的配置文件与缓存。
@@ -42,6 +42,7 @@ pub fn reset_test_fs() {
 }
 
 /// 全局互斥锁，避免多测试并发写入相同的 HOME 目录。
+#[allow(dead_code)]
 pub fn test_mutex() -> &'static Mutex<()> {
     static MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
     MUTEX.get_or_init(|| Mutex::new(()))

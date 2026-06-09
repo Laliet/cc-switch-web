@@ -30,7 +30,6 @@ export function useStreamCheck(appId: AppId) {
             }),
             { closeButton: true },
           );
-
         } else if (result.status === "degraded") {
           toast.warning(
             t("streamCheck.degraded", {
@@ -39,7 +38,6 @@ export function useStreamCheck(appId: AppId) {
               defaultValue: `${providerName} 响应较慢 (${result.responseTimeMs}ms)`,
             }),
           );
-
         } else if (result.errorCategory === "modelNotFound") {
           // 专门处理"模型不存在/已下架"：指向配置入口，比通用 404 文案更有指导性
           toast.error(

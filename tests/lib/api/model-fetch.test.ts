@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchModelsForConfig } from "@/lib/api/model-fetch";
+import {
+  fetchCodexOauthModels,
+  fetchGithubCopilotModels,
+  fetchModelsForConfig,
+} from "@/lib/api/model-fetch";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock("@/lib/api/adapter", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
@@ -30,6 +34,34 @@ describe("model fetch API", () => {
       npm: "@ai-sdk/openai-compatible",
       isFullUrl: false,
       modelsUrl: "https://api.example.com/v1/models",
+    });
+  });
+
+  it("invokes get_codex_oauth_models with selected managed account", async () => {
+    invokeMock.mockResolvedValueOnce([
+      { id: "gpt-5-codex", ownedBy: "openai" },
+    ]);
+
+    const result = await fetchCodexOauthModels("account-1");
+
+    expect(result).toEqual([{ id: "gpt-5-codex", ownedBy: "openai" }]);
+    expect(invokeMock).toHaveBeenCalledWith("get_codex_oauth_models", {
+      accountId: "account-1",
+    });
+  });
+
+  it("invokes get_github_copilot_models with default managed account", async () => {
+    invokeMock.mockResolvedValueOnce([
+      { id: "claude-sonnet-4.6", ownedBy: "github-copilot" },
+    ]);
+
+    const result = await fetchGithubCopilotModels();
+
+    expect(result).toEqual([
+      { id: "claude-sonnet-4.6", ownedBy: "github-copilot" },
+    ]);
+    expect(invokeMock).toHaveBeenCalledWith("get_github_copilot_models", {
+      accountId: null,
     });
   });
 });

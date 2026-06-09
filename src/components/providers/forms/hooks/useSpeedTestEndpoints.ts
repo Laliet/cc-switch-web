@@ -50,7 +50,11 @@ export function useSpeedTestEndpoints({
 }: UseSpeedTestEndpointsProps) {
   const claudeEndpoints = useMemo<EndpointCandidate[]>(() => {
     // Reuse this branch for Claude and Gemini (non-Codex)
-    if (appId !== "claude" && appId !== "claude-desktop" && appId !== "gemini") {
+    if (
+      appId !== "claude" &&
+      appId !== "claude-desktop" &&
+      appId !== "gemini"
+    ) {
       return [];
     }
 

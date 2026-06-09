@@ -14,7 +14,7 @@ describe("platform", () => {
   describe("isMac", () => {
     it("returns true for Mac OS X user agent", () => {
       setNavigator(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       );
 
       expect(isMac()).toBe(true);
@@ -23,7 +23,7 @@ describe("platform", () => {
     it("returns true for Mac platform", () => {
       setNavigator(
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-        "MacIntel"
+        "MacIntel",
       );
 
       expect(isMac()).toBe(true);
@@ -32,7 +32,7 @@ describe("platform", () => {
     it("returns false for Windows user agent", () => {
       setNavigator(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Win32"
+        "Win32",
       );
 
       expect(isMac()).toBe(false);
@@ -48,7 +48,7 @@ describe("platform", () => {
   describe("isWindows", () => {
     it("returns true for Windows user agent", () => {
       setNavigator(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       );
 
       expect(isWindows()).toBe(true);
@@ -56,7 +56,7 @@ describe("platform", () => {
 
     it("returns false for Mac user agent", () => {
       setNavigator(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       );
 
       expect(isWindows()).toBe(false);
@@ -73,7 +73,7 @@ describe("platform", () => {
     it("returns true for Linux user agent", () => {
       setNavigator(
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-        "Linux x86_64"
+        "Linux x86_64",
       );
 
       expect(isLinux()).toBe(true);
@@ -82,7 +82,7 @@ describe("platform", () => {
     it("returns false for Android user agent", () => {
       setNavigator(
         "Mozilla/5.0 (Linux; Android 10; Pixel 3) AppleWebKit/537.36",
-        "Linux armv8l"
+        "Linux armv8l",
       );
 
       expect(isLinux()).toBe(false);
@@ -90,7 +90,7 @@ describe("platform", () => {
 
     it("returns false for Mac user agent", () => {
       setNavigator(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       );
 
       expect(isLinux()).toBe(false);
@@ -98,7 +98,7 @@ describe("platform", () => {
 
     it("returns false for Windows user agent", () => {
       setNavigator(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       );
 
       expect(isLinux()).toBe(false);

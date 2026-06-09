@@ -147,6 +147,104 @@ pub struct ClaudeDesktopModelRoute {
     pub supports_1m: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderType {
+    GithubCopilot,
+    CodexOauth,
+}
+
+impl ProviderType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GithubCopilot => "github_copilot",
+            Self::CodexOauth => "codex_oauth",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match normalize_provider_type_alias(value).as_str() {
+            "github_copilot" | "githubcopilot" | "copilot" => Some(Self::GithubCopilot),
+            "codex_oauth" | "codexoauth" | "codex" | "chatgpt" | "chat_gpt" => {
+                Some(Self::CodexOauth)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn managed_auth_provider(self) -> crate::auth::ManagedAuthProvider {
+        match self {
+            Self::GithubCopilot => crate::auth::ManagedAuthProvider::GithubCopilot,
+            Self::CodexOauth => crate::auth::ManagedAuthProvider::CodexOauth,
+        }
+    }
+}
+
+fn normalize_provider_type_alias(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch == '-' || ch.is_ascii_whitespace() {
+                '_'
+            } else {
+                ch.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderApiFormat {
+    Anthropic,
+    OpenAiChat,
+    OpenAiResponses,
+    GeminiNative,
+}
+
+impl ProviderApiFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::OpenAiChat => "openai_chat",
+            Self::OpenAiResponses => "openai_responses",
+            Self::GeminiNative => "gemini_native",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        let normalized = value
+            .trim()
+            .chars()
+            .map(|ch| match ch {
+                '-' | ' ' => '_',
+                _ => ch.to_ascii_lowercase(),
+            })
+            .collect::<String>();
+        match normalized.as_str() {
+            "anthropic" | "claude" => Some(Self::Anthropic),
+            "openai_chat" | "openaichat" | "chat_completions" | "openai_chat_completions" => {
+                Some(Self::OpenAiChat)
+            }
+            "openai_responses" | "openairesponses" | "responses" => Some(Self::OpenAiResponses),
+            "gemini_native" | "gemininative" | "gemini" => Some(Self::GeminiNative),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAuthBinding {
+    /// "managed" uses an Auth Center account; "api_key" keeps manual provider config.
+    pub mode: String,
+    #[serde(rename = "providerType", skip_serializing_if = "Option::is_none")]
+    pub provider_type: Option<String>,
+    #[serde(rename = "accountId", skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(rename = "useDefault", skip_serializing_if = "Option::is_none")]
+    pub use_default: Option<bool>,
+}
+
 /// 供应商元数据
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderMeta {
@@ -202,6 +300,35 @@ pub struct ProviderMeta {
     /// 兼容上游 GitHub Copilot 账号绑定字段。
     #[serde(rename = "githubAccountId", skip_serializing_if = "Option::is_none")]
     pub github_account_id: Option<String>,
+    /// 0.17 Auth Center 账号绑定：托管账号或手动 API Key。
+    #[serde(rename = "authBinding", skip_serializing_if = "Option::is_none")]
+    pub auth_binding: Option<ProviderAuthBinding>,
+}
+
+impl ProviderMeta {
+    pub fn provider_type_raw(&self) -> Option<&str> {
+        self.auth_binding
+            .as_ref()
+            .and_then(|binding| binding.provider_type.as_deref())
+            .or(self.provider_type.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn provider_type(&self) -> Option<ProviderType> {
+        self.provider_type_raw().and_then(ProviderType::parse)
+    }
+
+    pub fn api_format_raw(&self) -> Option<&str> {
+        self.api_format
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn api_format(&self) -> Option<ProviderApiFormat> {
+        self.api_format_raw().and_then(ProviderApiFormat::parse)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

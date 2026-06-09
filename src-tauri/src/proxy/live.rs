@@ -627,20 +627,19 @@ mod tests {
     fn isolated_settings() -> (TempDir, EnvGuard) {
         let temp = tempdir().expect("tempdir");
         let guard = EnvGuard::isolated(temp.path());
-        let mut app_settings = AppSettings::default();
-        app_settings.claude_config_dir =
-            Some(temp.path().join(".claude").to_string_lossy().to_string());
-        app_settings.codex_config_dir =
-            Some(temp.path().join(".codex").to_string_lossy().to_string());
-        app_settings.gemini_config_dir =
-            Some(temp.path().join(".gemini").to_string_lossy().to_string());
-        app_settings.opencode_config_dir = Some(
-            temp.path()
-                .join(".config")
-                .join("opencode")
-                .to_string_lossy()
-                .to_string(),
-        );
+        let app_settings = AppSettings {
+            claude_config_dir: Some(temp.path().join(".claude").to_string_lossy().to_string()),
+            codex_config_dir: Some(temp.path().join(".codex").to_string_lossy().to_string()),
+            gemini_config_dir: Some(temp.path().join(".gemini").to_string_lossy().to_string()),
+            opencode_config_dir: Some(
+                temp.path()
+                    .join(".config")
+                    .join("opencode")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            ..AppSettings::default()
+        };
         settings::update_settings(app_settings).expect("update settings");
         (temp, guard)
     }

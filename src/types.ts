@@ -87,6 +87,14 @@ export interface ClaudeDesktopModelRoute {
   supports1m?: boolean;
 }
 
+export interface ProviderAuthBinding {
+  // "managed" = Auth Center account, "api_key" = manual provider config.
+  mode: "managed" | "api_key" | string;
+  providerType?: "github_copilot" | "codex_oauth" | string;
+  accountId?: string | null;
+  useDefault?: boolean;
+}
+
 // 供应商元数据（字段名与后端一致，保持 snake_case）
 export interface ProviderMeta {
   // 自定义端点：以 URL 为键，值为端点信息
@@ -119,6 +127,8 @@ export interface ProviderMeta {
   providerType?: string;
   // 兼容上游 GitHub Copilot 账号绑定字段
   githubAccountId?: string;
+  // Auth Center 账号绑定
+  authBinding?: ProviderAuthBinding;
 }
 
 export interface UniversalProviderApps {

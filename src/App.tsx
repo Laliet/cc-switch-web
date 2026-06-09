@@ -78,9 +78,7 @@ const SettingsDialog = lazy(() =>
 );
 const UsageScriptModal = lazy(() => import("@/components/UsageScriptModal"));
 const UsageDashboard = lazy(() => import("@/components/usage/UsageDashboard"));
-const UnifiedMcpPanel = lazy(
-  () => import("@/components/mcp/UnifiedMcpPanel"),
-);
+const UnifiedMcpPanel = lazy(() => import("@/components/mcp/UnifiedMcpPanel"));
 const PromptPanel = lazy(() => import("@/components/prompts/PromptPanel"));
 const SkillsPage = lazy(() =>
   import("@/components/skills/SkillsPage").then((module) => ({
@@ -138,6 +136,8 @@ function AppContent() {
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
   const [envConflicts, setEnvConflicts] = useState<EnvConflict[]>([]);
   const [showEnvBanner, setShowEnvBanner] = useState(false);
+  const [claudeDesktopStatusRefreshKey, setClaudeDesktopStatusRefreshKey] =
+    useState(0);
   const promptSupported = isPromptApp(activeApp);
   const mcpSupported = isMcpApp(activeApp);
   const skillsSupported = isSkillsApp(activeApp);
@@ -199,6 +199,17 @@ function AppContent() {
     saveUsageScript,
   } = useProviderActions(activeApp);
 
+  const handleSwitchProvider = useCallback(
+    async (provider: Provider) => {
+      const result = await switchProvider(provider);
+      if (activeApp === "claude-desktop") {
+        setClaudeDesktopStatusRefreshKey((key) => key + 1);
+      }
+      return result;
+    },
+    [activeApp, switchProvider],
+  );
+
   // 监听来自托盘菜单的切换事件
   useEffect(() => {
     let cancelled = false;
@@ -210,6 +221,9 @@ function AppContent() {
           async (event: ProviderSwitchEvent) => {
             if (event.appType === activeApp) {
               await refetch();
+            }
+            if (event.appType === "claude-desktop") {
+              setClaudeDesktopStatusRefreshKey((key) => key + 1);
             }
           },
         );
@@ -453,7 +467,7 @@ function AppContent() {
           return;
         }
 
-        await switchProvider(targetProvider);
+        await handleSwitchProvider(targetProvider);
         await refetch();
         toast.warning(
           t("provider.autoFailover", {
@@ -479,7 +493,7 @@ function AppContent() {
       providers,
       refetch,
       refetchHealth,
-      switchProvider,
+      handleSwitchProvider,
       t,
     ],
   );
@@ -728,7 +742,10 @@ function AppContent() {
       <main className="flex-1 overflow-y-scroll">
         <div className="mx-auto max-w-4xl px-6 py-6">
           {activeApp === "claude-desktop" ? (
-            <ClaudeDesktopPanel onProvidersChanged={handleImportSuccess} />
+            <ClaudeDesktopPanel
+              onProvidersChanged={handleImportSuccess}
+              refreshKey={claudeDesktopStatusRefreshKey}
+            />
           ) : null}
           <ProviderList
             providers={providers}
@@ -738,7 +755,7 @@ function AppContent() {
             appId={activeApp}
             isLoading={isLoading}
             isEditMode={isEditMode}
-            onSwitch={switchProvider}
+            onSwitch={handleSwitchProvider}
             onEdit={setEditingProvider}
             onDelete={setConfirmDelete}
             onDuplicate={handleDuplicateProvider}

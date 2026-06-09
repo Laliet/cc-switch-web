@@ -56,14 +56,18 @@ vi.mock("@/components/ui/input", () => ({
   Input: ({ value, onChange, ...rest }: any) => (
     <input
       value={value}
-      onChange={(event) => onChange?.({ target: { value: event.target.value } })}
+      onChange={(event) =>
+        onChange?.({ target: { value: event.target.value } })
+      }
       {...rest}
     />
   ),
 }));
 
 vi.mock("@/components/ui/label", () => ({
-  Label: ({ children, htmlFor }: any) => <label htmlFor={htmlFor}>{children}</label>,
+  Label: ({ children, htmlFor }: any) => (
+    <label htmlFor={htmlFor}>{children}</label>
+  ),
 }));
 
 const createRepo = (overrides: Partial<SkillRepo> = {}): SkillRepo => ({
@@ -152,7 +156,9 @@ describe("RepoManager", () => {
     const user = userEvent.setup();
     renderRepoManager();
 
-    const repoInput = screen.getByLabelText("skills.repo.url") as HTMLInputElement;
+    const repoInput = screen.getByLabelText(
+      "skills.repo.url",
+    ) as HTMLInputElement;
     const branchInput = screen.getByPlaceholderText(
       "skills.repo.branchPlaceholder",
     ) as HTMLInputElement;
@@ -209,7 +215,9 @@ describe("RepoManager", () => {
     const onAdd = vi.fn().mockResolvedValue(undefined);
     renderRepoManager({ onAdd });
 
-    const repoInput = screen.getByLabelText("skills.repo.url") as HTMLInputElement;
+    const repoInput = screen.getByLabelText(
+      "skills.repo.url",
+    ) as HTMLInputElement;
     const branchInput = screen.getByPlaceholderText(
       "skills.repo.branchPlaceholder",
     ) as HTMLInputElement;
@@ -244,7 +252,9 @@ describe("RepoManager", () => {
     const onAdd = vi.fn().mockRejectedValue(new Error("Boom"));
     renderRepoManager({ onAdd });
 
-    const repoInput = screen.getByLabelText("skills.repo.url") as HTMLInputElement;
+    const repoInput = screen.getByLabelText(
+      "skills.repo.url",
+    ) as HTMLInputElement;
     const branchInput = screen.getByPlaceholderText(
       "skills.repo.branchPlaceholder",
     ) as HTMLInputElement;
@@ -265,12 +275,25 @@ describe("RepoManager", () => {
 
   it("renders repo list with skill counts and default branch", () => {
     const repos = [
-      createRepo({ owner: "alice", name: "alpha", branch: "main", skillsPath: "skills" }),
+      createRepo({
+        owner: "alice",
+        name: "alpha",
+        branch: "main",
+        skillsPath: "skills",
+      }),
       createRepo({ owner: "bob", name: "beta", branch: "" }),
     ];
     const skills = [
-      createSkill({ repoOwner: "alice", repoName: "alpha", repoBranch: "main" }),
-      createSkill({ repoOwner: "alice", repoName: "alpha", repoBranch: " main " }),
+      createSkill({
+        repoOwner: "alice",
+        repoName: "alpha",
+        repoBranch: "main",
+      }),
+      createSkill({
+        repoOwner: "alice",
+        repoName: "alpha",
+        repoBranch: " main ",
+      }),
       createSkill({ repoOwner: "alice", repoName: "alpha", repoBranch: "dev" }),
       createSkill({ repoOwner: "bob", repoName: "beta", repoBranch: "" }),
     ];

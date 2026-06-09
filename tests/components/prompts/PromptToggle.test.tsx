@@ -13,7 +13,9 @@ describe("PromptToggle", () => {
   });
 
   it("shows gray background and aria-checked false when disabled", () => {
-    render(<PromptToggle enabled={false} onChange={vi.fn()} ariaLabel="toggle" />);
+    render(
+      <PromptToggle enabled={false} onChange={vi.fn()} ariaLabel="toggle" />,
+    );
 
     const toggle = screen.getByRole("switch");
     expect(toggle).toHaveClass("bg-gray-300");
@@ -22,7 +24,9 @@ describe("PromptToggle", () => {
 
   it("calls onChange with toggled value on click", async () => {
     const onChange = vi.fn();
-    render(<PromptToggle enabled={false} onChange={onChange} ariaLabel="toggle" />);
+    render(
+      <PromptToggle enabled={false} onChange={onChange} ariaLabel="toggle" />,
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("switch"));
@@ -34,7 +38,12 @@ describe("PromptToggle", () => {
   it("does not call onChange when disabled", async () => {
     const onChange = vi.fn();
     render(
-      <PromptToggle enabled={false} onChange={onChange} disabled ariaLabel="toggle" />
+      <PromptToggle
+        enabled={false}
+        onChange={onChange}
+        disabled
+        ariaLabel="toggle"
+      />,
     );
 
     const user = userEvent.setup();
@@ -44,8 +53,17 @@ describe("PromptToggle", () => {
   });
 
   it("sets aria-label", () => {
-    render(<PromptToggle enabled={false} onChange={vi.fn()} ariaLabel="prompt toggle" />);
+    render(
+      <PromptToggle
+        enabled={false}
+        onChange={vi.fn()}
+        ariaLabel="prompt toggle"
+      />,
+    );
 
-    expect(screen.getByRole("switch")).toHaveAttribute("aria-label", "prompt toggle");
+    expect(screen.getByRole("switch")).toHaveAttribute(
+      "aria-label",
+      "prompt toggle",
+    );
   });
 });

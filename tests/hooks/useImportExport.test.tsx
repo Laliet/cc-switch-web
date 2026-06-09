@@ -26,7 +26,8 @@ vi.mock("@/lib/api", () => ({
     importConfigFromFile: (...args: unknown[]) => importConfigMock(...args),
     saveFileDialog: (...args: unknown[]) => saveFileDialogMock(...args),
     exportConfigToFile: (...args: unknown[]) => exportConfigMock(...args),
-    syncCurrentProvidersLive: (...args: unknown[]) => syncCurrentProvidersLiveMock(...args),
+    syncCurrentProvidersLive: (...args: unknown[]) =>
+      syncCurrentProvidersLiveMock(...args),
   },
 }));
 
@@ -96,9 +97,7 @@ describe("useImportExport Hook", () => {
     });
     const onImportSuccess = vi.fn();
 
-    const { result } = renderHook(() =>
-      useImportExport({ onImportSuccess }),
-    );
+    const { result } = renderHook(() => useImportExport({ onImportSuccess }));
 
     await act(async () => {
       await result.current.selectImportFile();

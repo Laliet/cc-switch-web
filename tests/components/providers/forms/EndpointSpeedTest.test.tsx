@@ -17,13 +17,15 @@ vi.mock("@/lib/api/vscode", () => ({
   vscodeApi: {
     getCustomEndpoints: (...args: unknown[]) => getCustomEndpointsMock(...args),
     addCustomEndpoint: (...args: unknown[]) => addCustomEndpointMock(...args),
-    removeCustomEndpoint: (...args: unknown[]) => removeCustomEndpointMock(...args),
+    removeCustomEndpoint: (...args: unknown[]) =>
+      removeCustomEndpointMock(...args),
     testApiEndpoints: (...args: unknown[]) => testApiEndpointsMock(...args),
   },
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children, open }: any) => (open ? <div data-testid="dialog">{children}</div> : null),
+  Dialog: ({ children, open }: any) =>
+    open ? <div data-testid="dialog">{children}</div> : null,
   DialogContent: ({ children }: any) => <div>{children}</div>,
   DialogHeader: ({ children }: any) => <div>{children}</div>,
   DialogTitle: ({ children }: any) => <h2>{children}</h2>,
@@ -95,7 +97,9 @@ describe("EndpointSpeedTest", () => {
       { url: "https://api2.example.com", isCustom: true },
     ];
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     expect(screen.getByText("https://api.example.com")).toBeInTheDocument();
     expect(screen.getByText("https://api2.example.com")).toBeInTheDocument();
@@ -107,12 +111,17 @@ describe("EndpointSpeedTest", () => {
 
     render(<EndpointSpeedTest {...defaultProps} onChange={onChange} />);
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://custom.api.com");
 
     // Find the add button (icon-only button next to input)
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     expect(addButton).toBeTruthy();
     await user.click(addButton!);
 
@@ -127,15 +136,22 @@ describe("EndpointSpeedTest", () => {
 
     render(<EndpointSpeedTest {...defaultProps} />);
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "not-a-valid-url");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
-      expect(screen.getByText("endpointTest.invalidUrlFormat")).toBeInTheDocument();
+      expect(
+        screen.getByText("endpointTest.invalidUrlFormat"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -145,11 +161,16 @@ describe("EndpointSpeedTest", () => {
     render(<EndpointSpeedTest {...defaultProps} />);
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
-      expect(screen.getByText("endpointTest.enterValidUrl")).toBeInTheDocument();
+      expect(
+        screen.getByText("endpointTest.enterValidUrl"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -157,13 +178,20 @@ describe("EndpointSpeedTest", () => {
     const user = userEvent.setup();
     const endpoints = [{ url: "https://api.example.com", isCustom: false }];
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://api.example.com");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
@@ -176,11 +204,16 @@ describe("EndpointSpeedTest", () => {
 
     render(<EndpointSpeedTest {...defaultProps} />);
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "ftp://api.example.com");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
@@ -202,7 +235,7 @@ describe("EndpointSpeedTest", () => {
         initialEndpoints={endpoints}
         onChange={onChange}
         value="https://api1.example.com"
-      />
+      />,
     );
 
     await user.click(screen.getByText("https://api2.example.com"));
@@ -222,7 +255,9 @@ describe("EndpointSpeedTest", () => {
       { url: "https://api2.example.com", latency: 300, status: 200 },
     ]);
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     await user.click(screen.getByText("endpointTest.testSpeed"));
 
@@ -251,7 +286,7 @@ describe("EndpointSpeedTest", () => {
         initialEndpoints={endpoints}
         onChange={onChange}
         value="https://slow.example.com"
-      />
+      />,
     );
 
     await user.click(screen.getByText("endpointTest.testSpeed"));
@@ -268,7 +303,9 @@ describe("EndpointSpeedTest", () => {
 
     testApiEndpointsMock.mockRejectedValueOnce(new Error("Network error"));
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     await user.click(screen.getByText("endpointTest.testSpeed"));
 
@@ -283,20 +320,28 @@ describe("EndpointSpeedTest", () => {
     const user = userEvent.setup();
     const endpoints = [{ url: "https://api.example.com", isCustom: true }];
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     expect(screen.getByText("https://api.example.com")).toBeInTheDocument();
 
     // Find the X button inside the endpoint row
-    const endpointRow = screen.getByText("https://api.example.com").closest("div[class*='cursor-pointer']");
-    const removeButton = endpointRow?.querySelector("button[class*='opacity-0']");
+    const endpointRow = screen
+      .getByText("https://api.example.com")
+      .closest("div[class*='cursor-pointer']");
+    const removeButton = endpointRow?.querySelector(
+      "button[class*='opacity-0']",
+    );
 
     if (removeButton) {
       await user.click(removeButton);
     }
 
     await waitFor(() => {
-      expect(screen.queryByText("https://api.example.com")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("https://api.example.com"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -333,12 +378,17 @@ describe("EndpointSpeedTest", () => {
       <EndpointSpeedTest
         {...defaultProps}
         providerId="provider-123"
-        initialEndpoints={[{ url: "https://preset.example.com", isCustom: false }]}
-      />
+        initialEndpoints={[
+          { url: "https://preset.example.com", isCustom: false },
+        ]}
+      />,
     );
 
     await waitFor(() => {
-      expect(getCustomEndpointsMock).toHaveBeenCalledWith("claude", "provider-123");
+      expect(getCustomEndpointsMock).toHaveBeenCalledWith(
+        "claude",
+        "provider-123",
+      );
     });
 
     await waitFor(() => {
@@ -357,15 +407,20 @@ describe("EndpointSpeedTest", () => {
         {...defaultProps}
         providerId="provider-123"
         onClose={onClose}
-      />
+      />,
     );
 
     // Add a new endpoint
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://new.example.com");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
@@ -379,7 +434,7 @@ describe("EndpointSpeedTest", () => {
       expect(addCustomEndpointMock).toHaveBeenCalledWith(
         "claude",
         "provider-123",
-        "https://new.example.com"
+        "https://new.example.com",
       );
     });
   });
@@ -392,25 +447,34 @@ describe("EndpointSpeedTest", () => {
       <EndpointSpeedTest
         {...defaultProps}
         onCustomEndpointsChange={onCustomEndpointsChange}
-      />
+      />,
     );
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://custom.example.com");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
-      expect(onCustomEndpointsChange).toHaveBeenCalledWith(["https://custom.example.com"]);
+      expect(onCustomEndpointsChange).toHaveBeenCalledWith([
+        "https://custom.example.com",
+      ]);
     });
   });
 
   it("disables test button when no endpoints", () => {
     render(<EndpointSpeedTest {...defaultProps} />);
 
-    const testButton = screen.getByText("endpointTest.testSpeed").closest("button");
+    const testButton = screen
+      .getByText("endpointTest.testSpeed")
+      .closest("button");
     expect(testButton).toBeDisabled();
   });
 
@@ -418,7 +482,9 @@ describe("EndpointSpeedTest", () => {
     const user = userEvent.setup();
     const endpoints = [{ url: "https://api.example.com", isCustom: false }];
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     const checkbox = screen.getByRole("checkbox");
     expect(checkbox).toBeChecked();
@@ -433,7 +499,9 @@ describe("EndpointSpeedTest", () => {
 
     render(<EndpointSpeedTest {...defaultProps} />);
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://enter.example.com{enter}");
 
     await waitFor(() => {
@@ -446,11 +514,16 @@ describe("EndpointSpeedTest", () => {
 
     render(<EndpointSpeedTest {...defaultProps} />);
 
-    const input = screen.getByPlaceholderText("endpointTest.addEndpointPlaceholder");
+    const input = screen.getByPlaceholderText(
+      "endpointTest.addEndpointPlaceholder",
+    );
     await user.type(input, "https://api.example.com///");
 
     const buttons = screen.getAllByRole("button");
-    const addButton = buttons.find((btn) => btn.getAttribute("variant") === "outline" && btn.querySelector("svg"));
+    const addButton = buttons.find(
+      (btn) =>
+        btn.getAttribute("variant") === "outline" && btn.querySelector("svg"),
+    );
     await user.click(addButton!);
 
     await waitFor(() => {
@@ -464,7 +537,9 @@ describe("EndpointSpeedTest", () => {
       { url: "https://api2.example.com", isCustom: false },
     ];
 
-    render(<EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />);
+    render(
+      <EndpointSpeedTest {...defaultProps} initialEndpoints={endpoints} />,
+    );
 
     // The count and label are in the same div: "2 endpointTest.endpoints"
     expect(screen.getByText(/2\s+endpointTest\.endpoints/)).toBeInTheDocument();

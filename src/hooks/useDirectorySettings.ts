@@ -154,9 +154,8 @@ export function useDirectorySettings({
     gemini: "",
     opencode: "",
   });
-  const [resolvedDirInfo, setResolvedDirInfo] = useState<ResolvedDirectoryInfoMap>(
-    {},
-  );
+  const [resolvedDirInfo, setResolvedDirInfo] =
+    useState<ResolvedDirectoryInfoMap>({});
   const [isLoading, setIsLoading] = useState(true);
 
   const defaultsRef = useRef<ResolvedDirectories>({
@@ -176,9 +175,11 @@ export function useDirectorySettings({
     const loadConfigDirInfo = async (
       app: DirectoryAppId,
     ): Promise<ConfigDirInfo> => {
-      const maybeGetConfigDirInfo = (settingsApi as {
-        getConfigDirInfo?: (appId: AppId) => Promise<ConfigDirInfo>;
-      }).getConfigDirInfo;
+      const maybeGetConfigDirInfo = (
+        settingsApi as {
+          getConfigDirInfo?: (appId: AppId) => Promise<ConfigDirInfo>;
+        }
+      ).getConfigDirInfo;
       if (typeof maybeGetConfigDirInfo === "function") {
         try {
           return await maybeGetConfigDirInfo(app);

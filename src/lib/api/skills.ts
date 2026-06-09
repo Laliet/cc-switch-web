@@ -68,7 +68,9 @@ export const skillsApi = {
         : {};
     const cacheHitValue = response.cacheHit ?? response["cache_hit"];
     return {
-      skills: Array.isArray(response.skills) ? (response.skills as Skill[]) : [],
+      skills: Array.isArray(response.skills)
+        ? (response.skills as Skill[])
+        : [],
       warnings: Array.isArray(response.warnings)
         ? (response.warnings as string[])
         : [],

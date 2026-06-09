@@ -42,21 +42,21 @@ describe("ClaudeDesktopPanel", () => {
       staleRawModels: true,
       missingRouteMappings: true,
       gatewayTokenConfigured: false,
+      needsRestart: true,
+      restartHint: "Restart Claude Desktop to reload the applied profile.",
+      issues: ["Missing codex_oauth managed auth default account."],
     });
 
     render(<ClaudeDesktopPanel />);
 
     expect(await screen.findByText("Local routing")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Claude Desktop profile base URL does not match the selected provider.",
-      ),
+      screen.getByText("Missing codex_oauth managed auth default account."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Local proxy is not running, so proxy-mode Desktop routes will fail.",
-      ),
+      screen.getByText("Restart Claude Desktop to reload the applied profile."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Required")).toBeInTheDocument();
     expect(screen.getByText("MCP / Prompt unsupported")).toBeInTheDocument();
   });
 
@@ -75,6 +75,9 @@ describe("ClaudeDesktopPanel", () => {
         staleRawModels: false,
         missingRouteMappings: false,
         gatewayTokenConfigured: true,
+        needsRestart: false,
+        restartHint: null,
+        issues: [],
       })
       .mockResolvedValueOnce({
         supported: true,
@@ -89,6 +92,9 @@ describe("ClaudeDesktopPanel", () => {
         staleRawModels: false,
         missingRouteMappings: false,
         gatewayTokenConfigured: true,
+        needsRestart: true,
+        restartHint: "Restart Claude Desktop to reload the applied profile.",
+        issues: [],
       });
     providerApiMocks.importClaudeDesktopProvidersFromClaude.mockResolvedValueOnce(
       2,

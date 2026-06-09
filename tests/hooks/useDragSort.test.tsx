@@ -75,12 +75,9 @@ describe("useDragSort", () => {
   it("should sort providers by sortIndex, createdAt, and name", () => {
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(
-      () => useDragSort(mockProviders, "claude"),
-      {
-        wrapper,
-      },
-    );
+    const { result } = renderHook(() => useDragSort(mockProviders, "claude"), {
+      wrapper,
+    });
 
     expect(result.current.sortedProviders.map((item) => item.id)).toEqual([
       "b",
@@ -94,12 +91,9 @@ describe("useDragSort", () => {
     const { wrapper, queryClient } = createWrapper();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(
-      () => useDragSort(mockProviders, "claude"),
-      {
-        wrapper,
-      },
-    );
+    const { result } = renderHook(() => useDragSort(mockProviders, "claude"), {
+      wrapper,
+    });
 
     await act(async () => {
       await result.current.handleDragEnd({
@@ -128,12 +122,9 @@ describe("useDragSort", () => {
     updateSortOrderMock.mockRejectedValue(new Error("network"));
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(
-      () => useDragSort(mockProviders, "claude"),
-      {
-        wrapper,
-      },
-    );
+    const { result } = renderHook(() => useDragSort(mockProviders, "claude"), {
+      wrapper,
+    });
 
     await act(async () => {
       await result.current.handleDragEnd({
@@ -150,12 +141,9 @@ describe("useDragSort", () => {
   it("should not trigger API call when there is no valid target", async () => {
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(
-      () => useDragSort(mockProviders, "claude"),
-      {
-        wrapper,
-      },
-    );
+    const { result } = renderHook(() => useDragSort(mockProviders, "claude"), {
+      wrapper,
+    });
 
     await act(async () => {
       await result.current.handleDragEnd({

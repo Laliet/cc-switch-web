@@ -48,7 +48,8 @@ export function UsageTrendChart({
         ) : (
           trends.data?.map((item) => {
             const cost = Number.parseFloat(item.totalCost || "0");
-            const height = maxCost > 0 ? Math.max(6, (cost / maxCost) * 160) : 6;
+            const height =
+              maxCost > 0 ? Math.max(6, (cost / maxCost) * 160) : 6;
             return (
               <div
                 key={item.date}

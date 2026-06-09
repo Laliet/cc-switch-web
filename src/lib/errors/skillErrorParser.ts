@@ -64,7 +64,9 @@ export function parseSkillError(errorString: string): SkillError | null {
   if (codeCandidate && isKnownErrorCode(codeCandidate)) {
     return { code: codeCandidate, context: {} };
   }
-  const zhUnsupportedMatch = codeCandidate.match(/应用\s*['"]([^'"]+)['"]\s*暂未支持/);
+  const zhUnsupportedMatch = codeCandidate.match(
+    /应用\s*['"]([^'"]+)['"]\s*暂未支持/,
+  );
   if (zhUnsupportedMatch) {
     return {
       code: "APP_NOT_SUPPORTED",
