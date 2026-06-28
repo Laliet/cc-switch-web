@@ -45,12 +45,43 @@ describe("deeplink API module", () => {
       apiKey: "secret",
       model: "gpt-4o",
     };
-    invokeMock.mockResolvedValueOnce("provider-id");
+    invokeMock.mockResolvedValueOnce({
+      type: "provider",
+      id: "provider-id",
+      result: { id: "provider-id" },
+    });
 
     const result = await deeplinkApi.importFromDeeplink(request);
 
-    expect(result).toBe("provider-id");
-    expect(invokeMock).toHaveBeenCalledWith("import_from_deeplink", {
+    expect(result).toEqual({
+      type: "provider",
+      id: "provider-id",
+      result: { id: "provider-id" },
+    });
+    expect(invokeMock).toHaveBeenCalledWith("import_from_deeplink_unified", {
+      request,
+    });
+  });
+
+  it("mergeDeeplinkConfig delegates to invoke", async () => {
+    const request: DeepLinkImportRequest = {
+      version: "v1",
+      resource: "provider",
+      app: "claude",
+      name: "Claude Provider",
+      config: "eyJlbnYiOnsiQU5USFJPUElDX0JBU0VfVVJMIjoiaHR0cHM6Ly9hcGkuZXhhbXBsZSJ9fQ",
+      configFormat: "json",
+    };
+    const merged = {
+      ...request,
+      endpoint: "https://api.example",
+    };
+    invokeMock.mockResolvedValueOnce(merged);
+
+    const result = await deeplinkApi.mergeDeeplinkConfig(request);
+
+    expect(result).toEqual(merged);
+    expect(invokeMock).toHaveBeenCalledWith("merge_deeplink_config", {
       request,
     });
   });

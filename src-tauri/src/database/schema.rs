@@ -102,13 +102,17 @@ impl Database {
                 live_takeover_active INTEGER NOT NULL DEFAULT 0,
                 streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 90,
                 streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
-                non_streaming_timeout INTEGER NOT NULL DEFAULT 180,
+                non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
                 circuit_failure_threshold INTEGER NOT NULL DEFAULT 3,
                 circuit_recovery_threshold INTEGER NOT NULL DEFAULT 2,
                 circuit_recovery_wait_seconds INTEGER NOT NULL DEFAULT 60,
                 circuit_error_rate_threshold REAL NOT NULL DEFAULT 80,
                 rectify_thinking_signature INTEGER NOT NULL DEFAULT 1,
                 rectify_thinking_budget INTEGER NOT NULL DEFAULT 1,
+                optimizer_enabled INTEGER NOT NULL DEFAULT 0,
+                optimizer_thinking INTEGER NOT NULL DEFAULT 1,
+                optimizer_cache_injection INTEGER NOT NULL DEFAULT 1,
+                optimizer_cache_ttl TEXT NOT NULL DEFAULT '1h',
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -298,6 +302,10 @@ impl Database {
             ("circuit_error_rate_threshold", "REAL NOT NULL DEFAULT 80"),
             ("rectify_thinking_signature", "INTEGER NOT NULL DEFAULT 1"),
             ("rectify_thinking_budget", "INTEGER NOT NULL DEFAULT 1"),
+            ("optimizer_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("optimizer_thinking", "INTEGER NOT NULL DEFAULT 1"),
+            ("optimizer_cache_injection", "INTEGER NOT NULL DEFAULT 1"),
+            ("optimizer_cache_ttl", "TEXT NOT NULL DEFAULT '1h'"),
         ] {
             Self::add_column_if_missing(conn, "proxy_config", column, definition)?;
         }

@@ -207,13 +207,17 @@ const createDefaultProxySettings = (): ProxySettings => ({
   liveTakeoverActive: false,
   streamingFirstByteTimeout: 90,
   streamingIdleTimeout: 120,
-  nonStreamingTimeout: 180,
+  nonStreamingTimeout: 600,
   circuitFailureThreshold: 3,
   circuitRecoveryThreshold: 2,
   circuitRecoveryWaitSeconds: 60,
   circuitErrorRateThreshold: 80,
   rectifyThinkingSignature: true,
   rectifyThinkingBudget: true,
+  optimizerEnabled: false,
+  optimizerThinking: true,
+  optimizerCacheInjection: true,
+  optimizerCacheTtl: "1h",
   apps: {
     claude: createDefaultProxyAppSettings(),
     codex: createDefaultProxyAppSettings(),
@@ -267,6 +271,8 @@ let settingsState: Settings = {
   network: {
     githubMirrorBaseUrl: "",
   },
+  skillStorageLocation: "cc_switch",
+  skillSyncMethod: "auto",
   proxy: createDefaultProxySettings(),
 };
 let appConfigDirOverride: string | null = null;

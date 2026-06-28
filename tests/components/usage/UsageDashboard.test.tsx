@@ -170,7 +170,6 @@ describe("UsageDashboard", () => {
     expect(screen.getByTestId("usage-hero-range")).toHaveTextContent(
       String(new Date(2025, 11, 21).getTime()),
     );
-    expect(screen.getByText("Recent data")).toBeInTheDocument();
     expect(screen.getByText("All-time data sources")).toBeInTheDocument();
   });
 

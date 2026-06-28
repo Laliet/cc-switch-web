@@ -24,8 +24,6 @@ const WEB_UNSUPPORTED_COMMANDS: Record<string, string> = {
   remove_custom_endpoint:
     "Web 端暂不支持删除 VSCode 自定义端点，请使用桌面版。",
   update_endpoint_last_used: "Web 端暂不支持记录端点使用情况，请使用桌面版。",
-  parse_deeplink: "Web 端暂不支持 Deeplink 解析，请使用桌面版。",
-  import_from_deeplink: "Web 端暂不支持 Deeplink 导入，请使用桌面版。",
 };
 
 const webUnsupportedNotices = new Set<string>();
@@ -677,6 +675,25 @@ export function commandToEndpoint(
 ): Endpoint {
   const apiBase = getWebApiBase();
   switch (cmd) {
+    case "parse_deeplink":
+      return {
+        method: "POST",
+        url: `${apiBase}/deeplink/parse`,
+        body: { url: requireArg(args, "url", cmd) },
+      };
+    case "merge_deeplink_config":
+      return {
+        method: "POST",
+        url: `${apiBase}/deeplink/merge-config`,
+        body: requireArg(args, "request", cmd),
+      };
+    case "import_from_deeplink_unified":
+    case "import_from_deeplink":
+      return {
+        method: "POST",
+        url: `${apiBase}/deeplink/import`,
+        body: requireArg(args, "request", cmd),
+      };
     // Provider commands
     case "get_providers": {
       const app = requireArg(args, "app", cmd);
@@ -1092,6 +1109,68 @@ export function commandToEndpoint(
           return payload;
         })(),
       };
+    case "get_skill_backups":
+      return { method: "GET", url: `${apiBase}/skills/backups` };
+    case "delete_skill_backup": {
+      const backupId = requireArg(args, "backupId", cmd);
+      return {
+        method: "DELETE",
+        url: `${apiBase}/skills/backups/${encode(backupId)}`,
+      };
+    }
+    case "restore_skill_backup":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/backups/restore`,
+        body: (() => {
+          const payload: { backupId: string; force?: boolean; app?: string } = {
+            backupId: requireArg(args, "backupId", cmd),
+          };
+          if (typeof args.force === "boolean") {
+            payload.force = args.force;
+          }
+          if (typeof args.app === "string") {
+            payload.app = args.app;
+          }
+          return payload;
+        })(),
+      };
+    case "install_skills_from_zip":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/import-zip`,
+        body: (() => {
+          const payload: {
+            filePath?: string;
+            contentBase64?: string;
+            fileName?: string;
+            force?: boolean;
+            app?: string;
+          } = {};
+          if (typeof args.filePath === "string") {
+            payload.filePath = args.filePath;
+          }
+          if (typeof args.contentBase64 === "string") {
+            payload.contentBase64 = args.contentBase64;
+          }
+          if (typeof args.fileName === "string") {
+            payload.fileName = args.fileName;
+          }
+          if (typeof args.force === "boolean") {
+            payload.force = args.force;
+          }
+          if (typeof args.app === "string") {
+            payload.app = args.app;
+          }
+          return payload;
+        })(),
+      };
+    case "migrate_skill_storage":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/storage/migrate`,
+        body: { target: requireArg(args, "target", cmd) },
+      };
     case "get_skill_repos":
       return { method: "GET", url: `${apiBase}/skills/repos` };
     case "add_skill_repo":
@@ -1201,6 +1280,14 @@ export function commandToEndpoint(
       return {
         method: "DELETE",
         url: `${apiBase}/proxy/failover/${encode(app)}`,
+      };
+    }
+    case "reset_provider_circuit": {
+      const app = requireArg(args, "app", cmd);
+      const providerId = requireArg(args, "providerId", cmd);
+      return {
+        method: "POST",
+        url: `${apiBase}/proxy/health/${encode(app)}/${encode(providerId)}/reset`,
       };
     }
     case "list_model_pricing":
@@ -1356,6 +1443,30 @@ export function commandToEndpoint(
         url: `${apiBase}/webdav/snapshot/download`,
         body:
           args.settings !== undefined ? { settings: args.settings } : undefined,
+      };
+    case "sync_webdav_snapshot":
+      return {
+        method: "POST",
+        url: `${apiBase}/webdav/snapshot/sync`,
+        body:
+          args.settings !== undefined ? { settings: args.settings } : undefined,
+      };
+    case "list_webdav_backups":
+      return args.settings !== undefined
+        ? {
+            method: "POST",
+            url: `${apiBase}/webdav/backups`,
+            body: { settings: args.settings },
+          }
+        : { method: "GET", url: `${apiBase}/webdav/backups` };
+    case "restore_webdav_backup":
+      return {
+        method: "POST",
+        url: `${apiBase}/webdav/backups/restore`,
+        body: {
+          backupId: requireArg(args, "backupId", cmd),
+          ...(args.settings !== undefined ? { settings: args.settings } : {}),
+        },
       };
     case "update_web_credentials":
       return {

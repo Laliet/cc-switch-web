@@ -143,6 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     cc_switch_lib::local_proxy::start_from_saved_settings(state.clone()).await;
+    cc_switch_lib::start_webdav_auto_sync_worker(state.clone());
 
     let app = create_router_with_auth_state(state, auth_state);
 

@@ -12,6 +12,7 @@ use crate::{app_config::AppType, error::AppError};
 
 pub mod auth;
 pub mod config;
+pub mod deeplink;
 pub mod health;
 pub mod mcp;
 pub mod model_fetch;

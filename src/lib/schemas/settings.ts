@@ -32,11 +32,15 @@ const defaultProxyApps = () => ({
 
 const webDavSchema = z.object({
   enabled: z.boolean().default(false),
+  autoSync: z.boolean().default(false),
   baseUrl: z.string().trim().default(""),
   username: z.string().trim().default(""),
   password: z.string().default(""),
   remoteDir: z.string().trim().min(1).default("cc-switch-web"),
   profile: z.string().trim().min(1).default("default"),
+  lastSyncConfigHash: z.string().trim().optional(),
+  lastSyncAt: z.string().trim().optional(),
+  lastSyncRemoteSnapshotId: z.string().trim().optional(),
 });
 
 const networkSchema = z.object({
@@ -71,6 +75,8 @@ export const settingsSchema = z.object({
   customEndpointsCodex: z.record(z.string(), z.unknown()).optional(),
   webDav: webDavSchema.optional(),
   network: networkSchema.optional(),
+  skillSyncMethod: z.enum(["auto", "symlink", "copy"]).default("auto"),
+  skillStorageLocation: z.enum(["cc_switch", "unified"]).default("cc_switch"),
   proxy: z
     .object({
       enabled: z.boolean(),
@@ -89,13 +95,17 @@ export const settingsSchema = z.object({
       liveTakeoverActive: z.boolean().default(false),
       streamingFirstByteTimeout: z.number().int().min(1).max(3600).default(90),
       streamingIdleTimeout: z.number().int().min(1).max(3600).default(120),
-      nonStreamingTimeout: z.number().int().min(1).max(3600).default(180),
+      nonStreamingTimeout: z.number().int().min(1).max(3600).default(600),
       circuitFailureThreshold: z.number().int().min(1).max(100).default(3),
       circuitRecoveryThreshold: z.number().int().min(1).max(100).default(2),
       circuitRecoveryWaitSeconds: z.number().int().min(1).max(3600).default(60),
       circuitErrorRateThreshold: z.number().min(1).max(100).default(80),
       rectifyThinkingSignature: z.boolean().default(true),
       rectifyThinkingBudget: z.boolean().default(true),
+      optimizerEnabled: z.boolean().default(false),
+      optimizerThinking: z.boolean().default(true),
+      optimizerCacheInjection: z.boolean().default(true),
+      optimizerCacheTtl: z.enum(["5m", "1h"]).default("1h"),
       apps: z
         .object({
           claude: proxyAppSchema.default(defaultProxyApp),

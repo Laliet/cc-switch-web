@@ -167,6 +167,72 @@ export const KNOWN_USAGE_APP_TYPES: ReadonlyArray<UsageAppType> = [
   "opencode",
 ];
 
+export const CACHE_INCLUSIVE_APP_TYPES: ReadonlySet<string> = new Set([
+  "codex",
+  "gemini",
+  "opencode",
+]);
+
+export interface CacheNormalizableLog {
+  appType: string;
+  inputTokens: number;
+  cacheReadTokens: number;
+}
+
+export function getFreshInputTokens(log: CacheNormalizableLog): number {
+  if (
+    CACHE_INCLUSIVE_APP_TYPES.has(log.appType) &&
+    log.inputTokens >= log.cacheReadTokens
+  ) {
+    return log.inputTokens - log.cacheReadTokens;
+  }
+  return log.inputTokens;
+}
+
+export const NON_NEGATIVE_DECIMAL_REGEX = /^\d+(?:\.\d+)?$/;
+
+export function isNonNegativeDecimalString(value: string): boolean {
+  const trimmed = value.trim();
+  if (!NON_NEGATIVE_DECIMAL_REGEX.test(trimmed)) return false;
+  return Number.isFinite(Number(trimmed));
+}
+
+type UsageCostLog = Pick<
+  RequestLog,
+  | "inputTokens"
+  | "outputTokens"
+  | "cacheReadTokens"
+  | "cacheCreationTokens"
+  | "totalCostUsd"
+  | "statusCode"
+> &
+  Partial<Pick<RequestLog, "costMultiplier">>;
+
+export function hasUsageTokens(log: UsageCostLog): boolean {
+  return (
+    log.inputTokens > 0 ||
+    log.outputTokens > 0 ||
+    log.cacheReadTokens > 0 ||
+    log.cacheCreationTokens > 0
+  );
+}
+
+export function isUnpricedUsage(log: UsageCostLog): boolean {
+  const totalCost = Number.parseFloat(log.totalCostUsd);
+  const multiplier =
+    log.costMultiplier == null
+      ? undefined
+      : Number.parseFloat(log.costMultiplier);
+  return (
+    log.statusCode >= 200 &&
+    log.statusCode < 300 &&
+    hasUsageTokens(log) &&
+    Number.isFinite(totalCost) &&
+    (!Number.isFinite(multiplier) || multiplier !== 0) &&
+    totalCost === 0
+  );
+}
+
 export function usageAppLabel(appType: AppTypeFilter | string): string {
   switch (appType) {
     case "all":

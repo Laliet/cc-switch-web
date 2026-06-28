@@ -144,6 +144,10 @@ mod tests {
             circuit_error_rate_threshold: 65.0,
             rectify_thinking_signature: false,
             rectify_thinking_budget: true,
+            optimizer_enabled: true,
+            optimizer_thinking: true,
+            optimizer_cache_injection: false,
+            optimizer_cache_ttl: "5m".to_string(),
             ..ProxySettings::default()
         };
         config.apps.claude.enabled = true;
@@ -177,6 +181,10 @@ mod tests {
         assert_eq!(loaded.circuit_error_rate_threshold, 65.0);
         assert!(!loaded.rectify_thinking_signature);
         assert!(loaded.rectify_thinking_budget);
+        assert!(loaded.optimizer_enabled);
+        assert!(loaded.optimizer_thinking);
+        assert!(!loaded.optimizer_cache_injection);
+        assert_eq!(loaded.optimizer_cache_ttl, "5m");
         assert!(loaded.apps.claude.enabled);
         assert!(loaded.apps.claude.auto_failover_enabled);
         assert_eq!(loaded.apps.claude.max_retries, 2);

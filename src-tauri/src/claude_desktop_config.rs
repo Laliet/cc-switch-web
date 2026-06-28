@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,12 @@ use crate::config::get_home_dir;
 use crate::config::{atomic_write, delete_file, read_json_file, write_json_file};
 use crate::database::{Database, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID};
 use crate::error::AppError;
+use crate::json_canonical::canonical_json_string;
 use crate::provider::{ClaudeDesktopMode, Provider, ProviderApiFormat, ProviderMeta, ProviderType};
+use crate::proxy::gemini_schema::{
+    build_gemini_function_declaration, rectify_gemini_tool_call_parts, AnthropicToolSchemaHints,
+};
+use crate::proxy::gemini_shadow::{GeminiAssistantTurn, GeminiShadowStore, GeminiToolCallMeta};
 use crate::store::AppState;
 use crate::ManagedAuthProvider;
 
@@ -27,6 +32,8 @@ const CONFIG_LIBRARY_DIR: &str = "configLibrary";
 const GATEWAY_TOKEN_SETTING_KEY: &str = "claude_desktop_gateway_token";
 const CLAUDE_DESKTOP_PROXY_PREFIX: &str = "/claude-desktop";
 const DEFAULT_CREATED_AT: &str = "2024-01-01T00:00:00Z";
+const GEMINI_SYNTHESIZED_ID_PREFIX: &str = "gemini_synth_";
+const ANTHROPIC_BILLING_HEADER_PREFIX: &str = "x-anthropic-billing-header:";
 
 const NON_ANTHROPIC_ROUTE_MARKERS: &[&str] = &[
     "ark-code",
@@ -942,6 +949,57 @@ pub fn model_list_response(provider: &Provider) -> Result<Value, AppError> {
 }
 
 pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<Value, AppError> {
+    let route = resolve_proxy_request_route(&body, provider)?;
+    body["model"] = json!(route.upstream_model);
+    if provider
+        .meta
+        .as_ref()
+        .is_some_and(|meta| meta.provider_type() == Some(ProviderType::GithubCopilot))
+    {
+        body = crate::proxy::copilot_optimizer::prepare_body_for_copilot(body);
+    }
+    match proxy_api_format(provider) {
+        Some("openai_chat") => {
+            map_openai_compatible_tool_choice(&mut body)?;
+            body = map_anthropic_messages_to_openai_chat(body)?;
+        }
+        Some("openai_responses") => {
+            map_openai_responses_tool_choice(&mut body)?;
+            body = map_anthropic_messages_to_openai_responses(body)?;
+            apply_openai_responses_provider_meta(&mut body, provider);
+        }
+        Some("gemini_native") => {
+            body = map_anthropic_messages_to_gemini_native(body)?;
+        }
+        _ => {}
+    }
+    Ok(body)
+}
+
+pub fn map_proxy_request_model_with_gemini_shadow(
+    mut body: Value,
+    provider: &Provider,
+    shadow_store: &GeminiShadowStore,
+    session_id: Option<&str>,
+) -> Result<Value, AppError> {
+    let route = resolve_proxy_request_route(&body, provider)?;
+    body["model"] = json!(route.upstream_model);
+    match proxy_api_format(provider) {
+        Some("gemini_native") => {
+            let shadow_turns = session_id
+                .map(|session_id| shadow_store.get_session_turns(&provider.id, session_id))
+                .unwrap_or_default();
+            body = map_anthropic_messages_to_gemini_native_with_shadow(body, &shadow_turns)?;
+        }
+        _ => return map_proxy_request_model(body, provider),
+    }
+    Ok(body)
+}
+
+pub fn resolve_proxy_request_route(
+    body: &Value,
+    provider: &Provider,
+) -> Result<ResolvedModelRoute, AppError> {
     let requested = body
         .get("model")
         .and_then(Value::as_str)
@@ -954,7 +1012,7 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
                 "Claude Desktop request is missing model field",
             )
         })?;
-    let route = proxy_model_routes(provider)?
+    proxy_model_routes(provider)?
         .into_iter()
         .find(|route| route.route_id == requested)
         .ok_or_else(|| {
@@ -963,20 +1021,7 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
                 format!("Claude Desktop 模型路由未配置: {requested}"),
                 format!("Claude Desktop model route is not configured: {requested}"),
             )
-        })?;
-    body["model"] = json!(route.upstream_model);
-    match proxy_api_format(provider) {
-        Some("openai_chat") => {
-            map_openai_compatible_tool_choice(&mut body)?;
-            body = map_anthropic_messages_to_openai_chat(body)?;
-        }
-        Some("openai_responses") => {
-            map_openai_responses_tool_choice(&mut body)?;
-            body = map_anthropic_messages_to_openai_responses(body)?;
-        }
-        _ => {}
-    }
-    Ok(body)
+        })
 }
 
 pub fn proxy_api_format(provider: &Provider) -> Option<&'static str> {
@@ -1142,6 +1187,7 @@ fn map_anthropic_messages_to_openai_chat(body: Value) -> Result<Value, AppError>
 
     if let Some(system) = obj.remove("system") {
         if let Some(content) = anthropic_content_to_text(&system) {
+            let content = strip_leading_anthropic_billing_header(&content).to_string();
             let message = json!({
                 "role": "system",
                 "content": content,
@@ -1154,13 +1200,17 @@ fn map_anthropic_messages_to_openai_chat(body: Value) -> Result<Value, AppError>
             }
         }
     }
-    if let Some(messages) = obj.get_mut("messages") {
-        normalize_openai_chat_messages(messages);
+    if let Some(messages) = obj.remove("messages") {
+        obj.insert(
+            "messages".to_string(),
+            map_anthropic_messages_to_openai_chat_messages(messages),
+        );
     }
     if let Some(tools) = obj.get_mut("tools") {
         *tools = map_anthropic_tools_to_openai_chat(tools);
     }
     rename_field(&mut obj, "stop_sequences", "stop");
+    apply_openai_chat_model_parameters(&mut obj);
 
     Ok(Value::Object(obj))
 }
@@ -1188,12 +1238,79 @@ fn map_anthropic_messages_to_openai_responses(body: Value) -> Result<Value, AppE
     if let Some(max_tokens) = obj.remove("max_tokens") {
         obj.insert("max_output_tokens".to_string(), max_tokens);
     }
+    apply_openai_responses_reasoning_parameters(&mut obj);
     if let Some(tools) = obj.get_mut("tools") {
         *tools = map_anthropic_tools_to_openai_responses(tools);
     }
     rename_field(&mut obj, "stop_sequences", "stop");
 
     Ok(Value::Object(obj))
+}
+
+fn apply_openai_responses_provider_meta(body: &mut Value, provider: &Provider) {
+    let Some(obj) = body.as_object_mut() else {
+        return;
+    };
+    let Some(meta) = provider.meta.as_ref() else {
+        return;
+    };
+
+    if let Some(cache_key) = meta
+        .prompt_cache_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        obj.insert(
+            "prompt_cache_key".to_string(),
+            Value::String(cache_key.to_string()),
+        );
+    }
+
+    if meta.provider_type() != Some(ProviderType::CodexOauth) {
+        return;
+    }
+
+    obj.insert("store".to_string(), Value::Bool(false));
+    if meta.codex_fast_mode.unwrap_or(false) {
+        obj.insert(
+            "service_tier".to_string(),
+            Value::String("priority".to_string()),
+        );
+    } else {
+        obj.remove("service_tier");
+    }
+
+    const REASONING_MARKER: &str = "reasoning.encrypted_content";
+    let mut includes = obj
+        .remove("include")
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    if !includes
+        .iter()
+        .any(|value| value.as_str() == Some(REASONING_MARKER))
+    {
+        includes.push(Value::String(REASONING_MARKER.to_string()));
+    }
+    obj.insert("include".to_string(), Value::Array(includes));
+
+    // Keep this aligned with upstream cc-switch's Codex OAuth Responses contract.
+    // ChatGPT's codex backend rejects these normal OpenAI/Anthropic parameters.
+    obj.remove("max_output_tokens");
+    obj.remove("max_tokens");
+    obj.remove("temperature");
+    obj.remove("top_p");
+    obj.remove("stop");
+    obj.remove("stop_sequences");
+    obj.remove("thinking");
+
+    obj.entry("instructions".to_string())
+        .or_insert_with(|| Value::String(String::new()));
+    obj.entry("tools".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    obj.entry("parallel_tool_calls".to_string())
+        .or_insert(Value::Bool(false));
+    obj.insert("stream".to_string(), Value::Bool(true));
 }
 
 fn rename_field(obj: &mut serde_json::Map<String, Value>, from: &str, to: &str) {
@@ -1206,43 +1323,1444 @@ fn rename_field(obj: &mut serde_json::Map<String, Value>, from: &str, to: &str) 
     }
 }
 
-fn normalize_openai_chat_messages(messages: &mut Value) {
-    let Value::Array(items) = messages else {
-        return;
-    };
-    for message in items {
-        let Some(obj) = message.as_object_mut() else {
-            continue;
-        };
-        let Some(content) = obj.get_mut("content") else {
-            continue;
-        };
-        if let Some(text) = anthropic_content_to_text(content) {
-            *content = Value::String(text);
+fn apply_openai_chat_model_parameters(obj: &mut Map<String, Value>) {
+    let model = obj
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if let Some(max_tokens) = obj.remove("max_tokens") {
+        if is_openai_o_series(&model) {
+            obj.insert("max_completion_tokens".to_string(), max_tokens);
+        } else {
+            obj.insert("max_tokens".to_string(), max_tokens);
         }
     }
+    if supports_reasoning_effort(&model) {
+        if let Some(effort) = resolve_openai_reasoning_effort(obj) {
+            obj.insert(
+                "reasoning_effort".to_string(),
+                Value::String(effort.to_string()),
+            );
+        }
+    }
+    obj.remove("thinking");
+    obj.remove("output_config");
+}
+
+fn apply_openai_responses_reasoning_parameters(obj: &mut Map<String, Value>) {
+    let model = obj
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if supports_reasoning_effort(&model) {
+        if let Some(effort) = resolve_openai_reasoning_effort(obj) {
+            obj.insert("reasoning".to_string(), json!({ "effort": effort }));
+        }
+    }
+    obj.remove("thinking");
+    obj.remove("output_config");
+}
+
+fn is_openai_o_series(model: &str) -> bool {
+    model.len() > 1
+        && model.starts_with('o')
+        && model.as_bytes().get(1).is_some_and(u8::is_ascii_digit)
+}
+
+fn supports_reasoning_effort(model: &str) -> bool {
+    is_openai_o_series(model)
+        || model
+            .to_ascii_lowercase()
+            .strip_prefix("gpt-")
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|value| value.is_ascii_digit() && value >= '5')
+}
+
+fn resolve_openai_reasoning_effort(obj: &Map<String, Value>) -> Option<&'static str> {
+    if let Some(effort) = obj
+        .get("output_config")
+        .and_then(|value| value.get("effort"))
+        .and_then(Value::as_str)
+    {
+        return match effort {
+            "low" => Some("low"),
+            "medium" => Some("medium"),
+            "high" => Some("high"),
+            "max" => Some("xhigh"),
+            _ => None,
+        };
+    }
+
+    let thinking = obj.get("thinking")?;
+    match thinking.get("type").and_then(Value::as_str) {
+        Some("adaptive") => Some("xhigh"),
+        Some("enabled") => match thinking.get("budget_tokens").and_then(Value::as_u64) {
+            Some(budget) if budget < 4_000 => Some("low"),
+            Some(budget) if budget < 16_000 => Some("medium"),
+            Some(_) => Some("high"),
+            None => Some("high"),
+        },
+        _ => None,
+    }
+}
+
+fn strip_leading_anthropic_billing_header(text: &str) -> &str {
+    if !text.starts_with(ANTHROPIC_BILLING_HEADER_PREFIX) {
+        return text;
+    }
+    let Some(line_end) = text
+        .as_bytes()
+        .iter()
+        .position(|byte| *byte == b'\n' || *byte == b'\r')
+    else {
+        return "";
+    };
+    let bytes = text.as_bytes();
+    let mut rest_start = line_end + 1;
+    if bytes[line_end] == b'\r' && bytes.get(line_end + 1) == Some(&b'\n') {
+        rest_start += 1;
+    }
+    let rest = &text[rest_start..];
+    rest.strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+        .or_else(|| rest.strip_prefix('\r'))
+        .unwrap_or(rest)
+}
+
+fn map_anthropic_messages_to_openai_chat_messages(messages: Value) -> Value {
+    let Value::Array(items) = messages else {
+        return messages;
+    };
+
+    Value::Array(
+        items
+            .into_iter()
+            .flat_map(map_anthropic_message_to_openai_chat_messages)
+            .collect(),
+    )
+}
+
+fn map_anthropic_message_to_openai_chat_messages(message: Value) -> Vec<Value> {
+    let Some(mut obj) = message.as_object().cloned() else {
+        return vec![message];
+    };
+    let role = obj
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user")
+        .to_string();
+    let Some(content) = obj.remove("content") else {
+        return vec![Value::Object(obj)];
+    };
+
+    match content {
+        Value::String(text) => {
+            obj.insert("content".to_string(), Value::String(text));
+            vec![Value::Object(obj)]
+        }
+        Value::Array(blocks) => openai_chat_messages_from_content_blocks(obj, &role, blocks),
+        other => {
+            obj.insert("content".to_string(), other);
+            vec![Value::Object(obj)]
+        }
+    }
+}
+
+fn openai_chat_messages_from_content_blocks(
+    mut obj: serde_json::Map<String, Value>,
+    role: &str,
+    blocks: Vec<Value>,
+) -> Vec<Value> {
+    let mut result = Vec::new();
+    let mut content_parts = Vec::new();
+    let mut tool_calls = Vec::new();
+
+    for block in blocks {
+        match block
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
+            "text" => {
+                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                    let mut part = json!({"type": "text", "text": text});
+                    if let Some(cache_control) = block.get("cache_control") {
+                        part["cache_control"] = cache_control.clone();
+                    }
+                    content_parts.push(part);
+                }
+            }
+            "image" => {
+                if let Some(source) = block.get("source") {
+                    let media_type = source
+                        .get("media_type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("image/png");
+                    let data = source.get("data").and_then(Value::as_str).unwrap_or("");
+                    content_parts.push(json!({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": format!("data:{media_type};base64,{data}")
+                        }
+                    }));
+                }
+            }
+            "tool_use" => {
+                let id = block.get("id").and_then(Value::as_str).unwrap_or("");
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+                let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+                tool_calls.push(json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": canonical_json_string(&input)
+                    }
+                }));
+            }
+            "tool_result" => {
+                let tool_use_id = block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let content = match block.get("content") {
+                    Some(Value::String(text)) => text.clone(),
+                    Some(value) => canonical_json_string(value),
+                    None => String::new(),
+                };
+                result.push(json!({
+                    "role": "tool",
+                    "tool_call_id": tool_use_id,
+                    "content": content
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    if !content_parts.is_empty() || !tool_calls.is_empty() {
+        obj.insert("role".to_string(), Value::String(role.to_string()));
+        obj.insert(
+            "content".to_string(),
+            openai_chat_content_from_parts(content_parts),
+        );
+        if !tool_calls.is_empty() {
+            obj.insert("tool_calls".to_string(), Value::Array(tool_calls));
+        }
+        result.insert(0, Value::Object(obj));
+    }
+
+    result
+}
+
+fn openai_chat_content_from_parts(content_parts: Vec<Value>) -> Value {
+    if content_parts.is_empty() {
+        return Value::Null;
+    }
+    if content_parts.len() == 1 && content_parts[0].get("cache_control").is_none() {
+        if let Some(text) = content_parts[0].get("text") {
+            return text.clone();
+        }
+    }
+    Value::Array(content_parts)
 }
 
 fn map_anthropic_messages_to_responses_input(messages: Value) -> Value {
     let Value::Array(items) = messages else {
         return messages;
     };
+
     Value::Array(
         items
             .into_iter()
-            .map(|message| {
-                let Some(mut obj) = message.as_object().cloned() else {
-                    return message;
-                };
-                if let Some(content) = obj.get_mut("content") {
-                    if let Some(text) = anthropic_content_to_text(content) {
-                        *content = Value::String(text);
-                    }
-                }
-                Value::Object(obj)
-            })
+            .flat_map(map_anthropic_message_to_responses_input)
             .collect(),
     )
+}
+
+fn map_anthropic_message_to_responses_input(message: Value) -> Vec<Value> {
+    let Some(obj) = message.as_object() else {
+        return vec![message];
+    };
+    let role = obj.get("role").and_then(Value::as_str).unwrap_or("user");
+    match obj.get("content") {
+        Some(Value::String(text)) => {
+            let content_type = if role == "assistant" {
+                "output_text"
+            } else {
+                "input_text"
+            };
+            vec![json!({
+                "role": role,
+                "content": [{ "type": content_type, "text": text }]
+            })]
+        }
+        Some(Value::Array(blocks)) => responses_input_from_content_blocks(role, blocks),
+        _ => vec![message],
+    }
+}
+
+fn responses_input_from_content_blocks(role: &str, blocks: &[Value]) -> Vec<Value> {
+    let mut input = Vec::new();
+    let mut message_content = Vec::new();
+
+    for block in blocks {
+        match block
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
+            "text" => {
+                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                    let content_type = if role == "assistant" {
+                        "output_text"
+                    } else {
+                        "input_text"
+                    };
+                    message_content.push(json!({ "type": content_type, "text": text }));
+                }
+            }
+            "image" => {
+                if let Some(source) = block.get("source") {
+                    let media_type = source
+                        .get("media_type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("image/png");
+                    let data = source.get("data").and_then(Value::as_str).unwrap_or("");
+                    message_content.push(json!({
+                        "type": "input_image",
+                        "image_url": format!("data:{media_type};base64,{data}")
+                    }));
+                }
+            }
+            "tool_use" => {
+                flush_responses_message_content(&mut input, role, &mut message_content);
+                let id = block.get("id").and_then(Value::as_str).unwrap_or("");
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+                let arguments = block.get("input").cloned().unwrap_or_else(|| json!({}));
+                input.push(json!({
+                    "type": "function_call",
+                    "call_id": id,
+                    "name": name,
+                    "arguments": canonical_json_string(&arguments)
+                }));
+            }
+            "tool_result" => {
+                flush_responses_message_content(&mut input, role, &mut message_content);
+                let call_id = block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let output = match block.get("content") {
+                    Some(Value::String(text)) => text.clone(),
+                    Some(value) => canonical_json_string(value),
+                    None => String::new(),
+                };
+                input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    flush_responses_message_content(&mut input, role, &mut message_content);
+    input
+}
+
+fn flush_responses_message_content(input: &mut Vec<Value>, role: &str, content: &mut Vec<Value>) {
+    if content.is_empty() {
+        return;
+    }
+    input.push(json!({
+        "role": role,
+        "content": std::mem::take(content)
+    }));
+}
+
+fn map_anthropic_messages_to_gemini_native(body: Value) -> Result<Value, AppError> {
+    map_anthropic_messages_to_gemini_native_with_shadow(body, &[])
+}
+
+fn map_anthropic_messages_to_gemini_native_with_shadow(
+    body: Value,
+    shadow_turns: &[GeminiAssistantTurn],
+) -> Result<Value, AppError> {
+    let obj = body.as_object().ok_or_else(|| {
+        AppError::localized(
+            "claude_desktop.provider.body_invalid",
+            "Claude Desktop 请求体必须是 JSON 对象",
+            "Claude Desktop request body must be a JSON object",
+        )
+    })?;
+    let mut result = Map::new();
+
+    if let Some(system_instruction) = gemini_system_instruction(obj.get("system"))? {
+        result.insert("systemInstruction".to_string(), system_instruction);
+    }
+    if let Some(messages) = obj.get("messages") {
+        result.insert(
+            "contents".to_string(),
+            map_anthropic_messages_to_gemini_contents_with_shadow(messages, shadow_turns)?,
+        );
+    }
+    if let Some(generation_config) = gemini_generation_config(obj) {
+        result.insert("generationConfig".to_string(), generation_config);
+    }
+    if let Some(tools) = obj.get("tools") {
+        if let Some(mapped_tools) = map_anthropic_tools_to_gemini(tools) {
+            result.insert("tools".to_string(), mapped_tools);
+        }
+    }
+    if let Some(tool_config) = map_anthropic_tool_choice_to_gemini(obj.get("tool_choice"))? {
+        result.insert("toolConfig".to_string(), tool_config);
+    }
+
+    Ok(Value::Object(result))
+}
+
+pub fn map_gemini_native_response_to_anthropic(body: Value) -> Result<Value, AppError> {
+    map_gemini_native_response_to_anthropic_with_shadow(body, None, None, None)
+}
+
+pub fn map_gemini_native_response_to_anthropic_with_shadow(
+    body: Value,
+    shadow_store: Option<&GeminiShadowStore>,
+    provider_id: Option<&str>,
+    session_id: Option<&str>,
+) -> Result<Value, AppError> {
+    map_gemini_native_response_to_anthropic_with_shadow_and_hints(
+        body,
+        shadow_store,
+        provider_id,
+        session_id,
+        None,
+    )
+}
+
+pub fn map_gemini_native_response_to_anthropic_with_shadow_and_hints(
+    body: Value,
+    shadow_store: Option<&GeminiShadowStore>,
+    provider_id: Option<&str>,
+    session_id: Option<&str>,
+    tool_schema_hints: Option<&AnthropicToolSchemaHints>,
+) -> Result<Value, AppError> {
+    if let Some(block_reason) = body
+        .get("promptFeedback")
+        .and_then(|value| value.get("blockReason"))
+        .and_then(Value::as_str)
+    {
+        return Ok(json!({
+            "id": body.get("responseId").and_then(Value::as_str).unwrap_or(""),
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+                "type": "text",
+                "text": format!("Request blocked by Gemini safety filters: {block_reason}")
+            }],
+            "model": body.get("modelVersion").and_then(Value::as_str).unwrap_or(""),
+            "stop_reason": "refusal",
+            "stop_sequence": Value::Null,
+            "usage": gemini_usage_to_anthropic(body.get("usageMetadata"))
+        }));
+    }
+
+    let candidate = body
+        .get("candidates")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .ok_or_else(|| AppError::InvalidInput("No candidates in Gemini response".to_string()))?;
+    let parts = candidate
+        .get("content")
+        .and_then(|content| content.get("parts"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut parts = parts;
+    rectify_gemini_tool_call_parts(&mut parts, tool_schema_hints);
+    for (index, part) in parts.iter_mut().enumerate() {
+        let Some(function_call) = part.get_mut("functionCall").and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        let needs_synthesized_id = function_call
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::is_empty)
+            .unwrap_or(true);
+        if needs_synthesized_id {
+            function_call.insert(
+                "id".to_string(),
+                json!(format!("{GEMINI_SYNTHESIZED_ID_PREFIX}{index}")),
+            );
+        }
+    }
+    let mut content = Vec::new();
+    let mut has_tool_use = false;
+
+    for (index, part) in parts.iter().enumerate() {
+        if part.get("thought").and_then(Value::as_bool) == Some(true) {
+            continue;
+        }
+        if let Some(text) = part.get("text").and_then(Value::as_str) {
+            if !text.is_empty() {
+                content.push(json!({
+                    "type": "text",
+                    "text": text
+                }));
+            }
+            continue;
+        }
+        if let Some(function_call) = part.get("functionCall") {
+            has_tool_use = true;
+            let id = function_call
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("{GEMINI_SYNTHESIZED_ID_PREFIX}{index}"));
+            content.push(json!({
+                "type": "tool_use",
+                "id": id,
+                "name": function_call.get("name").and_then(Value::as_str).unwrap_or(""),
+                "input": function_call.get("args").cloned().unwrap_or_else(|| json!({}))
+            }));
+        }
+    }
+
+    if let (Some(store), Some(provider_id), Some(session_id)) =
+        (shadow_store, provider_id, session_id)
+    {
+        if !parts.is_empty() {
+            store.record_assistant_turn(
+                provider_id,
+                session_id,
+                json!({ "parts": parts.clone() }),
+                extract_gemini_tool_call_meta(&parts),
+            );
+        }
+    }
+
+    Ok(json!({
+        "id": body.get("responseId").and_then(Value::as_str).unwrap_or(""),
+        "type": "message",
+        "role": "assistant",
+        "content": content,
+        "model": body.get("modelVersion").and_then(Value::as_str).unwrap_or(""),
+        "stop_reason": gemini_finish_reason_to_anthropic(
+            candidate.get("finishReason").and_then(Value::as_str),
+            has_tool_use,
+        ),
+        "stop_sequence": Value::Null,
+        "usage": gemini_usage_to_anthropic(body.get("usageMetadata"))
+    }))
+}
+
+pub fn map_openai_chat_response_to_anthropic(body: Value) -> Result<Value, AppError> {
+    let choices = body
+        .get("choices")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::Config("No choices in OpenAI Chat response".to_string()))?;
+    let choice = choices.first().ok_or_else(|| {
+        AppError::Config("Empty choices array in OpenAI Chat response".to_string())
+    })?;
+    let message = choice
+        .get("message")
+        .ok_or_else(|| AppError::Config("No message in OpenAI Chat choice".to_string()))?;
+
+    let mut content = Vec::new();
+    let mut has_tool_use = false;
+
+    if let Some(reasoning_content) = message.get("reasoning_content").and_then(Value::as_str) {
+        if !reasoning_content.is_empty() {
+            content.push(json!({
+                "type": "thinking",
+                "thinking": reasoning_content
+            }));
+        }
+    }
+
+    if let Some(message_content) = message.get("content") {
+        if let Some(text) = message_content.as_str() {
+            if !text.is_empty() {
+                content.push(json!({
+                    "type": "text",
+                    "text": text
+                }));
+            }
+        } else if let Some(parts) = message_content.as_array() {
+            for part in parts {
+                match part.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" | "output_text" => {
+                        if let Some(text) = part.get("text").and_then(Value::as_str) {
+                            if !text.is_empty() {
+                                content.push(json!({
+                                    "type": "text",
+                                    "text": text
+                                }));
+                            }
+                        }
+                    }
+                    "refusal" => {
+                        if let Some(refusal) = part.get("refusal").and_then(Value::as_str) {
+                            if !refusal.is_empty() {
+                                content.push(json!({
+                                    "type": "text",
+                                    "text": refusal
+                                }));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let Some(refusal) = message.get("refusal").and_then(Value::as_str) {
+        if !refusal.is_empty() {
+            content.push(json!({
+                "type": "text",
+                "text": refusal
+            }));
+        }
+    }
+
+    if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+        if !tool_calls.is_empty() {
+            has_tool_use = true;
+        }
+        for tool_call in tool_calls {
+            let id = tool_call.get("id").and_then(Value::as_str).unwrap_or("");
+            let function = tool_call.get("function").unwrap_or(&Value::Null);
+            let name = function.get("name").and_then(Value::as_str).unwrap_or("");
+            let arguments = function
+                .get("arguments")
+                .and_then(Value::as_str)
+                .unwrap_or("{}");
+            let input = serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}));
+
+            content.push(json!({
+                "type": "tool_use",
+                "id": id,
+                "name": name,
+                "input": input
+            }));
+        }
+    }
+
+    if !has_tool_use {
+        if let Some(function_call) = message.get("function_call") {
+            let id = function_call
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let name = function_call
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let has_arguments = function_call.get("arguments").is_some();
+            let input = match function_call.get("arguments") {
+                Some(Value::String(raw)) => {
+                    serde_json::from_str::<Value>(raw).unwrap_or_else(|_| json!({}))
+                }
+                Some(value @ Value::Object(_)) | Some(value @ Value::Array(_)) => value.clone(),
+                _ => json!({}),
+            };
+
+            if !name.is_empty() || has_arguments {
+                content.push(json!({
+                    "type": "tool_use",
+                    "id": id,
+                    "name": name,
+                    "input": input
+                }));
+                has_tool_use = true;
+            }
+        }
+    }
+
+    let stop_reason = choice
+        .get("finish_reason")
+        .and_then(Value::as_str)
+        .map(|reason| match reason {
+            "stop" => "end_turn",
+            "length" => "max_tokens",
+            "tool_calls" | "function_call" => "tool_use",
+            "content_filter" => "end_turn",
+            other => {
+                log::warn!(
+                    "[Claude/OpenAI] Unknown finish_reason in non-streaming response: {other}"
+                );
+                "end_turn"
+            }
+        })
+        .or(if has_tool_use { Some("tool_use") } else { None });
+
+    Ok(json!({
+        "id": body.get("id").and_then(Value::as_str).unwrap_or(""),
+        "type": "message",
+        "role": "assistant",
+        "content": content,
+        "model": body.get("model").and_then(Value::as_str).unwrap_or(""),
+        "stop_reason": stop_reason,
+        "stop_sequence": Value::Null,
+        "usage": openai_chat_usage_to_anthropic(body.get("usage"))
+    }))
+}
+
+pub fn map_openai_responses_response_to_anthropic(body: Value) -> Result<Value, AppError> {
+    let output = body
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::Config("No output in OpenAI Responses response".to_string()))?;
+
+    let mut content = Vec::new();
+    let mut has_tool_use = false;
+
+    for item in output {
+        match item.get("type").and_then(Value::as_str).unwrap_or("") {
+            "message" => {
+                if let Some(message_content) = item.get("content").and_then(Value::as_array) {
+                    for block in message_content {
+                        match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                            "output_text" => {
+                                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                                    if !text.is_empty() {
+                                        content.push(json!({
+                                            "type": "text",
+                                            "text": text
+                                        }));
+                                    }
+                                }
+                            }
+                            "refusal" => {
+                                if let Some(refusal) = block.get("refusal").and_then(Value::as_str)
+                                {
+                                    if !refusal.is_empty() {
+                                        content.push(json!({
+                                            "type": "text",
+                                            "text": refusal
+                                        }));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "function_call" => {
+                let call_id = item.get("call_id").and_then(Value::as_str).unwrap_or("");
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+                let arguments = item
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .unwrap_or("{}");
+                let input = serde_json::from_str::<Value>(arguments).unwrap_or_else(|_| json!({}));
+                content.push(json!({
+                    "type": "tool_use",
+                    "id": call_id,
+                    "name": name,
+                    "input": sanitize_anthropic_tool_use_input(name, input)
+                }));
+                has_tool_use = true;
+            }
+            "reasoning" => {
+                if let Some(summary) = item.get("summary").and_then(Value::as_array) {
+                    let thinking = summary
+                        .iter()
+                        .filter_map(|entry| {
+                            (entry.get("type").and_then(Value::as_str) == Some("summary_text"))
+                                .then(|| entry.get("text").and_then(Value::as_str))
+                                .flatten()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                    if !thinking.is_empty() {
+                        content.push(json!({
+                            "type": "thinking",
+                            "thinking": thinking
+                        }));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let stop_reason = map_responses_stop_reason(
+        body.get("status").and_then(Value::as_str),
+        has_tool_use,
+        body.pointer("/incomplete_details/reason")
+            .and_then(Value::as_str),
+    );
+
+    Ok(json!({
+        "id": body.get("id").and_then(Value::as_str).unwrap_or(""),
+        "type": "message",
+        "role": "assistant",
+        "content": content,
+        "model": body.get("model").and_then(Value::as_str).unwrap_or(""),
+        "stop_reason": stop_reason,
+        "stop_sequence": Value::Null,
+        "usage": openai_responses_usage_to_anthropic(body.get("usage"))
+    }))
+}
+
+fn sanitize_anthropic_tool_use_input(name: &str, input: Value) -> Value {
+    if name != "Read" {
+        return input;
+    }
+
+    match input {
+        Value::Object(mut object) => {
+            if matches!(object.get("pages"), Some(Value::String(value)) if value.is_empty()) {
+                object.remove("pages");
+            }
+            Value::Object(object)
+        }
+        other => other,
+    }
+}
+
+pub(crate) fn openai_chat_usage_to_anthropic(usage: Option<&Value>) -> Value {
+    let Some(usage) = usage else {
+        return json!({
+            "input_tokens": 0,
+            "output_tokens": 0
+        });
+    };
+
+    let mut result = json!({
+        "input_tokens": usage
+            .get("prompt_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| usage.get("input_tokens").and_then(Value::as_u64))
+            .unwrap_or(0),
+        "output_tokens": usage
+            .get("completion_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| usage.get("output_tokens").and_then(Value::as_u64))
+            .unwrap_or(0)
+    });
+
+    if let Some(cached) = usage
+        .pointer("/prompt_tokens_details/cached_tokens")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            usage
+                .pointer("/input_tokens_details/cached_tokens")
+                .and_then(Value::as_u64)
+        })
+    {
+        result["cache_read_input_tokens"] = json!(cached);
+    }
+    if let Some(value) = usage.get("cache_read_input_tokens") {
+        result["cache_read_input_tokens"] = value.clone();
+    }
+    if let Some(value) = usage.get("cache_creation_input_tokens") {
+        result["cache_creation_input_tokens"] = value.clone();
+    }
+
+    result
+}
+
+pub(crate) fn openai_responses_usage_to_anthropic(usage: Option<&Value>) -> Value {
+    let Some(usage) = usage.filter(|value| value.is_object()) else {
+        return json!({
+            "input_tokens": 0,
+            "output_tokens": 0
+        });
+    };
+
+    let mut result = json!({
+        "input_tokens": usage
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| usage.get("prompt_tokens").and_then(Value::as_u64))
+            .unwrap_or(0),
+        "output_tokens": usage
+            .get("output_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| usage.get("completion_tokens").and_then(Value::as_u64))
+            .unwrap_or(0)
+    });
+
+    if let Some(cached) = usage
+        .pointer("/input_tokens_details/cached_tokens")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            usage
+                .pointer("/prompt_tokens_details/cached_tokens")
+                .and_then(Value::as_u64)
+        })
+    {
+        result["cache_read_input_tokens"] = json!(cached);
+    }
+    if let Some(value) = usage.get("cache_read_input_tokens") {
+        result["cache_read_input_tokens"] = value.clone();
+    }
+    if let Some(value) = usage.get("cache_creation_input_tokens") {
+        result["cache_creation_input_tokens"] = value.clone();
+    }
+
+    result
+}
+
+pub(crate) fn map_responses_stop_reason(
+    status: Option<&str>,
+    has_tool_use: bool,
+    incomplete_reason: Option<&str>,
+) -> Option<&'static str> {
+    status.map(|status| match status {
+        "completed" if has_tool_use => "tool_use",
+        "incomplete"
+            if matches!(
+                incomplete_reason,
+                Some("max_output_tokens") | Some("max_tokens")
+            ) || incomplete_reason.is_none() =>
+        {
+            "max_tokens"
+        }
+        "incomplete" => "end_turn",
+        _ => "end_turn",
+    })
+}
+
+fn gemini_system_instruction(system: Option<&Value>) -> Result<Option<Value>, AppError> {
+    let Some(system) = system else {
+        return Ok(None);
+    };
+    let text = anthropic_content_to_text(system).unwrap_or_default();
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(json!({
+        "parts": [{ "text": text }]
+    })))
+}
+
+fn gemini_generation_config(obj: &Map<String, Value>) -> Option<Value> {
+    let mut config = Map::new();
+    if let Some(value) = obj.get("max_tokens") {
+        config.insert("maxOutputTokens".to_string(), value.clone());
+    }
+    if let Some(value) = obj.get("temperature") {
+        config.insert("temperature".to_string(), value.clone());
+    }
+    if let Some(value) = obj.get("top_p") {
+        config.insert("topP".to_string(), value.clone());
+    }
+    if let Some(value) = obj.get("stop_sequences") {
+        config.insert("stopSequences".to_string(), value.clone());
+    }
+    (!config.is_empty()).then_some(Value::Object(config))
+}
+
+fn map_anthropic_messages_to_gemini_contents_with_shadow(
+    messages: &Value,
+    shadow_turns: &[GeminiAssistantTurn],
+) -> Result<Value, AppError> {
+    let Value::Array(items) = messages else {
+        return Err(AppError::localized(
+            "claude_desktop.provider.messages_invalid",
+            "Claude Desktop messages 必须是数组",
+            "Claude Desktop messages must be an array",
+        ));
+    };
+    let mut tool_name_by_id = HashMap::new();
+    for turn in shadow_turns {
+        merge_gemini_tool_names_from_shadow(turn, &mut tool_name_by_id);
+    }
+
+    let total_assistant_messages = items
+        .iter()
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+        .count();
+    let effective_shadow_turns = if shadow_turns.len() > total_assistant_messages {
+        &shadow_turns[shadow_turns.len() - total_assistant_messages..]
+    } else {
+        shadow_turns
+    };
+    let shadow_start_index = total_assistant_messages.saturating_sub(effective_shadow_turns.len());
+    let mut assistant_seen_index = 0usize;
+    let mut used_shadow_indices = HashSet::new();
+    let mut contents = Vec::with_capacity(items.len());
+
+    for message in items {
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("user");
+        let parts = if role == "assistant" {
+            let positional_shadow_index = assistant_seen_index
+                .checked_sub(shadow_start_index)
+                .filter(|index| *index < effective_shadow_turns.len())
+                .filter(|index| !used_shadow_indices.contains(index));
+            let tool_use_match_index =
+                find_matching_gemini_shadow_turn(message.get("content"), effective_shadow_turns)
+                    .filter(|index| !used_shadow_indices.contains(index));
+            assistant_seen_index = assistant_seen_index.saturating_add(1);
+
+            if let Some(index) = tool_use_match_index.or(positional_shadow_index) {
+                used_shadow_indices.insert(index);
+                let turn = &effective_shadow_turns[index];
+                merge_gemini_tool_names_from_shadow(turn, &mut tool_name_by_id);
+                if let Some(parts) = shadow_gemini_parts(&turn.assistant_content) {
+                    parts
+                } else {
+                    map_anthropic_content_to_gemini_parts(
+                        message.get("content"),
+                        role,
+                        &mut tool_name_by_id,
+                    )?
+                }
+            } else {
+                map_anthropic_content_to_gemini_parts(
+                    message.get("content"),
+                    role,
+                    &mut tool_name_by_id,
+                )?
+            }
+        } else {
+            map_anthropic_content_to_gemini_parts(
+                message.get("content"),
+                role,
+                &mut tool_name_by_id,
+            )?
+        };
+
+        if role == "assistant" {
+            merge_gemini_tool_names_from_parts(&parts, &mut tool_name_by_id);
+        }
+
+        contents.push(json!({
+            "role": if role == "assistant" { "model" } else { "user" },
+            "parts": parts
+        }));
+    }
+
+    Ok(Value::Array(contents))
+}
+
+fn shadow_gemini_parts(content: &Value) -> Option<Vec<Value>> {
+    let mut parts = content
+        .get("parts")
+        .and_then(Value::as_array)
+        .map(|parts| parts.to_vec())?;
+    for part in &mut parts {
+        let Some(function_call) = part.get_mut("functionCall").and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        let drop_id = function_call
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|id| id.is_empty() || is_gemini_synthesized_tool_id(id))
+            .unwrap_or(true);
+        if drop_id {
+            function_call.remove("id");
+        }
+    }
+    Some(parts)
+}
+
+fn merge_gemini_tool_names_from_shadow(
+    turn: &GeminiAssistantTurn,
+    tool_name_by_id: &mut HashMap<String, String>,
+) {
+    for tool_call in &turn.tool_calls {
+        if let Some(id) = tool_call.id.as_deref().filter(|id| !id.is_empty()) {
+            if !tool_call.name.is_empty() {
+                tool_name_by_id.insert(id.to_string(), tool_call.name.clone());
+            }
+        }
+    }
+    if let Some(parts) = shadow_gemini_parts(&turn.assistant_content) {
+        merge_gemini_tool_names_from_parts(&parts, tool_name_by_id);
+    }
+}
+
+fn merge_gemini_tool_names_from_parts(
+    parts: &[Value],
+    tool_name_by_id: &mut HashMap<String, String>,
+) {
+    for part in parts {
+        let Some(function_call) = part.get("functionCall") else {
+            continue;
+        };
+        let Some(id) = function_call.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(name) = function_call.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !id.is_empty() && !name.is_empty() {
+            tool_name_by_id.insert(id.to_string(), name.to_string());
+        }
+    }
+}
+
+fn find_matching_gemini_shadow_turn(
+    content: Option<&Value>,
+    shadow_turns: &[GeminiAssistantTurn],
+) -> Option<usize> {
+    let (tool_use_ids, tool_use_names) = extract_gemini_tool_use_keys(content);
+    if tool_use_ids.is_empty() && tool_use_names.is_empty() {
+        return None;
+    }
+
+    if !tool_use_ids.is_empty() {
+        if let Some(index) = shadow_turns.iter().position(|turn| {
+            turn.tool_calls.iter().any(|tool_call| {
+                tool_call
+                    .id
+                    .as_deref()
+                    .is_some_and(|id| tool_use_ids.contains(id))
+            })
+        }) {
+            return Some(index);
+        }
+    }
+
+    shadow_turns.iter().enumerate().find_map(|(index, turn)| {
+        turn.tool_calls
+            .iter()
+            .any(|tool_call| {
+                tool_use_names.contains(tool_call.name.as_str())
+                    || tool_use_names.contains(normalize_gemini_tool_name(&tool_call.name))
+            })
+            .then_some(index)
+    })
+}
+
+fn extract_gemini_tool_use_keys(content: Option<&Value>) -> (HashSet<String>, HashSet<String>) {
+    let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    let Some(blocks) = content.and_then(Value::as_array) else {
+        return (ids, names);
+    };
+
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+            continue;
+        }
+        if let Some(id) = block
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            ids.insert(id.to_string());
+        }
+        if let Some(name) = block
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+        {
+            names.insert(name.to_string());
+            names.insert(normalize_gemini_tool_name(name).to_string());
+        }
+    }
+
+    (ids, names)
+}
+
+fn normalize_gemini_tool_name(name: &str) -> &str {
+    name.rsplit(':').next().unwrap_or(name)
+}
+
+pub(crate) fn extract_gemini_tool_call_meta(parts: &[Value]) -> Vec<GeminiToolCallMeta> {
+    parts
+        .iter()
+        .filter_map(|part| {
+            let function_call = part.get("functionCall")?;
+            Some(GeminiToolCallMeta {
+                id: function_call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .map(ToString::to_string),
+                name: function_call
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                args: function_call
+                    .get("args")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+                thought_signature: part
+                    .get("thoughtSignature")
+                    .or_else(|| part.get("thought_signature"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            })
+        })
+        .collect()
+}
+
+fn map_anthropic_content_to_gemini_parts(
+    content: Option<&Value>,
+    role: &str,
+    tool_name_by_id: &mut HashMap<String, String>,
+) -> Result<Vec<Value>, AppError> {
+    let Some(content) = content else {
+        return Ok(Vec::new());
+    };
+    if let Some(text) = content.as_str() {
+        return Ok(vec![json!({ "text": text })]);
+    }
+    let Some(blocks) = content.as_array() else {
+        return Err(AppError::localized(
+            "claude_desktop.provider.content_invalid",
+            "Claude Desktop message content 必须是字符串或数组",
+            "Claude Desktop message content must be a string or array",
+        ));
+    };
+
+    let mut parts = Vec::new();
+    for block in blocks {
+        match block
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
+            "text" => {
+                if let Some(text) = block.get("text").and_then(Value::as_str) {
+                    parts.push(json!({ "text": text }));
+                }
+            }
+            "image" | "document" => {
+                let source = block.get("source").ok_or_else(|| {
+                    AppError::InvalidInput(
+                        "Gemini Native content block is missing source".to_string(),
+                    )
+                })?;
+                let source_type = source.get("type").and_then(Value::as_str).unwrap_or("");
+                if source_type != "base64" {
+                    return Err(AppError::InvalidInput(format!(
+                        "Gemini Native only supports base64 content sources, got `{source_type}`"
+                    )));
+                }
+                let default_mime = if block.get("type").and_then(Value::as_str) == Some("document")
+                {
+                    "application/pdf"
+                } else {
+                    "image/png"
+                };
+                parts.push(json!({
+                    "inlineData": {
+                        "mimeType": source
+                            .get("media_type")
+                            .and_then(Value::as_str)
+                            .unwrap_or(default_mime),
+                        "data": source.get("data").and_then(Value::as_str).unwrap_or("")
+                    }
+                }));
+            }
+            "tool_use" => {
+                if role != "assistant" {
+                    return Err(AppError::InvalidInput(
+                        "Gemini Native tool_use blocks are only valid in assistant messages"
+                            .to_string(),
+                    ));
+                }
+                let id = block.get("id").and_then(Value::as_str).unwrap_or("");
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+                if !id.is_empty() && !name.is_empty() {
+                    tool_name_by_id.insert(id.to_string(), name.to_string());
+                }
+                let mut function_call = json!({
+                    "name": name,
+                    "args": block.get("input").cloned().unwrap_or_else(|| json!({}))
+                });
+                if !id.is_empty() && !is_gemini_synthesized_tool_id(id) {
+                    function_call["id"] = json!(id);
+                }
+                parts.push(json!({ "functionCall": function_call }));
+            }
+            "tool_result" => {
+                let tool_use_id = block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let name = tool_name_by_id
+                    .get(tool_use_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AppError::InvalidInput(format!(
+                            "Unable to resolve Gemini functionResponse.name for tool_use_id `{tool_use_id}`"
+                        ))
+                    })?;
+                let mut function_response = json!({
+                    "name": name,
+                    "response": normalize_gemini_tool_result_response(block.get("content"))
+                });
+                if !tool_use_id.is_empty() && !is_gemini_synthesized_tool_id(tool_use_id) {
+                    function_response["id"] = json!(tool_use_id);
+                }
+                parts.push(json!({ "functionResponse": function_response }));
+            }
+            "thinking" | "redacted_thinking" => {}
+            _ => {}
+        }
+    }
+    Ok(parts)
+}
+
+fn is_gemini_synthesized_tool_id(id: &str) -> bool {
+    id.starts_with(GEMINI_SYNTHESIZED_ID_PREFIX)
+}
+
+pub(crate) fn gemini_usage_to_anthropic(usage: Option<&Value>) -> Value {
+    let Some(usage) = usage else {
+        return json!({
+            "input_tokens": 0,
+            "output_tokens": 0
+        });
+    };
+    let input_tokens = usage
+        .get("promptTokenCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let total_tokens = usage
+        .get("totalTokenCount")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let mut result = json!({
+        "input_tokens": input_tokens,
+        "output_tokens": total_tokens.saturating_sub(input_tokens)
+    });
+    if let Some(cached) = usage.get("cachedContentTokenCount").and_then(Value::as_u64) {
+        result["cache_read_input_tokens"] = json!(cached);
+    }
+    result
+}
+
+pub(crate) fn gemini_finish_reason_to_anthropic(reason: Option<&str>, has_tool_use: bool) -> Value {
+    match reason {
+        Some("MAX_TOKENS") => json!("max_tokens"),
+        Some("STOP") | Some("FINISH_REASON_UNSPECIFIED") | None => {
+            if has_tool_use {
+                json!("tool_use")
+            } else {
+                json!("end_turn")
+            }
+        }
+        Some("SAFETY")
+        | Some("RECITATION")
+        | Some("SPII")
+        | Some("BLOCKLIST")
+        | Some("PROHIBITED_CONTENT") => json!("refusal"),
+        Some(_) => json!("end_turn"),
+    }
+}
+
+fn normalize_gemini_tool_result_response(content: Option<&Value>) -> Value {
+    match content {
+        Some(Value::String(text)) => json!({ "content": text }),
+        Some(Value::Array(blocks)) => {
+            let texts = blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>();
+            if texts.is_empty() {
+                json!({ "content": Value::Array(blocks.clone()) })
+            } else {
+                json!({ "content": texts.join("\n") })
+            }
+        }
+        Some(value) => json!({ "content": value.clone() }),
+        None => json!({ "content": "" }),
+    }
+}
+
+fn map_anthropic_tools_to_gemini(tools: &Value) -> Option<Value> {
+    let Value::Array(items) = tools else {
+        return None;
+    };
+    let declarations = items
+        .iter()
+        .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("BatchTool"))
+        .filter_map(|tool| {
+            let name = tool.get("name").and_then(Value::as_str)?;
+            Some(build_gemini_function_declaration(
+                name,
+                tool.get("description").and_then(Value::as_str),
+                tool.get("input_schema")
+                    .or_else(|| tool.get("parameters"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ))
+        })
+        .collect::<Vec<_>>();
+    (!declarations.is_empty()).then(|| {
+        json!([{
+            "functionDeclarations": declarations
+        }])
+    })
+}
+
+fn map_anthropic_tool_choice_to_gemini(
+    tool_choice: Option<&Value>,
+) -> Result<Option<Value>, AppError> {
+    let Some(tool_choice) = tool_choice else {
+        return Ok(None);
+    };
+    match tool_choice {
+        Value::String(choice) => match choice.as_str() {
+            "auto" => Ok(Some(json!({ "functionCallingConfig": { "mode": "AUTO" } }))),
+            "none" => Ok(Some(json!({ "functionCallingConfig": { "mode": "NONE" } }))),
+            "any" | "required" | "required_auto" => {
+                Ok(Some(json!({ "functionCallingConfig": { "mode": "ANY" } })))
+            }
+            other => Err(AppError::InvalidInput(format!(
+                "Unsupported Gemini tool_choice string: {other}"
+            ))),
+        },
+        Value::Object(choice) => {
+            let choice_type = choice.get("type").and_then(Value::as_str).unwrap_or("");
+            let config = match choice_type {
+                "auto" => json!({ "mode": "AUTO" }),
+                "none" => json!({ "mode": "NONE" }),
+                "any" => json!({ "mode": "ANY" }),
+                "tool" | "function" => {
+                    let name = choice
+                        .get("name")
+                        .or_else(|| {
+                            choice
+                                .get("function")
+                                .and_then(|function| function.get("name"))
+                        })
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            AppError::InvalidInput(
+                                "Gemini tool_choice is missing forced tool name".to_string(),
+                            )
+                        })?;
+                    json!({
+                        "mode": "ANY",
+                        "allowedFunctionNames": [name]
+                    })
+                }
+                other => {
+                    return Err(AppError::InvalidInput(format!(
+                        "Unsupported Gemini tool_choice type: {other}"
+                    )))
+                }
+            };
+            Ok(Some(json!({ "functionCallingConfig": config })))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn anthropic_content_to_text(value: &Value) -> Option<String> {
@@ -1272,6 +2790,7 @@ fn map_anthropic_tools_to_openai_chat(tools: &Value) -> Value {
     Value::Array(
         items
             .iter()
+            .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("BatchTool"))
             .map(|tool| {
                 if tool.get("type").and_then(Value::as_str) == Some("function") {
                     return tool.clone();
@@ -1308,6 +2827,7 @@ fn map_anthropic_tools_to_openai_responses(tools: &Value) -> Value {
     Value::Array(
         items
             .iter()
+            .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("BatchTool"))
             .map(|tool| {
                 if tool.get("type").and_then(Value::as_str) == Some("function")
                     && tool.get("name").is_some()
@@ -2439,6 +3959,54 @@ mod tests {
     }
 
     #[test]
+    fn openai_chat_proxy_request_applies_model_parameter_rules() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "o3-mini".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_chat"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "system": "x-anthropic-billing-header: cch=rotating\n\nUse short answers.",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "max_tokens": 2048,
+                "thinking": { "type": "enabled", "budget_tokens": 12000 },
+                "output_config": { "effort": "max" },
+                "tools": [
+                    {
+                        "type": "BatchTool",
+                        "name": "batch",
+                        "input_schema": { "type": "object" }
+                    },
+                    {
+                        "name": "lookup_price",
+                        "input_schema": { "type": "object" }
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["messages"][0]["content"], "Use short answers.");
+        assert_eq!(mapped["max_completion_tokens"], 2048);
+        assert!(mapped.get("max_tokens").is_none());
+        assert_eq!(mapped["reasoning_effort"], "xhigh");
+        assert!(mapped.get("thinking").is_none());
+        assert!(mapped.get("output_config").is_none());
+        assert_eq!(mapped["tools"].as_array().expect("tools").len(), 1);
+        assert_eq!(mapped["tools"][0]["function"]["name"], "lookup_price");
+    }
+
+    #[test]
     fn openai_responses_proxy_request_maps_input_tools_max_tokens_and_tool_choice() {
         let provider = proxy_provider_with_api_format(
             HashMap::from([(
@@ -2481,7 +4049,10 @@ mod tests {
         assert_eq!(mapped["model"], "gpt-5.1-codex");
         assert_eq!(mapped["instructions"], "Use short answers.");
         assert!(mapped.get("messages").is_none());
-        assert_eq!(mapped["input"][0]["content"], "hello");
+        assert_eq!(
+            mapped["input"][0]["content"],
+            json!([{ "type": "input_text", "text": "hello" }])
+        );
         assert_eq!(mapped["max_output_tokens"], 2048);
         assert!(mapped.get("max_tokens").is_none());
         assert_eq!(mapped["stop"], json!(["END"]));
@@ -2492,6 +4063,906 @@ mod tests {
         );
         assert_eq!(mapped["tools"][0]["type"], "function");
         assert_eq!(mapped["tools"][0]["name"], "lookup_price");
+    }
+
+    #[test]
+    fn openai_responses_proxy_request_maps_reasoning_and_filters_batch_tool() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-5.1".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_responses"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "thinking": { "type": "enabled", "budget_tokens": 2000 },
+                "tools": [
+                    {
+                        "type": "BatchTool",
+                        "name": "batch",
+                        "input_schema": { "type": "object" }
+                    },
+                    {
+                        "name": "lookup_price",
+                        "input_schema": { "type": "object" }
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["reasoning"], json!({ "effort": "low" }));
+        assert!(mapped.get("thinking").is_none());
+        assert_eq!(mapped["tools"].as_array().expect("tools").len(), 1);
+        assert_eq!(mapped["tools"][0]["name"], "lookup_price");
+    }
+
+    #[test]
+    fn openai_responses_codex_oauth_applies_upstream_protocol_constraints() {
+        let mut provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-5.1-codex".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_responses"),
+        );
+        let meta = provider.meta.as_mut().expect("provider meta");
+        meta.provider_type = Some("codex_oauth".to_string());
+        meta.prompt_cache_key = Some("cache-key".to_string());
+        meta.codex_fast_mode = Some(true);
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 2048,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "stop_sequences": ["END"],
+                "stream": false,
+                "include": ["something.else", "reasoning.encrypted_content"],
+                "thinking": {"type": "enabled", "budget_tokens": 1024}
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["store"], json!(false));
+        assert_eq!(mapped["service_tier"], json!("priority"));
+        assert_eq!(mapped["prompt_cache_key"], json!("cache-key"));
+        assert_eq!(mapped["instructions"], json!(""));
+        assert_eq!(mapped["tools"], json!([]));
+        assert_eq!(mapped["parallel_tool_calls"], json!(false));
+        assert_eq!(mapped["stream"], json!(true));
+        assert_eq!(mapped["include"][0], json!("something.else"));
+        assert_eq!(mapped["include"][1], json!("reasoning.encrypted_content"));
+        assert_eq!(
+            mapped["include"]
+                .as_array()
+                .expect("include array")
+                .iter()
+                .filter(|value| value.as_str() == Some("reasoning.encrypted_content"))
+                .count(),
+            1
+        );
+        assert!(mapped.get("max_output_tokens").is_none());
+        assert!(mapped.get("max_tokens").is_none());
+        assert!(mapped.get("temperature").is_none());
+        assert!(mapped.get("top_p").is_none());
+        assert!(mapped.get("stop").is_none());
+        assert!(mapped.get("stop_sequences").is_none());
+        assert!(mapped.get("thinking").is_none());
+    }
+
+    #[test]
+    fn openai_responses_non_codex_keeps_general_responses_parameters() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-5.1".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_responses"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 2048,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "stop_sequences": ["END"],
+                "stream": false
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["max_output_tokens"], json!(2048));
+        assert_eq!(mapped["temperature"], json!(0.7));
+        assert_eq!(mapped["top_p"], json!(0.9));
+        assert_eq!(mapped["stop"], json!(["END"]));
+        assert_eq!(mapped["stream"], json!(false));
+        assert!(mapped.get("store").is_none());
+        assert!(mapped.get("include").is_none());
+        assert!(mapped.get("service_tier").is_none());
+        assert!(mapped.get("parallel_tool_calls").is_none());
+        assert!(mapped.get("instructions").is_none());
+        assert!(mapped.get("tools").is_none());
+    }
+
+    #[test]
+    fn gemini_native_proxy_request_maps_anthropic_body_to_generate_content() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gemini-2.5-pro".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("gemini_native"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "system": [{ "type": "text", "text": "Use short answers." }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": "hello" },
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "aGVsbG8="
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 1024,
+                "temperature": 0.3,
+                "top_p": 0.8,
+                "stop_sequences": ["END"],
+                "tool_choice": { "type": "tool", "name": "lookup_price" },
+                "tools": [
+                    {
+                        "name": "lookup_price",
+                        "description": "Look up a price",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "symbol": { "type": "string" }
+                            }
+                        }
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert!(mapped.get("model").is_none());
+        assert_eq!(
+            mapped["systemInstruction"]["parts"][0]["text"],
+            "Use short answers."
+        );
+        assert_eq!(mapped["contents"][0]["role"], "user");
+        assert_eq!(mapped["contents"][0]["parts"][0]["text"], "hello");
+        assert_eq!(
+            mapped["contents"][0]["parts"][1]["inlineData"],
+            json!({
+                "mimeType": "image/png",
+                "data": "aGVsbG8="
+            })
+        );
+        assert_eq!(mapped["generationConfig"]["maxOutputTokens"], 1024);
+        assert_eq!(mapped["generationConfig"]["temperature"], 0.3);
+        assert_eq!(mapped["generationConfig"]["topP"], 0.8);
+        assert_eq!(mapped["generationConfig"]["stopSequences"], json!(["END"]));
+        assert_eq!(
+            mapped["tools"][0]["functionDeclarations"][0]["name"],
+            "lookup_price"
+        );
+        assert_eq!(
+            mapped["toolConfig"]["functionCallingConfig"],
+            json!({
+                "mode": "ANY",
+                "allowedFunctionNames": ["lookup_price"]
+            })
+        );
+    }
+
+    #[test]
+    fn gemini_native_tool_schema_uses_json_schema_channel_when_needed() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gemini-2.5-pro".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("gemini_native"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "tools": [
+                    {
+                        "name": "weather",
+                        "description": "Weather lookup",
+                        "input_schema": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "type": "object",
+                            "properties": {
+                                "city": { "type": "string" }
+                            },
+                            "required": ["city"],
+                            "additionalProperties": false
+                        }
+                    },
+                    {
+                        "name": "ping",
+                        "description": "No argument tool"
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        let declarations = mapped["tools"][0]["functionDeclarations"]
+            .as_array()
+            .expect("function declarations");
+        let weather = declarations
+            .iter()
+            .find(|declaration| declaration["name"] == "weather")
+            .expect("weather declaration");
+        assert!(weather.get("parameters").is_none());
+        assert!(weather.get("parametersJsonSchema").is_some());
+        assert!(weather["parametersJsonSchema"].get("$schema").is_none());
+        assert_eq!(
+            weather["parametersJsonSchema"]["additionalProperties"],
+            false
+        );
+
+        let ping = declarations
+            .iter()
+            .find(|declaration| declaration["name"] == "ping")
+            .expect("ping declaration");
+        assert_eq!(ping["parameters"]["type"], "object");
+        assert!(ping["parameters"]["properties"].is_object());
+    }
+
+    #[test]
+    fn gemini_native_response_maps_to_anthropic_message() {
+        let mapped = map_gemini_native_response_to_anthropic(json!({
+            "responseId": "resp-1",
+            "modelVersion": "gemini-2.5-pro",
+            "candidates": [{
+                "finishReason": "STOP",
+                "content": {
+                    "parts": [
+                        { "text": "Checking." },
+                        {
+                            "functionCall": {
+                                "name": "lookup_price",
+                                "args": { "symbol": "AAPL" }
+                            }
+                        }
+                    ]
+                }
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "totalTokenCount": 15,
+                "cachedContentTokenCount": 3
+            }
+        }))
+        .expect("mapped response");
+
+        assert_eq!(mapped["id"], "resp-1");
+        assert_eq!(mapped["type"], "message");
+        assert_eq!(mapped["role"], "assistant");
+        assert_eq!(mapped["model"], "gemini-2.5-pro");
+        assert_eq!(mapped["stop_reason"], "tool_use");
+        assert_eq!(
+            mapped["content"][0],
+            json!({ "type": "text", "text": "Checking." })
+        );
+        assert_eq!(mapped["content"][1]["type"], "tool_use");
+        assert_eq!(mapped["content"][1]["id"], "gemini_synth_1");
+        assert_eq!(mapped["content"][1]["name"], "lookup_price");
+        assert_eq!(mapped["content"][1]["input"], json!({ "symbol": "AAPL" }));
+        assert_eq!(mapped["usage"]["input_tokens"], 10);
+        assert_eq!(mapped["usage"]["output_tokens"], 5);
+        assert_eq!(mapped["usage"]["cache_read_input_tokens"], 3);
+    }
+
+    #[test]
+    fn gemini_native_response_rectifies_tool_args_using_request_schema_hints() {
+        let request_body = json!({
+            "tools": [
+                {
+                    "name": "install_skill",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "skill": { "type": "string" }
+                        },
+                        "required": ["skill"]
+                    }
+                },
+                {
+                    "name": "read_file",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string" },
+                            "limit": { "type": "integer" }
+                        },
+                        "required": ["path"]
+                    }
+                }
+            ]
+        });
+        let hints = crate::proxy::gemini_schema::extract_anthropic_tool_schema_hints(&request_body);
+
+        let mapped = map_gemini_native_response_to_anthropic_with_shadow_and_hints(
+            json!({
+                "responseId": "resp-rectify",
+                "modelVersion": "gemini-2.5-pro",
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "install_skill",
+                                    "args": { "name": "python-tools" }
+                                }
+                            },
+                            {
+                                "functionCall": {
+                                    "name": "read_file",
+                                    "args": {
+                                        "parameters": {
+                                            "path": ["README.md"],
+                                            "limit": 20
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }]
+            }),
+            None,
+            None,
+            None,
+            Some(&hints),
+        )
+        .expect("mapped response");
+
+        assert_eq!(
+            mapped["content"][0]["input"],
+            json!({ "skill": "python-tools" })
+        );
+        assert_eq!(
+            mapped["content"][1]["input"],
+            json!({ "path": "README.md", "limit": 20 })
+        );
+    }
+
+    #[test]
+    fn openai_chat_response_maps_to_anthropic_message() {
+        let mapped = map_openai_chat_response_to_anthropic(json!({
+            "id": "chatcmpl-1",
+            "model": "gpt-4.1",
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        { "type": "text", "text": "Hello." },
+                        { "type": "refusal", "refusal": "" }
+                    ],
+                    "refusal": "Cannot do that."
+                }
+            }],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 5
+            }
+        }))
+        .expect("mapped response");
+
+        assert_eq!(mapped["id"], "chatcmpl-1");
+        assert_eq!(mapped["type"], "message");
+        assert_eq!(mapped["role"], "assistant");
+        assert_eq!(mapped["model"], "gpt-4.1");
+        assert_eq!(mapped["stop_reason"], "end_turn");
+        assert_eq!(
+            mapped["content"],
+            json!([
+                { "type": "text", "text": "Hello." },
+                { "type": "text", "text": "Cannot do that." }
+            ])
+        );
+        assert_eq!(mapped["usage"]["input_tokens"], 12);
+        assert_eq!(mapped["usage"]["output_tokens"], 5);
+    }
+
+    #[test]
+    fn openai_chat_response_maps_tool_calls_and_cache_usage() {
+        let mapped = map_openai_chat_response_to_anthropic(json!({
+            "id": "chatcmpl-2",
+            "model": "gpt-4.1",
+            "choices": [{
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": "Checking.",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup_price",
+                            "arguments": "{\"symbol\":\"AAPL\"}"
+                        }
+                    }]
+                }
+            }],
+            "usage": {
+                "prompt_tokens": 30,
+                "completion_tokens": 7,
+                "prompt_tokens_details": { "cached_tokens": 11 },
+                "cache_creation_input_tokens": 3
+            }
+        }))
+        .expect("mapped response");
+
+        assert_eq!(mapped["stop_reason"], "tool_use");
+        assert_eq!(
+            mapped["content"][0],
+            json!({ "type": "text", "text": "Checking." })
+        );
+        assert_eq!(
+            mapped["content"][1],
+            json!({
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "lookup_price",
+                "input": { "symbol": "AAPL" }
+            })
+        );
+        assert_eq!(mapped["usage"]["input_tokens"], 30);
+        assert_eq!(mapped["usage"]["output_tokens"], 7);
+        assert_eq!(mapped["usage"]["cache_read_input_tokens"], 11);
+        assert_eq!(mapped["usage"]["cache_creation_input_tokens"], 3);
+    }
+
+    #[test]
+    fn openai_responses_response_maps_to_anthropic_message() {
+        let mapped = map_openai_responses_response_to_anthropic(json!({
+            "id": "resp-1",
+            "model": "gpt-5.1-codex",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "content": [
+                    { "type": "output_text", "text": "Done." },
+                    { "type": "refusal", "refusal": "No." }
+                ]
+            }],
+            "usage": {
+                "input_tokens": 20,
+                "output_tokens": 4
+            }
+        }))
+        .expect("mapped response");
+
+        assert_eq!(mapped["id"], "resp-1");
+        assert_eq!(mapped["model"], "gpt-5.1-codex");
+        assert_eq!(mapped["stop_reason"], "end_turn");
+        assert_eq!(
+            mapped["content"],
+            json!([
+                { "type": "text", "text": "Done." },
+                { "type": "text", "text": "No." }
+            ])
+        );
+        assert_eq!(mapped["usage"]["input_tokens"], 20);
+        assert_eq!(mapped["usage"]["output_tokens"], 4);
+    }
+
+    #[test]
+    fn openai_responses_response_maps_function_call_and_cache_usage() {
+        let mapped = map_openai_responses_response_to_anthropic(json!({
+            "id": "resp-2",
+            "model": "gpt-5.1-codex",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [{ "type": "summary_text", "text": "Need a lookup." }]
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "Read",
+                    "arguments": "{\"file_path\":\"README.md\",\"pages\":\"\"}"
+                }
+            ],
+            "usage": {
+                "input_tokens": 44,
+                "output_tokens": 9,
+                "input_tokens_details": { "cached_tokens": 17 },
+                "cache_creation_input_tokens": 2
+            }
+        }))
+        .expect("mapped response");
+
+        assert_eq!(mapped["stop_reason"], "tool_use");
+        assert_eq!(
+            mapped["content"][0],
+            json!({ "type": "thinking", "thinking": "Need a lookup." })
+        );
+        assert_eq!(
+            mapped["content"][1],
+            json!({
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "Read",
+                "input": { "file_path": "README.md" }
+            })
+        );
+        assert_eq!(mapped["usage"]["input_tokens"], 44);
+        assert_eq!(mapped["usage"]["output_tokens"], 9);
+        assert_eq!(mapped["usage"]["cache_read_input_tokens"], 17);
+        assert_eq!(mapped["usage"]["cache_creation_input_tokens"], 2);
+    }
+
+    #[test]
+    fn gemini_native_request_does_not_replay_synthesized_tool_ids_upstream() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gemini-2.5-pro".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("gemini_native"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{
+                            "type": "tool_use",
+                            "id": "gemini_synth_1",
+                            "name": "lookup_price",
+                            "input": { "symbol": "AAPL" }
+                        }]
+                    },
+                    {
+                        "role": "user",
+                        "content": [{
+                            "type": "tool_result",
+                            "tool_use_id": "gemini_synth_1",
+                            "content": "190"
+                        }]
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        let function_call = &mapped["contents"][0]["parts"][0]["functionCall"];
+        let function_response = &mapped["contents"][1]["parts"][0]["functionResponse"];
+
+        assert_eq!(function_call["name"], "lookup_price");
+        assert!(function_call.get("id").is_none());
+        assert_eq!(function_response["name"], "lookup_price");
+        assert_eq!(function_response["response"], json!({ "content": "190" }));
+        assert!(function_response.get("id").is_none());
+    }
+
+    #[test]
+    fn gemini_native_shadow_replays_thought_signature_parts() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gemini-2.5-pro".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("gemini_native"),
+        );
+        let shadow = GeminiShadowStore::with_limits(8, 8);
+
+        let mapped_response = map_gemini_native_response_to_anthropic_with_shadow(
+            json!({
+                "responseId": "gemini-resp-1",
+                "modelVersion": "gemini-2.5-pro",
+                "candidates": [{
+                    "finishReason": "STOP",
+                    "content": {
+                        "parts": [{
+                            "thoughtSignature": "sig-tool",
+                            "functionCall": {
+                                "name": "lookup_price",
+                                "args": { "symbol": "AAPL" }
+                            }
+                        }]
+                    }
+                }],
+                "usageMetadata": { "promptTokenCount": 10, "totalTokenCount": 12 }
+            }),
+            Some(&shadow),
+            Some(&provider.id),
+            Some("session-1"),
+        )
+        .expect("mapped response");
+
+        assert_eq!(mapped_response["content"][0]["id"], json!("gemini_synth_0"));
+
+        let mapped_request = map_proxy_request_model_with_gemini_shadow(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "session_id": "session-1",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{
+                            "type": "tool_use",
+                            "id": "gemini_synth_0",
+                            "name": "lookup_price",
+                            "input": { "symbol": "AAPL" }
+                        }]
+                    },
+                    {
+                        "role": "user",
+                        "content": [{
+                            "type": "tool_result",
+                            "tool_use_id": "gemini_synth_0",
+                            "content": "190"
+                        }]
+                    }
+                ]
+            }),
+            &provider,
+            &shadow,
+            Some("session-1"),
+        )
+        .expect("mapped request");
+
+        let replayed_part = &mapped_request["contents"][0]["parts"][0];
+        assert_eq!(replayed_part["thoughtSignature"], json!("sig-tool"));
+        assert_eq!(replayed_part["functionCall"]["name"], json!("lookup_price"));
+        assert_eq!(
+            replayed_part["functionCall"]["args"],
+            json!({ "symbol": "AAPL" })
+        );
+        assert!(replayed_part["functionCall"].get("id").is_none());
+        assert!(
+            mapped_request["contents"][1]["parts"][0]["functionResponse"]
+                .get("id")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn openai_chat_proxy_request_maps_tool_blocks_with_canonical_arguments() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-4.1".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_chat"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            { "type": "text", "text": "Checking." },
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "lookup_price",
+                                "input": { "symbol": "AAPL", "market": { "country": "US", "code": "NASDAQ" } }
+                            }
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "content": { "price": 201, "currency": "USD" }
+                            }
+                        ]
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(mapped["messages"][0]["content"], "Checking.");
+        assert_eq!(mapped["messages"][0]["tool_calls"][0]["id"], "toolu_1");
+        assert_eq!(
+            mapped["messages"][0]["tool_calls"][0]["function"]["arguments"],
+            r#"{"market":{"code":"NASDAQ","country":"US"},"symbol":"AAPL"}"#
+        );
+        assert_eq!(mapped["messages"][1]["role"], "tool");
+        assert_eq!(mapped["messages"][1]["tool_call_id"], "toolu_1");
+        assert_eq!(
+            mapped["messages"][1]["content"],
+            r#"{"currency":"USD","price":201}"#
+        );
+    }
+
+    #[test]
+    fn github_copilot_proxy_request_prepares_body_before_openai_mapping() {
+        let mut provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-4.1".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_chat"),
+        );
+        provider.meta.as_mut().expect("meta").provider_type = Some("github_copilot".to_string());
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            { "type": "thinking", "thinking": "hidden" },
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "Read",
+                                "input": { "file_path": "README.md" }
+                            }
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "content": "contents"
+                            },
+                            { "type": "text", "text": "continue" }
+                        ]
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert!(mapped["messages"][0].get("reasoning_content").is_none());
+        assert_eq!(mapped["messages"][0]["tool_calls"][0]["id"], "toolu_1");
+        assert_eq!(mapped["messages"][1]["role"], "tool");
+        assert_eq!(mapped["messages"][1]["tool_call_id"], "toolu_1");
+        assert_eq!(mapped["messages"][1]["content"], "contents\ncontinue");
+    }
+
+    #[test]
+    fn openai_responses_proxy_request_maps_tool_blocks_with_canonical_arguments() {
+        let provider = proxy_provider_with_api_format(
+            HashMap::from([(
+                "claude-sonnet-4-6".to_string(),
+                ClaudeDesktopModelRoute {
+                    model: "gpt-5.1-codex".to_string(),
+                    label_override: None,
+                    supports_1m: Some(false),
+                },
+            )]),
+            Some("openai_responses"),
+        );
+
+        let mapped = map_proxy_request_model(
+            json!({
+                "model": "claude-sonnet-4-6",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            { "type": "text", "text": "Checking." },
+                            {
+                                "type": "tool_use",
+                                "id": "toolu_1",
+                                "name": "lookup_price",
+                                "input": { "symbol": "AAPL", "market": { "country": "US", "code": "NASDAQ" } }
+                            }
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "toolu_1",
+                                "content": { "price": 201, "currency": "USD" }
+                            }
+                        ]
+                    }
+                ]
+            }),
+            &provider,
+        )
+        .expect("mapped body");
+
+        assert_eq!(
+            mapped["input"][0]["content"],
+            json!([{ "type": "output_text", "text": "Checking." }])
+        );
+        assert_eq!(mapped["input"][1]["type"], "function_call");
+        assert_eq!(mapped["input"][1]["call_id"], "toolu_1");
+        assert_eq!(
+            mapped["input"][1]["arguments"],
+            r#"{"market":{"code":"NASDAQ","country":"US"},"symbol":"AAPL"}"#
+        );
+        assert_eq!(mapped["input"][2]["type"], "function_call_output");
+        assert_eq!(mapped["input"][2]["call_id"], "toolu_1");
+        assert_eq!(
+            mapped["input"][2]["output"],
+            r#"{"currency":"USD","price":201}"#
+        );
     }
 
     #[test]

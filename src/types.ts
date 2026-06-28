@@ -229,7 +229,13 @@ export interface Settings {
   proxy?: ProxySettings;
   webDav?: WebDavSettings;
   network?: NetworkSettings;
+  skillSyncMethod?: SkillSyncMethod;
+  skillStorageLocation?: SkillStorageLocation;
 }
+
+export type SkillSyncMethod = "auto" | "symlink" | "copy";
+
+export type SkillStorageLocation = "cc_switch" | "unified";
 
 export interface NetworkSettings {
   githubMirrorBaseUrl: string;
@@ -237,11 +243,15 @@ export interface NetworkSettings {
 
 export interface WebDavSettings {
   enabled: boolean;
+  autoSync: boolean;
   baseUrl: string;
   username: string;
   password: string;
   remoteDir: string;
   profile: string;
+  lastSyncConfigHash?: string;
+  lastSyncAt?: string;
+  lastSyncRemoteSnapshotId?: string;
 }
 
 export interface WebDavCompatibilityCheck {
@@ -253,8 +263,24 @@ export interface WebDavCompatibilityCheck {
 export interface WebDavSnapshotPreview {
   exists: boolean;
   remotePath: string;
+  snapshotId?: string;
+  createdAt?: string;
+  configHash?: string;
   sizeBytes?: number;
   modifiedAt?: string;
+  artifactList: string[];
+  configVersion?: number;
+  schemaVersion?: number;
+  compatible: boolean;
+  checks: WebDavCompatibilityCheck[];
+}
+
+export interface WebDavBackupEntry {
+  id: string;
+  remotePath: string;
+  sizeBytes?: number;
+  modifiedAt?: string;
+  createdAt?: string;
   artifactList: string[];
   configVersion?: number;
   schemaVersion?: number;
@@ -268,6 +294,14 @@ export interface WebDavSyncResult {
   remotePath: string;
   backupId?: string;
   preview?: WebDavSnapshotPreview;
+}
+
+export interface WebDavAutoSyncResult {
+  action: "uploaded" | "downloaded" | "unchanged" | "conflict" | string;
+  message: string;
+  localConfigHash: string;
+  remotePreview?: WebDavSnapshotPreview;
+  result?: WebDavSyncResult;
 }
 
 export interface ProxySettings {
@@ -288,6 +322,10 @@ export interface ProxySettings {
   circuitErrorRateThreshold: number;
   rectifyThinkingSignature: boolean;
   rectifyThinkingBudget: boolean;
+  optimizerEnabled: boolean;
+  optimizerThinking: boolean;
+  optimizerCacheInjection: boolean;
+  optimizerCacheTtl: "5m" | "1h" | string;
   apps: Record<ProxyAppId, ProxyAppSettings>;
 }
 
@@ -334,12 +372,25 @@ export interface ProxyStatus {
   lastFailoverAt?: string;
   lastFailoverFrom?: string;
   lastFailoverTo?: string;
+  providerHealth?: ProxyProviderHealth[];
 }
 
 export interface ProxyActiveTarget {
   appType: ProxyRouteAppId;
   providerId: string;
   providerName: string;
+}
+
+export interface ProxyProviderHealth {
+  appType: ProxyAppId;
+  providerId: string;
+  state: "healthy" | "open" | "half_open" | string;
+  failureCount: number;
+  recoverySuccessCount: number;
+  windowRequests: number;
+  windowFailures: number;
+  lastFailureSecondsAgo?: number;
+  openedSecondsAgo?: number;
 }
 
 export interface ProxyTestResult {

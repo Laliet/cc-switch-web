@@ -4,6 +4,7 @@ export { authApi } from "./auth";
 export { settingsApi } from "./settings";
 export { mcpApi } from "./mcp";
 export { promptsApi } from "./prompts";
+export { deeplinkApi } from "./deeplink";
 export { usageApi } from "./usage";
 export { vscodeApi } from "./vscode";
 export { healthCheckApi } from "./healthCheck";

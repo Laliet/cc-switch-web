@@ -228,6 +228,21 @@ pub async fn clear_failover_queue(
     Ok(Json(Vec::new()))
 }
 
+pub async fn reset_provider_circuit(
+    State(state): State<Arc<AppState>>,
+    Path((app, id)): Path<(String, String)>,
+) -> ApiResult<ProxyStatus> {
+    let app_type = parse_app_type(&app)?;
+    validate_failover_provider_ids(&state, app_type.as_str(), std::slice::from_ref(&id))
+        .map_err(ApiError::from)?;
+    proxy::reset_provider_circuit(&app_type, &id).await;
+    state
+        .db
+        .record_provider_success(app_type.as_str(), &id)
+        .map_err(ApiError::from)?;
+    Ok(Json(proxy::status_for_state(&state).await))
+}
+
 fn validate_failover_provider_ids(
     state: &AppState,
     app_type: &str,

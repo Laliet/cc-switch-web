@@ -19,6 +19,14 @@ interface DeeplinkError {
   error: string;
 }
 
+interface DetailRow {
+  label: string;
+  value: string | null | undefined;
+  monospace?: boolean;
+  link?: boolean;
+  multiline?: boolean;
+}
+
 function maskApiKey(
   apiKey: string | null | undefined,
   options?: { keepStart?: number; keepEnd?: number },
@@ -40,6 +48,25 @@ function maskApiKey(
   }
 
   return `${value.slice(0, keepStart)}***${value.slice(-keepEnd)}`;
+}
+
+function decodedPreview(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const normalized = value.replace(/\s/g, "+");
+    const padded =
+      normalized.length % 4 === 0
+        ? normalized
+        : normalized + "=".repeat(4 - (normalized.length % 4));
+    const decoded = decodeURIComponent(
+      Array.from(atob(padded))
+        .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`)
+        .join(""),
+    );
+    return decoded.length > 240 ? `${decoded.slice(0, 240)}...` : decoded;
+  } catch {
+    return null;
+  }
 }
 
 export function DeepLinkImportDialog() {
@@ -102,16 +129,35 @@ export function DeepLinkImportDialog() {
     setIsImporting(true);
 
     try {
-      await deeplinkApi.importFromDeeplink(request);
+      const result = await deeplinkApi.importFromDeeplink(request);
 
-      // Invalidate provider queries to refresh the list
-      await queryClient.invalidateQueries({
-        queryKey: ["providers", request.app],
-      });
+      if (result.type === "provider" && request.app) {
+        await queryClient.invalidateQueries({
+          queryKey: ["providers", request.app],
+        });
+      } else if (result.type === "prompt" && request.app) {
+        await queryClient.invalidateQueries({
+          queryKey: ["prompts", request.app],
+        });
+      } else if (result.type === "mcp") {
+        await queryClient.invalidateQueries({ queryKey: ["mcp", "all"] });
+      } else if (result.type === "skill") {
+        await queryClient.invalidateQueries({ queryKey: ["skills"] });
+      }
+
+      const importedName =
+        request.name ||
+        request.repo ||
+        (result.type === "provider" || result.type === "prompt"
+          ? result.id
+          : result.type === "skill"
+            ? result.key || result.result.key
+            : result.importedIds?.join(", ")) ||
+        result.type;
 
       toast.success(t("deeplink.importSuccess"), {
         description: t("deeplink.importSuccessDescription", {
-          name: request.name,
+          name: importedName,
         }),
       });
 
@@ -134,8 +180,93 @@ export function DeepLinkImportDialog() {
 
   if (!request) return null;
 
-  const maskedApiKey =
-    maskApiKey(request.apiKey, { keepStart: 4, keepEnd: 4 }) || "***";
+  const resourceLabel = t(`deeplink.resource.${request.resource}`, {
+    defaultValue: request.resource,
+  });
+  const details: DetailRow[] =
+    request.resource === "provider"
+      ? [
+          { label: t("deeplink.app"), value: request.app },
+          { label: t("deeplink.providerName"), value: request.name },
+          {
+            label: t("deeplink.homepage"),
+            value: request.homepage,
+            link: true,
+          },
+          { label: t("deeplink.endpoint"), value: request.endpoint },
+          {
+            label: t("deeplink.apiKey"),
+            value:
+              maskApiKey(request.apiKey, { keepStart: 4, keepEnd: 4 }) || "***",
+            monospace: true,
+          },
+          { label: t("deeplink.model"), value: request.model, monospace: true },
+          { label: t("deeplink.notes"), value: request.notes, multiline: true },
+        ]
+      : request.resource === "prompt"
+        ? [
+            { label: t("deeplink.app"), value: request.app },
+            {
+              label: t("deeplink.name", { defaultValue: "名称" }),
+              value: request.name,
+            },
+            {
+              label: t("deeplink.description", { defaultValue: "描述" }),
+              value: request.description,
+              multiline: true,
+            },
+            {
+              label: t("deeplink.enabled", { defaultValue: "启用" }),
+              value: request.enabled
+                ? t("common.yes", { defaultValue: "是" })
+                : t("common.no", { defaultValue: "否" }),
+            },
+            {
+              label: t("deeplink.contentPreview", { defaultValue: "内容预览" }),
+              value: decodedPreview(request.content),
+              multiline: true,
+            },
+          ]
+        : request.resource === "mcp"
+          ? [
+              {
+                label: t("deeplink.apps", { defaultValue: "应用" }),
+                value: request.apps,
+              },
+              {
+                label: t("deeplink.configPreview", {
+                  defaultValue: "配置预览",
+                }),
+                value: decodedPreview(request.config),
+                monospace: true,
+                multiline: true,
+              },
+            ]
+          : [
+              { label: t("deeplink.app"), value: request.app },
+              {
+                label: t("deeplink.repo", { defaultValue: "仓库" }),
+                value: request.repo,
+                monospace: true,
+              },
+              {
+                label: t("deeplink.branch", { defaultValue: "分支" }),
+                value: request.branch || "main",
+                monospace: true,
+              },
+              {
+                label: t("deeplink.directory", { defaultValue: "目录" }),
+                value: request.directory,
+                monospace: true,
+              },
+              {
+                label: t("deeplink.skillsPath", {
+                  defaultValue: "Skills 路径",
+                }),
+                value: request.skillsPath,
+                monospace: true,
+              },
+            ];
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -150,77 +281,49 @@ export function DeepLinkImportDialog() {
 
         {/* 主体内容整体右移，略大于标题内边距，让内容看起来不贴边 */}
         <div className="space-y-4 px-8 py-4">
-          {/* App Type */}
           <div className="grid grid-cols-3 items-center gap-4">
             <div className="font-medium text-sm text-muted-foreground">
-              {t("deeplink.app")}
+              {t("deeplink.resourceType", { defaultValue: "类型" })}
             </div>
-            <div className="col-span-2 text-sm font-medium capitalize">
-              {request.app}
+            <div className="col-span-2 text-sm font-medium">
+              {resourceLabel}
             </div>
           </div>
 
-          {/* Provider Name */}
-          <div className="grid grid-cols-3 items-center gap-4">
-            <div className="font-medium text-sm text-muted-foreground">
-              {t("deeplink.providerName")}
-            </div>
-            <div className="col-span-2 text-sm font-medium">{request.name}</div>
-          </div>
-
-          {/* Homepage */}
-          <div className="grid grid-cols-3 items-center gap-4">
-            <div className="font-medium text-sm text-muted-foreground">
-              {t("deeplink.homepage")}
-            </div>
-            <div className="col-span-2 text-sm break-all text-blue-600 dark:text-blue-400">
-              {request.homepage}
-            </div>
-          </div>
-
-          {/* API Endpoint */}
-          <div className="grid grid-cols-3 items-center gap-4">
-            <div className="font-medium text-sm text-muted-foreground">
-              {t("deeplink.endpoint")}
-            </div>
-            <div className="col-span-2 text-sm break-all">
-              {request.endpoint}
-            </div>
-          </div>
-
-          {/* API Key (masked) */}
-          <div className="grid grid-cols-3 items-center gap-4">
-            <div className="font-medium text-sm text-muted-foreground">
-              {t("deeplink.apiKey")}
-            </div>
-            <div className="col-span-2 text-sm font-mono text-muted-foreground">
-              {maskedApiKey}
-            </div>
-          </div>
-
-          {/* Model (if present) */}
-          {request.model && (
-            <div className="grid grid-cols-3 items-center gap-4">
-              <div className="font-medium text-sm text-muted-foreground">
-                {t("deeplink.model")}
+          {details
+            .filter(
+              (row) =>
+                row.value !== undefined &&
+                row.value !== null &&
+                row.value !== "",
+            )
+            .map((row) => (
+              <div
+                key={row.label}
+                className={`grid grid-cols-3 gap-4 ${
+                  row.multiline ? "items-start" : "items-center"
+                }`}
+              >
+                <div className="font-medium text-sm text-muted-foreground">
+                  {row.label}
+                </div>
+                <div
+                  className={`col-span-2 text-sm break-all ${
+                    row.monospace ? "font-mono" : ""
+                  } ${
+                    row.link
+                      ? "text-blue-600 dark:text-blue-400"
+                      : "text-foreground"
+                  } ${
+                    row.multiline
+                      ? "max-h-32 overflow-auto whitespace-pre-wrap rounded border bg-muted/40 p-2"
+                      : ""
+                  }`}
+                >
+                  {row.value}
+                </div>
               </div>
-              <div className="col-span-2 text-sm font-mono">
-                {request.model}
-              </div>
-            </div>
-          )}
-
-          {/* Notes (if present) */}
-          {request.notes && (
-            <div className="grid grid-cols-3 items-start gap-4">
-              <div className="font-medium text-sm text-muted-foreground">
-                {t("deeplink.notes")}
-              </div>
-              <div className="col-span-2 text-sm text-muted-foreground">
-                {request.notes}
-              </div>
-            </div>
-          )}
+            ))}
 
           {/* Warning */}
           <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 p-3 text-sm text-yellow-800 dark:text-yellow-200">

@@ -5,13 +5,17 @@ import type { WebDavSettings } from "@/types";
 
 const settingsApiMocks = vi.hoisted(() => ({
   downloadWebDavSnapshot: vi.fn(),
+  listWebDavBackups: vi.fn(),
   previewWebDavSnapshot: vi.fn(),
+  restoreWebDavBackup: vi.fn(),
+  syncWebDavSnapshot: vi.fn(),
   uploadWebDavSnapshot: vi.fn(),
 }));
 
 const toastMocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
+  warning: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -50,6 +54,7 @@ vi.mock("@/components/ui/dialog", () => ({
 
 const settings: WebDavSettings = {
   enabled: true,
+  autoSync: false,
   baseUrl: "https://dav.example.com",
   username: "me",
   password: "secret",

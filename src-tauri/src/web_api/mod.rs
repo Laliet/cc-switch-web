@@ -64,7 +64,7 @@ impl Default for WebAuthCredentials {
 pub type SharedWebAuth = Arc<RwLock<WebAuthCredentials>>;
 
 #[derive(RustEmbed)]
-#[folder = "../dist-web"]
+#[folder = "$CC_SWITCH_WEB_ASSETS_DIR"]
 struct WebAssets;
 
 #[derive(Clone)]
@@ -73,7 +73,7 @@ struct WebTokens {
 }
 
 const DEFAULT_API_PREFIX: &str = "/api";
-const DEFAULT_WEB_BODY_LIMIT_BYTES: usize = 2_097_152;
+const DEFAULT_WEB_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_WEB_GLOBAL_CONCURRENCY: usize = 32;
 const DEFAULT_WEB_USERNAME: &str = "admin";
 const DEFAULT_WEB_PASSWORD_LEN: usize = 24;

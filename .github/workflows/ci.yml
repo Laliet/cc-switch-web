@@ -42,11 +42,6 @@ jobs:
       - name: Check (lib)
         run: cargo check --manifest-path src-tauri/Cargo.toml --lib
 
-      - name: Create dist-web placeholder for RustEmbed
-        run: |
-          mkdir -p dist-web
-          echo '<!DOCTYPE html><html><head><title>placeholder</title></head><body></body></html>' > dist-web/index.html
-
       - name: Check (web-server)
         run: cargo check --manifest-path src-tauri/Cargo.toml --features web-server --example server
 
@@ -132,11 +127,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Create dist-web placeholder for RustEmbed
-        run: |
-          mkdir -p dist-web
-          echo '<!DOCTYPE html><html><head><title>placeholder</title></head><body></body></html>' > dist-web/index.html
 
       - name: Integration tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --tests --features test-hooks

@@ -15,7 +15,9 @@ impl Database {
                         streaming_idle_timeout, non_streaming_timeout,
                         circuit_failure_threshold, circuit_recovery_threshold,
                         circuit_recovery_wait_seconds, circuit_error_rate_threshold,
-                        rectify_thinking_signature, rectify_thinking_budget
+                        rectify_thinking_signature, rectify_thinking_budget,
+                        optimizer_enabled, optimizer_thinking, optimizer_cache_injection,
+                        optimizer_cache_ttl
                  FROM proxy_config
                  WHERE app_type = 'global'",
                 [],
@@ -38,6 +40,10 @@ impl Database {
                         circuit_error_rate_threshold: row.get(14)?,
                         rectify_thinking_signature: row.get::<_, i64>(15)? != 0,
                         rectify_thinking_budget: row.get::<_, i64>(16)? != 0,
+                        optimizer_enabled: row.get::<_, i64>(17)? != 0,
+                        optimizer_thinking: row.get::<_, i64>(18)? != 0,
+                        optimizer_cache_injection: row.get::<_, i64>(19)? != 0,
+                        optimizer_cache_ttl: row.get(20)?,
                         apps: ProxyAppsSettings::default(),
                     })
                 },
@@ -67,10 +73,12 @@ impl Database {
                 streaming_idle_timeout, non_streaming_timeout,
                 circuit_failure_threshold, circuit_recovery_threshold,
                 circuit_recovery_wait_seconds, circuit_error_rate_threshold,
-                rectify_thinking_signature, rectify_thinking_budget, updated_at
+                rectify_thinking_signature, rectify_thinking_budget,
+                optimizer_enabled, optimizer_thinking, optimizer_cache_injection,
+                optimizer_cache_ttl, updated_at
             ) VALUES (
                 'global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                ?12, ?13, ?14, ?15, ?16, ?17, datetime('now')
+                ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, datetime('now')
             )",
             params![
                 i64::from(config.enabled),
@@ -90,6 +98,10 @@ impl Database {
                 config.circuit_error_rate_threshold,
                 i64::from(config.rectify_thinking_signature),
                 i64::from(config.rectify_thinking_budget),
+                i64::from(config.optimizer_enabled),
+                i64::from(config.optimizer_thinking),
+                i64::from(config.optimizer_cache_injection),
+                config.optimizer_cache_ttl,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

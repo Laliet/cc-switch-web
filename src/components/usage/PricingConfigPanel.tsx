@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,12 +20,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  useDeleteModelPricing,
-  useModelPricing,
-  useUpdateModelPricing,
-} from "@/lib/query/usage";
+import { useDeleteModelPricing, useModelPricing } from "@/lib/query/usage";
 import type { ModelPricing } from "@/types/usage";
+import { PricingEditModal } from "./PricingEditModal";
 
 const EMPTY_DRAFT: ModelPricing = {
   modelId: "",
@@ -36,12 +34,13 @@ const EMPTY_DRAFT: ModelPricing = {
 };
 
 export function PricingConfigPanel() {
+  const { t } = useTranslation();
   const query = useModelPricing();
-  const update = useUpdateModelPricing();
   const remove = useDeleteModelPricing();
   const [filter, setFilter] = useState("");
-  const [draft, setDraft] = useState<ModelPricing>(EMPTY_DRAFT);
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingModel, setEditingModel] = useState<ModelPricing | null>(null);
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -57,28 +56,20 @@ export function PricingConfigPanel() {
   }, [filter, query.data]);
 
   const openEditor = (row?: ModelPricing) => {
-    setDraft(row ?? EMPTY_DRAFT);
-    setEditorOpen(true);
+    setIsAddingNew(!row);
+    setEditingModel(row ?? EMPTY_DRAFT);
   };
 
-  const saveDraft = async () => {
-    if (!draft.modelId.trim() || !draft.displayName.trim()) {
-      toast.error("Model ID and display name are required");
-      return;
-    }
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      const updated = await update.mutateAsync({
-        ...draft,
-        modelId: draft.modelId.trim(),
-        displayName: draft.displayName.trim(),
-      });
-      setDraft(EMPTY_DRAFT);
-      setEditorOpen(false);
-      toast.success(`Pricing saved, ${updated} historical logs backfilled`);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Pricing save failed",
+      await remove.mutateAsync(deleteConfirm);
+      setDeleteConfirm(null);
+      toast.success(
+        t("usage.pricingDeleted", { defaultValue: "Pricing deleted" }),
       );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -93,7 +84,7 @@ export function PricingConfigPanel() {
         />
         <Button onClick={() => openEditor()}>
           <Plus className="h-4 w-4" />
-          Add Pricing
+          {t("usage.addPricing", { defaultValue: "Add pricing" })}
         </Button>
       </div>
 
@@ -101,13 +92,29 @@ export function PricingConfigPanel() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Model</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead className="text-right">Input</TableHead>
-              <TableHead className="text-right">Output</TableHead>
-              <TableHead className="text-right">Cache read</TableHead>
-              <TableHead className="text-right">Cache create</TableHead>
-              <TableHead className="text-right">Action</TableHead>
+              <TableHead>
+                {t("usage.model", { defaultValue: "Model" })}
+              </TableHead>
+              <TableHead>
+                {t("usage.displayName", { defaultValue: "Display name" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.inputCost", { defaultValue: "Input" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.outputCost", { defaultValue: "Output" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.cacheReadCost", { defaultValue: "Cache read" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.cacheCreationCost", {
+                  defaultValue: "Cache create",
+                })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("common.actions", { defaultValue: "Actions" })}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -142,7 +149,7 @@ export function PricingConfigPanel() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => void remove.mutateAsync(row.modelId)}
+                    onClick={() => setDeleteConfirm(row.modelId)}
                     aria-label={`Delete pricing for ${row.modelId}`}
                     title="Delete pricing"
                   >
@@ -155,73 +162,48 @@ export function PricingConfigPanel() {
         </Table>
       </div>
 
-      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-        <DialogContent className="max-w-2xl">
+      {editingModel ? (
+        <PricingEditModal
+          open={Boolean(editingModel)}
+          model={editingModel}
+          isNew={isAddingNew}
+          onClose={() => {
+            setEditingModel(null);
+            setIsAddingNew(false);
+          }}
+        />
+      ) : null}
+
+      <Dialog
+        open={Boolean(deleteConfirm)}
+        onOpenChange={(open) => !open && setDeleteConfirm(null)}
+      >
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Model Pricing</DialogTitle>
+            <DialogTitle>
+              {t("usage.deleteConfirmTitle", {
+                defaultValue: "Delete pricing?",
+              })}
+            </DialogTitle>
             <DialogDescription>
-              Edit per-million token pricing used for Usage cost backfill.
+              {t("usage.deleteConfirmDesc", {
+                defaultValue:
+                  "This removes the pricing record. Historical request logs are not deleted.",
+              })}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3 px-6 py-5 sm:grid-cols-2">
-            <Input
-              value={draft.modelId}
-              onChange={(event) =>
-                setDraft({ ...draft, modelId: event.target.value })
-              }
-              placeholder="model id"
-            />
-            <Input
-              value={draft.displayName}
-              onChange={(event) =>
-                setDraft({ ...draft, displayName: event.target.value })
-              }
-              placeholder="display name"
-            />
-            <Input
-              value={draft.inputCostPerMillion}
-              onChange={(event) =>
-                setDraft({ ...draft, inputCostPerMillion: event.target.value })
-              }
-              placeholder="input"
-            />
-            <Input
-              value={draft.outputCostPerMillion}
-              onChange={(event) =>
-                setDraft({ ...draft, outputCostPerMillion: event.target.value })
-              }
-              placeholder="output"
-            />
-            <Input
-              value={draft.cacheReadCostPerMillion}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  cacheReadCostPerMillion: event.target.value,
-                })
-              }
-              placeholder="cache read"
-            />
-            <Input
-              value={draft.cacheCreationCostPerMillion}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  cacheCreationCostPerMillion: event.target.value,
-                })
-              }
-              placeholder="cache create"
-            />
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditorOpen(false)}>
-              Cancel
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+              {t("common.cancel", { defaultValue: "Cancel" })}
             </Button>
             <Button
-              onClick={() => void saveDraft()}
-              disabled={update.isPending}
+              variant="destructive"
+              onClick={() => void handleDelete()}
+              disabled={remove.isPending}
             >
-              Save
+              {remove.isPending
+                ? t("common.deleting", { defaultValue: "Deleting..." })
+                : t("common.delete", { defaultValue: "Delete" })}
             </Button>
           </DialogFooter>
         </DialogContent>

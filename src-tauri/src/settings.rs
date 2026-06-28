@@ -7,6 +7,7 @@ use std::sync::{OnceLock, RwLock};
 use crate::{
     config::{atomic_write, get_account_home_dir, get_home_dir},
     error::AppError,
+    services::skill::{SkillStorageLocation, SyncMethod},
 };
 
 fn select_preferred_home_dir(
@@ -175,6 +176,14 @@ pub struct ProxySettings {
     #[serde(default = "default_rectifier_enabled")]
     pub rectify_thinking_budget: bool,
     #[serde(default)]
+    pub optimizer_enabled: bool,
+    #[serde(default = "default_optimizer_subfeature_enabled")]
+    pub optimizer_thinking: bool,
+    #[serde(default = "default_optimizer_subfeature_enabled")]
+    pub optimizer_cache_injection: bool,
+    #[serde(default = "default_optimizer_cache_ttl")]
+    pub optimizer_cache_ttl: String,
+    #[serde(default)]
     pub apps: ProxyAppsSettings,
 }
 
@@ -224,6 +233,8 @@ pub struct WebDavSettings {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
+    pub auto_sync: bool,
+    #[serde(default)]
     pub base_url: String,
     #[serde(default)]
     pub username: String,
@@ -233,6 +244,12 @@ pub struct WebDavSettings {
     pub remote_dir: String,
     #[serde(default = "default_webdav_profile")]
     pub profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_config_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_remote_snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -246,11 +263,15 @@ impl Default for WebDavSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            auto_sync: false,
             base_url: String::new(),
             username: String::new(),
             password: String::new(),
             remote_dir: default_webdav_remote_dir(),
             profile: default_webdav_profile(),
+            last_sync_config_hash: None,
+            last_sync_at: None,
+            last_sync_remote_snapshot_id: None,
         }
     }
 }
@@ -276,7 +297,7 @@ fn default_streaming_idle_timeout() -> u64 {
 }
 
 fn default_non_streaming_timeout() -> u64 {
-    180
+    600
 }
 
 fn default_proxy_circuit_failure_threshold() -> u64 {
@@ -297,6 +318,14 @@ fn default_proxy_circuit_error_rate_threshold() -> f64 {
 
 fn default_rectifier_enabled() -> bool {
     true
+}
+
+fn default_optimizer_subfeature_enabled() -> bool {
+    true
+}
+
+fn default_optimizer_cache_ttl() -> String {
+    "1h".to_string()
 }
 
 fn default_proxy_max_retries() -> u8 {
@@ -339,6 +368,10 @@ impl Default for ProxySettings {
             circuit_error_rate_threshold: default_proxy_circuit_error_rate_threshold(),
             rectify_thinking_signature: default_rectifier_enabled(),
             rectify_thinking_budget: default_rectifier_enabled(),
+            optimizer_enabled: false,
+            optimizer_thinking: default_optimizer_subfeature_enabled(),
+            optimizer_cache_injection: default_optimizer_subfeature_enabled(),
+            optimizer_cache_ttl: default_optimizer_cache_ttl(),
             apps: ProxyAppsSettings::default(),
         }
     }
@@ -373,6 +406,12 @@ pub struct AppSettings {
     pub webdav: WebDavSettings,
     #[serde(default)]
     pub network: NetworkSettings,
+    /// Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
+    #[serde(default)]
+    pub skill_sync_method: SyncMethod,
+    /// Skill 存储位置：cc_switch（默认）或 unified（~/.agents/skills/）
+    #[serde(default)]
+    pub skill_storage_location: SkillStorageLocation,
     /// Claude 自定义端点列表
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints_claude: HashMap<String, CustomEndpoint>,
@@ -404,6 +443,8 @@ impl Default for AppSettings {
             proxy: ProxySettings::default(),
             webdav: WebDavSettings::default(),
             network: NetworkSettings::default(),
+            skill_sync_method: SyncMethod::default(),
+            skill_storage_location: SkillStorageLocation::default(),
             custom_endpoints_claude: HashMap::new(),
             custom_endpoints_codex: HashMap::new(),
         }
@@ -603,6 +644,32 @@ pub fn ensure_security_auth_selected_type(selected_type: &str) -> Result<(), App
     update_settings(settings)
 }
 
+pub fn get_skill_sync_method() -> SyncMethod {
+    settings_store()
+        .read()
+        .unwrap_or_else(|e| {
+            log::warn!("设置锁已毒化，使用恢复值: {e}");
+            e.into_inner()
+        })
+        .skill_sync_method
+}
+
+pub fn get_skill_storage_location() -> SkillStorageLocation {
+    settings_store()
+        .read()
+        .unwrap_or_else(|e| {
+            log::warn!("设置锁已毒化，使用恢复值: {e}");
+            e.into_inner()
+        })
+        .skill_storage_location
+}
+
+pub fn set_skill_storage_location(location: SkillStorageLocation) -> Result<(), AppError> {
+    let mut settings = get_settings();
+    settings.skill_storage_location = location;
+    update_settings(settings)
+}
+
 pub fn get_claude_override_dir() -> Option<PathBuf> {
     let settings = settings_store().read().ok()?;
     settings
@@ -724,6 +791,7 @@ mod tests {
 
         assert!(loaded.proxy.rectify_thinking_signature);
         assert!(loaded.proxy.rectify_thinking_budget);
+        assert_eq!(loaded.proxy.non_streaming_timeout, 600);
     }
 
     #[test]

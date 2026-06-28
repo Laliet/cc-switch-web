@@ -7,6 +7,38 @@ use crate::{app_config::AppType, provider::Provider};
 pub const PROXY_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
 pub const PROXY_MANAGED_TOKEN: &str = "PROXY_MANAGED";
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_cache_ttl() -> String {
+    "1h".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptimizerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub thinking_optimizer: bool,
+    #[serde(default = "default_true")]
+    pub cache_injection: bool,
+    #[serde(default = "default_cache_ttl")]
+    pub cache_ttl: String,
+}
+
+impl Default for OptimizerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            thinking_optimizer: true,
+            cache_injection: true,
+            cache_ttl: default_cache_ttl(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyStatus {
@@ -29,6 +61,8 @@ pub struct ProxyStatus {
     pub last_failover_at: Option<String>,
     pub last_failover_from: Option<String>,
     pub last_failover_to: Option<String>,
+    #[serde(default)]
+    pub provider_health: Vec<ProxyProviderHealth>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +71,20 @@ pub struct ProxyActiveTarget {
     pub app_type: String,
     pub provider_id: String,
     pub provider_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProviderHealth {
+    pub app_type: String,
+    pub provider_id: String,
+    pub state: String,
+    pub failure_count: u64,
+    pub recovery_success_count: u64,
+    pub window_requests: u64,
+    pub window_failures: u64,
+    pub last_failure_seconds_ago: Option<u64>,
+    pub opened_seconds_ago: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

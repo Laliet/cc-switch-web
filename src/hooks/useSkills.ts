@@ -53,6 +53,7 @@ export function useUninstallSkill(app: AppId = "claude") {
     mutationFn: (directory: string) => skillsApi.uninstall(directory, app),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["skills", "all", app] });
+      queryClient.invalidateQueries({ queryKey: ["skills", "backups"] });
     },
   });
 }

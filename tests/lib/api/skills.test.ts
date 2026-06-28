@@ -143,12 +143,13 @@ describe("skills API module", () => {
   it("uninstall forwards directory and app", async () => {
     invokeMock.mockResolvedValueOnce(true);
 
-    await skillsApi.uninstall("skills/sample", "claude");
+    const result = await skillsApi.uninstall("skills/sample", "claude");
 
     expect(invokeMock).toHaveBeenCalledWith("uninstall_skill", {
       directory: "skills/sample",
       app: "claude",
     });
+    expect(result).toEqual({ success: true });
   });
 
   it("uninstall maps OMO to OpenCode skills", async () => {
@@ -159,6 +160,84 @@ describe("skills API module", () => {
     expect(invokeMock).toHaveBeenCalledWith("uninstall_skill", {
       directory: "skills/sample",
       app: "opencode",
+    });
+  });
+
+  it("lists and restores skill backups", async () => {
+    invokeMock.mockResolvedValueOnce([
+      {
+        backupId: "backup-1",
+        backupPath: "/tmp/backup-1",
+        createdAt: "2026-06-27T00:00:00Z",
+        app: "claude",
+        directory: "skills/sample",
+        name: "Sample",
+        description: "",
+        sourcePath: "/home/me/.claude/skills/sample",
+      },
+    ]);
+    invokeMock.mockResolvedValueOnce({
+      backupId: "backup-1",
+      backupPath: "/tmp/backup-1",
+      createdAt: "2026-06-27T00:00:00Z",
+      app: "claude",
+      directory: "skills/sample",
+      name: "Sample",
+      description: "",
+      sourcePath: "/home/me/.claude/skills/sample",
+    });
+
+    await skillsApi.getBackups();
+    await skillsApi.restoreBackup("backup-1", "omo", false);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "get_skill_backups");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "restore_skill_backup", {
+      backupId: "backup-1",
+      app: "opencode",
+      force: false,
+    });
+  });
+
+  it("imports skills from zip file content", async () => {
+    invokeMock.mockResolvedValueOnce([
+      {
+        key: "local:demo",
+        name: "Demo",
+        description: "",
+        directory: "demo",
+        installed: true,
+      },
+    ]);
+    const file = new File([new Uint8Array([1, 2, 3])], "demo.skill", {
+      type: "application/zip",
+    });
+
+    await skillsApi.installFromZipFile(file, "claude", false);
+
+    expect(invokeMock).toHaveBeenCalledWith("install_skills_from_zip", {
+      contentBase64: "AQID",
+      fileName: "demo.skill",
+      app: "claude",
+      force: false,
+    });
+  });
+
+  it("migrates skill storage location", async () => {
+    invokeMock.mockResolvedValueOnce({
+      migratedCount: 2,
+      skippedCount: 1,
+      errors: [],
+    });
+
+    const result = await skillsApi.migrateStorage("unified");
+
+    expect(result).toEqual({
+      migratedCount: 2,
+      skippedCount: 1,
+      errors: [],
+    });
+    expect(invokeMock).toHaveBeenCalledWith("migrate_skill_storage", {
+      target: "unified",
     });
   });
 });

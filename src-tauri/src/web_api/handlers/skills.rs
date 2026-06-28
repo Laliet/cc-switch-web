@@ -7,6 +7,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use serde::Serialize;
 
@@ -15,7 +16,8 @@ use crate::{
     error::format_skill_error,
     error::AppError,
     services::{
-        skill::SkillCommand as ServiceSkillCommand, Skill as ServiceSkill, SkillRepo, SkillService,
+        skill::SkillCommand as ServiceSkillCommand, MigrationResult, Skill as ServiceSkill,
+        SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
     },
     store::AppState,
 };
@@ -30,6 +32,14 @@ pub struct SkillsResponse {
     pub warnings: Vec<String>,
     pub cache_hit: bool,
     pub refreshing: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<SkillBackupEntry>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +73,8 @@ pub struct SkillResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme_url: Option<String>,
     pub installed: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub installed_apps: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,6 +98,7 @@ impl From<ServiceSkill> for SkillResponse {
             depth: skill.depth,
             readme_url: skill.readme_url,
             installed: skill.installed,
+            installed_apps: skill.installed_apps,
             repo_owner: skill.repo_owner,
             repo_name: skill.repo_name,
             repo_branch: skill.repo_branch,
@@ -171,11 +184,14 @@ pub async fn install_skill(
 pub async fn uninstall_skill(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<InstallPayload>,
-) -> ApiResult<bool> {
+) -> ApiResult<SkillUninstallResult> {
     let app = parse_skill_app(payload.app.clone())?;
     SkillService::validate_skill_directory(&payload.directory)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let service = SkillService::new_for_app(&app).map_err(internal_error)?;
+    let backup = service
+        .backup_skill_before_uninstall(&payload.directory)
+        .map_err(internal_error)?;
     service
         .uninstall_skill(payload.directory.clone())
         .map_err(internal_error)?;
@@ -189,7 +205,102 @@ pub async fn uninstall_skill(
         })
         .map_err(internal_error)?;
 
+    Ok(Json(SkillUninstallResult {
+        success: true,
+        backup,
+    }))
+}
+
+pub async fn list_backups() -> ApiResult<Vec<SkillBackupEntry>> {
+    let backups = SkillService::list_backups().map_err(internal_error)?;
+    Ok(Json(backups))
+}
+
+pub async fn delete_backup(Path(backup_id): Path<String>) -> ApiResult<bool> {
+    SkillService::delete_backup(&backup_id).map_err(internal_error)?;
     Ok(Json(true))
+}
+
+pub async fn restore_backup(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RestoreBackupPayload>,
+) -> ApiResult<SkillBackupEntry> {
+    let app = parse_skill_app(payload.app.clone())?;
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
+    let backup = service
+        .restore_backup(&payload.backup_id, payload.force.unwrap_or(false))
+        .map_err(internal_error)?;
+
+    state
+        .update_config(|cfg| {
+            cfg.skills.skills.insert(
+                SkillService::state_key(&app, &backup.directory),
+                crate::services::skill::SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(internal_error)?;
+
+    Ok(Json(backup))
+}
+
+pub async fn migrate_storage(
+    Json(payload): Json<MigrateStoragePayload>,
+) -> ApiResult<MigrationResult> {
+    let result = SkillService::migrate_storage(payload.target).map_err(internal_error)?;
+    Ok(Json(result))
+}
+
+pub async fn install_from_zip(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<InstallZipPayload>,
+) -> ApiResult<Vec<SkillResponse>> {
+    let app = parse_skill_app(payload.app.clone())?;
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
+    let force = payload.force.unwrap_or(false);
+
+    let installed = match (payload.content_base64, payload.file_path) {
+        (Some(content), _) => {
+            let bytes = general_purpose::STANDARD
+                .decode(content.trim().as_bytes())
+                .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            service
+                .install_from_zip_bytes(bytes, payload.file_name.as_deref(), force)
+                .map_err(internal_error)?
+        }
+        (None, Some(path)) => service
+            .install_from_zip_file(std::path::Path::new(&path), force)
+            .map_err(internal_error)?,
+        (None, None) => {
+            return Err(ApiError::bad_request(format_skill_error(
+                "ZIP_FILE_REQUIRED",
+                &[],
+                Some("selectFile"),
+            )));
+        }
+    };
+
+    state
+        .update_config(|cfg| {
+            for skill in &installed {
+                cfg.skills.skills.insert(
+                    SkillService::state_key(&app, &skill.directory),
+                    crate::services::skill::SkillState {
+                        installed: true,
+                        installed_at: Utc::now(),
+                    },
+                );
+            }
+            Ok(())
+        })
+        .map_err(internal_error)?;
+
+    Ok(Json(
+        installed.into_iter().map(SkillResponse::from).collect(),
+    ))
 }
 
 pub async fn list_repos(State(state): State<Arc<AppState>>) -> ApiResult<Vec<SkillRepo>> {
@@ -239,6 +350,37 @@ pub struct InstallPayload {
     pub force: Option<bool>,
     #[serde(default)]
     pub app: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreBackupPayload {
+    pub backup_id: String,
+    #[serde(default)]
+    pub force: Option<bool>,
+    #[serde(default)]
+    pub app: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallZipPayload {
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub content_base64: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub force: Option<bool>,
+    #[serde(default)]
+    pub app: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrateStoragePayload {
+    pub target: SkillStorageLocation,
 }
 
 fn internal_error(err: impl ToString) -> ApiError {

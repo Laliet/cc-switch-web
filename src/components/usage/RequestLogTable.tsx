@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, Database, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRequestLogs } from "@/lib/query/usage";
+import { getFreshInputTokens, isUnpricedUsage } from "@/types/usage";
 import type {
   AppTypeFilter,
   LogFilters,
@@ -25,22 +27,34 @@ import type {
   UsageRangeSelection,
   UsageStatsFilters,
 } from "@/types/usage";
-import { formatDateTime, formatNumber, formatUsd, statusTone } from "./format";
+import {
+  formatDateTime,
+  formatNumber,
+  formatUsd,
+  parseFiniteNumber,
+  statusTone,
+} from "./format";
 import { RequestDetailPanel } from "./RequestDetailPanel";
+import { UsageDateRangePicker } from "./UsageDateRangePicker";
 
 interface RequestLogTableProps {
   range: UsageRangeSelection;
+  rangeLabel?: string;
   appType: AppTypeFilter;
   filters?: UsageStatsFilters;
   refreshIntervalMs: number;
+  onRangeChange?: (range: UsageRangeSelection) => void;
 }
 
 export function RequestLogTable({
   range,
+  rangeLabel,
   appType,
   filters: dashboardFilters,
   refreshIntervalMs,
+  onRangeChange,
 }: RequestLogTableProps) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(0);
   const [model, setModel] = useState("");
   const [providerName, setProviderName] = useState("");
@@ -145,78 +159,168 @@ export function RequestLogTable({
               <SelectItem value="500">500</SelectItem>
             </SelectContent>
           </Select>
+          {onRangeChange && rangeLabel ? (
+            <UsageDateRangePicker
+              selection={range}
+              triggerLabel={rangeLabel}
+              onApply={(nextRange) => {
+                onRangeChange(nextRange);
+                setPage(0);
+              }}
+            />
+          ) : null}
         </div>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Provider</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              <TableHead className="text-right">Latency</TableHead>
+              <TableHead>{t("usage.time", { defaultValue: "Time" })}</TableHead>
+              <TableHead>
+                {t("usage.provider", { defaultValue: "Provider" })}
+              </TableHead>
+              <TableHead>
+                {t("usage.source", { defaultValue: "Source" })}
+              </TableHead>
+              <TableHead>
+                {t("usage.billingModel", { defaultValue: "Billing model" })}
+              </TableHead>
+              <TableHead>
+                {t("usage.status", { defaultValue: "Status" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.inputTokens", { defaultValue: "Input" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.outputTokens", { defaultValue: "Output" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.cost", { defaultValue: "Cost" })}
+              </TableHead>
+              <TableHead className="text-right">
+                {t("usage.timingInfo", { defaultValue: "Timing" })}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(query.data?.data ?? []).map((log) => (
-              <TableRow
-                key={log.requestId}
-                className="cursor-pointer"
-                onClick={() => setSelected(log)}
-              >
-                <TableCell className="whitespace-nowrap">
-                  {formatDateTime(log.createdAt)}
-                </TableCell>
-                <TableCell className="max-w-[180px] truncate">
-                  {log.providerName || log.providerId}
-                </TableCell>
-                <TableCell>
-                  <span
-                    className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"
-                    title={`Data source: ${sourceLabel(log.dataSource)}`}
-                  >
-                    <Database className="h-3.5 w-3.5" />
-                    {sourceLabel(log.dataSource)}
-                  </span>
-                </TableCell>
-                <TableCell className="max-w-[260px] truncate">
-                  <div className="flex items-center gap-1">
-                    {log.isUnpriced ? (
-                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            {(query.data?.data ?? []).map((log) => {
+              const freshInput = getFreshInputTokens(log);
+              const cacheInclusive = freshInput !== log.inputTokens;
+              const unpriced = log.isUnpriced || isUnpricedUsage(log);
+              const multiplier = parseFiniteNumber(log.costMultiplier);
+              return (
+                <TableRow
+                  key={log.requestId}
+                  className="cursor-pointer"
+                  onClick={() => setSelected(log)}
+                >
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {formatDateTime(log.createdAt)}
+                  </TableCell>
+                  <TableCell className="max-w-[180px] truncate">
+                    {log.providerName || log.providerId}
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"
+                      title={`Data source: ${sourceLabel(log.dataSource)}`}
+                    >
+                      <Database className="h-3.5 w-3.5" />
+                      {sourceLabel(log.dataSource)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-[260px] truncate">
+                    <div className="flex items-center gap-1">
+                      {unpriced ? (
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                      ) : null}
+                      <span
+                        className="truncate font-mono text-xs"
+                        title={
+                          log.requestModel && log.requestModel !== log.model
+                            ? `${log.requestModel} -> ${log.model}`
+                            : log.model
+                        }
+                      >
+                        {log.requestModel && log.requestModel !== log.model ? (
+                          <>
+                            {log.requestModel}
+                            <span className="text-muted-foreground">
+                              {" -> "}
+                              {log.model}
+                            </span>
+                          </>
+                        ) : (
+                          log.model
+                        )}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={`rounded-md border px-2 py-1 text-xs ${statusTone(log.statusCode)}`}
+                    >
+                      {log.statusCode}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div
+                      title={
+                        cacheInclusive
+                          ? `Raw: ${formatNumber(log.inputTokens)}`
+                          : undefined
+                      }
+                    >
+                      {formatNumber(freshInput)}
+                    </div>
+                    {log.cacheReadTokens > 0 || log.cacheCreationTokens > 0 ? (
+                      <div className="text-[10px] text-muted-foreground">
+                        {[
+                          log.cacheReadTokens > 0
+                            ? `R${formatNumber(log.cacheReadTokens)}`
+                            : null,
+                          log.cacheCreationTokens > 0
+                            ? `W${formatNumber(log.cacheCreationTokens)}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
                     ) : null}
-                    <span className="truncate">{log.model}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span
-                    className={`rounded-md border px-2 py-1 text-xs ${statusTone(log.statusCode)}`}
-                  >
-                    {log.statusCode}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatNumber(
-                    log.inputTokens +
-                      log.outputTokens +
-                      log.cacheReadTokens +
-                      log.cacheCreationTokens,
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatUsd(log.totalCostUsd)}
-                </TableCell>
-                <TableCell className="text-right">{log.latencyMs}ms</TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatNumber(log.outputTokens)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className={unpriced ? "text-muted-foreground" : ""}>
+                      {unpriced
+                        ? t("usage.unpriced", { defaultValue: "Unpriced" })
+                        : formatUsd(log.totalCostUsd)}
+                    </div>
+                    {multiplier !== null && multiplier !== 1 ? (
+                      <div className="text-[11px] text-muted-foreground">
+                        x{multiplier.toFixed(2)}
+                      </div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {(log.latencyMs / 1000).toFixed(1)}s
+                    {log.firstTokenMs != null ? (
+                      <span className="text-muted-foreground">
+                        /{(log.firstTokenMs / 1000).toFixed(1)}s
+                      </span>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {!query.isLoading && (query.data?.data ?? []).length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="text-center text-muted-foreground"
                 >
-                  No request logs in this range
+                  {t("usage.noRequestLogs", {
+                    defaultValue: "No request logs in this range",
+                  })}
                 </TableCell>
               </TableRow>
             ) : null}
@@ -224,7 +328,12 @@ export function RequestLogTable({
         </Table>
         <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
           <span>
-            {total} logs, page {page + 1} / {pages}
+            {t("usage.logPageSummary", {
+              defaultValue: "{{total}} logs, page {{page}} / {{pages}}",
+              total,
+              page: page + 1,
+              pages,
+            })}
           </span>
           <div className="flex items-center gap-2">
             <Button

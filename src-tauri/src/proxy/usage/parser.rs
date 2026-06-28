@@ -106,6 +106,20 @@ impl TokenUsage {
                                 .unwrap_or(0)
                                 as u32;
                         }
+                        if usage.cache_read_tokens == 0 {
+                            usage.cache_read_tokens = delta_usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
+                        }
+                        if usage.cache_creation_tokens == 0 {
+                            usage.cache_creation_tokens = delta_usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
+                        }
                     }
                 }
                 _ => {}
@@ -337,6 +351,39 @@ mod tests {
         assert_eq!(usage.input_tokens, 12);
         assert_eq!(usage.output_tokens, 3);
         assert_eq!(usage.cache_read_tokens, 2);
+    }
+
+    #[test]
+    fn claude_stream_usage_reads_cache_tokens_from_message_delta() {
+        let events = vec![
+            json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_1",
+                    "model": "claude-sonnet-4-6",
+                    "usage": {
+                        "input_tokens": 0
+                    }
+                }
+            }),
+            json!({
+                "type": "message_delta",
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 3,
+                    "cache_read_input_tokens": 2,
+                    "cache_creation_input_tokens": 4
+                }
+            }),
+        ];
+
+        let usage = TokenUsage::from_stream_events("claude", &events).expect("usage");
+        assert_eq!(usage.input_tokens, 12);
+        assert_eq!(usage.output_tokens, 3);
+        assert_eq!(usage.cache_read_tokens, 2);
+        assert_eq!(usage.cache_creation_tokens, 4);
+        assert_eq!(usage.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(usage.message_id.as_deref(), Some("msg_1"));
     }
 
     #[test]

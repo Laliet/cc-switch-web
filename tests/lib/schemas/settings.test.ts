@@ -12,11 +12,15 @@ describe("settingsSchema", () => {
       ...baseSettings,
       webDav: {
         enabled: true,
+        autoSync: true,
         baseUrl: " https://dav.example.com/ ",
         username: " user ",
         password: " secret ",
         remoteDir: " cc-switch-web ",
         profile: " default ",
+        lastSyncConfigHash: " abc ",
+        lastSyncAt: " 2026-06-27T00:00:00Z ",
+        lastSyncRemoteSnapshotId: " snap-1 ",
       },
     });
 
@@ -26,11 +30,15 @@ describe("settingsSchema", () => {
     }
     expect(result.data.webDav).toEqual({
       enabled: true,
+      autoSync: true,
       baseUrl: "https://dav.example.com/",
       username: "user",
       password: " secret ",
       remoteDir: "cc-switch-web",
       profile: "default",
+      lastSyncConfigHash: "abc",
+      lastSyncAt: "2026-06-27T00:00:00Z",
+      lastSyncRemoteSnapshotId: "snap-1",
     });
   });
 
@@ -43,6 +51,7 @@ describe("settingsSchema", () => {
     if (defaulted.success) {
       expect(defaulted.data.webDav).toEqual({
         enabled: false,
+        autoSync: false,
         baseUrl: "",
         username: "",
         password: "",
@@ -76,6 +85,32 @@ describe("settingsSchema", () => {
     expect(result.data.network).toEqual({
       githubMirrorBaseUrl: "https://ghproxy.net/",
     });
+  });
+
+  it("accepts skill storage and sync settings", () => {
+    const result = settingsSchema.safeParse({
+      ...baseSettings,
+      skillStorageLocation: "unified",
+      skillSyncMethod: "copy",
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    expect(result.data.skillStorageLocation).toBe("unified");
+    expect(result.data.skillSyncMethod).toBe("copy");
+  });
+
+  it("defaults skill storage and sync settings", () => {
+    const result = settingsSchema.safeParse(baseSettings);
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    expect(result.data.skillStorageLocation).toBe("cc_switch");
+    expect(result.data.skillSyncMethod).toBe("auto");
   });
 
   it("rejects non-http GitHub mirror settings", () => {

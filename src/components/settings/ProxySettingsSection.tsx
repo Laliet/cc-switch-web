@@ -49,6 +49,32 @@ const PROXY_TAKEOVER_APPS: ProxyAppId[] = [
 ];
 const PROXY_TOAST_DURATION = 1800;
 
+function providerHealthLabel(state?: string) {
+  switch (state) {
+    case "open":
+      return "Open";
+    case "half_open":
+      return "Half-open";
+    case "healthy":
+      return "Healthy";
+    default:
+      return state ?? "";
+  }
+}
+
+function providerHealthClass(state?: string) {
+  switch (state) {
+    case "open":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300";
+    case "half_open":
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300";
+    case "healthy":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300";
+    default:
+      return "border-muted bg-muted text-muted-foreground";
+  }
+}
+
 interface ProxySettingsSectionProps {
   value: ProxySettings;
   onChange: (value: ProxySettings) => void;
@@ -78,6 +104,7 @@ export function ProxySettingsSection({
     | `test:${ProxyRouteAppId}`
     | "restore"
     | `takeover:${ProxyAppId}`
+    | `reset:${ProxyAppId}:${string}`
     | "failover"
     | null
   >(null);
@@ -296,6 +323,17 @@ export function ProxySettingsSection({
     if (takeoverInFlightRef.current.has(app)) return;
     const currentEnabled = value.apps[app]?.enabled ?? false;
     if (currentEnabled === enabled) return;
+    if (!enabled && (value.apps[app]?.autoFailoverEnabled ?? false)) {
+      toast.error(
+        t("settings.proxy.failoverTakeoverRequired", {
+          defaultValue: "请先关闭自动故障切换，再关闭代理接管",
+        }),
+        {
+          description: t(`apps.${app}`, { defaultValue: app }),
+        },
+      );
+      return;
+    }
 
     takeoverInFlightRef.current.add(app);
     updateApp(app, { enabled });
@@ -328,6 +366,32 @@ export function ProxySettingsSection({
       );
     } finally {
       takeoverInFlightRef.current.delete(app);
+      setBusyAction(null);
+    }
+  };
+
+  const handleResetProviderCircuit = async (
+    app: ProxyAppId,
+    providerId: string,
+  ) => {
+    setBusyAction(`reset:${app}:${providerId}`);
+    try {
+      setStatus(await settingsApi.resetProviderCircuit(app, providerId));
+      toast.success(
+        t("settings.proxy.circuitReset", {
+          defaultValue: "熔断状态已重置",
+        }),
+        { description: t(`apps.${app}`, { defaultValue: app }) },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.proxy.circuitResetFailed", {
+          defaultValue: "重置熔断状态失败",
+        }),
+        { description: message },
+      );
+    } finally {
       setBusyAction(null);
     }
   };
@@ -671,7 +735,7 @@ export function ProxySettingsSection({
             min={1}
             value={value.nonStreamingTimeout}
             onChange={(event) =>
-              update({ nonStreamingTimeout: Number(event.target.value) || 180 })
+              update({ nonStreamingTimeout: Number(event.target.value) || 600 })
             }
           />
         </div>
@@ -693,11 +757,27 @@ export function ProxySettingsSection({
           {PROXY_ROUTE_APPS.map((app) => {
             const configApp = proxyConfigApp(app);
             const supportsTakeover = app !== "claude-desktop";
+            const takeoverEnabled = value.apps[configApp]?.enabled ?? false;
+            const autoFailoverEnabled =
+              value.apps[configApp]?.autoFailoverEnabled ?? false;
+            const failoverToggleDisabled =
+              isBusy || (!takeoverEnabled && !autoFailoverEnabled);
             const target = status?.activeTargets?.find(
               (item) => item.appType === app,
             );
+            const providerHealth = target
+              ? status?.providerHealth?.find(
+                  (item) =>
+                    item.appType === configApp &&
+                    item.providerId === target.providerId,
+                )
+              : undefined;
             const busy = busyAction === `takeover:${app}`;
             const testBusy = busyAction === `test:${app}`;
+            const resetBusy = Boolean(
+              target &&
+                busyAction === `reset:${configApp}:${target.providerId}`,
+            );
             const appName = t(`apps.${app}`, { defaultValue: app });
             return (
               <div
@@ -715,11 +795,45 @@ export function ProxySettingsSection({
                       </span>
                     ) : null}
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {target?.providerName ??
-                      t("settings.proxy.providerHidden", {
-                        defaultValue: "使用当前供应商，API key 不显示",
-                      })}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">
+                      {target?.providerName ??
+                        t("settings.proxy.providerHidden", {
+                          defaultValue: "使用当前供应商，API key 不显示",
+                        })}
+                    </span>
+                    {providerHealth ? (
+                      <span
+                        className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] leading-none ${providerHealthClass(
+                          providerHealth.state,
+                        )}`}
+                        title={`failures=${providerHealth.failureCount}, window=${providerHealth.windowFailures}/${providerHealth.windowRequests}`}
+                      >
+                        {providerHealthLabel(providerHealth.state)}
+                        {providerHealth.state !== "healthy" && target ? (
+                          <button
+                            type="button"
+                            className="rounded-sm p-0.5 hover:bg-background/70 disabled:opacity-60"
+                            disabled={isBusy}
+                            onClick={() =>
+                              void handleResetProviderCircuit(
+                                configApp,
+                                target.providerId,
+                              )
+                            }
+                            aria-label={t("settings.proxy.resetCircuit", {
+                              defaultValue: "重置熔断",
+                            })}
+                          >
+                            <RotateCcw
+                              className={`h-3 w-3 ${
+                                resetBusy ? "animate-spin" : ""
+                              }`}
+                            />
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {supportsTakeover
@@ -734,12 +848,25 @@ export function ProxySettingsSection({
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Switch
-                        checked={
-                          value.apps[configApp]?.autoFailoverEnabled ?? false
-                        }
+                        checked={autoFailoverEnabled}
                         onCheckedChange={(checked) =>
-                          updateApp(app, { autoFailoverEnabled: checked })
+                          takeoverEnabled || !checked
+                            ? updateApp(app, {
+                                autoFailoverEnabled: checked,
+                              })
+                            : toast.error(
+                                t("settings.proxy.failoverTakeoverRequired", {
+                                  defaultValue:
+                                    "请先开启代理接管，再启用自动故障切换",
+                                }),
+                                {
+                                  description: t(`apps.${configApp}`, {
+                                    defaultValue: configApp,
+                                  }),
+                                },
+                              )
                         }
+                        disabled={failoverToggleDisabled}
                       />
                       <span>
                         {t("settings.proxy.autoFailover", {
@@ -1159,6 +1286,84 @@ export function ProxySettingsSection({
                 }
               />
             </label>
+          </div>
+          <div className="space-y-3 rounded-md border p-3">
+            <div>
+              <h5 className="text-sm font-medium">
+                {t("settings.proxy.optimizer", {
+                  defaultValue: "Bedrock optimizer",
+                })}
+              </h5>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("settings.proxy.optimizerDescription", {
+                  defaultValue:
+                    "仅对 CLAUDE_CODE_USE_BEDROCK=1 的 Anthropic 请求生效，默认按上游保持关闭。",
+                })}
+              </p>
+            </div>
+            <label className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                {t("settings.proxy.optimizerEnabled", {
+                  defaultValue: "启用 Bedrock 请求优化",
+                })}
+              </span>
+              <Switch
+                checked={value.optimizerEnabled}
+                onCheckedChange={(checked) =>
+                  update({ optimizerEnabled: checked })
+                }
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                {t("settings.proxy.optimizerThinking", {
+                  defaultValue: "Thinking 配置优化",
+                })}
+              </span>
+              <Switch
+                checked={value.optimizerThinking}
+                disabled={!value.optimizerEnabled}
+                onCheckedChange={(checked) =>
+                  update({ optimizerThinking: checked })
+                }
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>
+                {t("settings.proxy.optimizerCacheInjection", {
+                  defaultValue: "Prompt cache 断点注入",
+                })}
+              </span>
+              <Switch
+                checked={value.optimizerCacheInjection}
+                disabled={!value.optimizerEnabled}
+                onCheckedChange={(checked) =>
+                  update({ optimizerCacheInjection: checked })
+                }
+              />
+            </label>
+            <div className="space-y-1">
+              <Label>
+                {t("settings.proxy.optimizerCacheTtl", {
+                  defaultValue: "Cache TTL",
+                })}
+              </Label>
+              <Select
+                value={value.optimizerCacheTtl === "5m" ? "5m" : "1h"}
+                onValueChange={(ttl) =>
+                  update({ optimizerCacheTtl: ttl as "5m" | "1h" })
+                }
+                disabled={!value.optimizerEnabled}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1h">1h</SelectItem>
+                  <SelectItem value="5m">5m</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>

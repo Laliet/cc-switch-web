@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type ChangeEvent,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,11 +18,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RefreshCw, Settings } from "lucide-react";
+import {
+  Archive,
+  RefreshCw,
+  RotateCcw,
+  Settings,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { SkillCard } from "./SkillCard";
 import { RepoManager } from "./RepoManager";
-import { skillsApi, type Skill, type SkillRepo } from "@/lib/api/skills";
+import {
+  skillsApi,
+  type Skill,
+  type SkillBackupEntry,
+  type SkillRepo,
+} from "@/lib/api/skills";
 import { formatSkillError } from "@/lib/errors/skillErrorParser";
 import type { AppId } from "@/lib/api";
 import { isSkillsApp, SKILLS_APPS } from "@/config/apps";
@@ -62,7 +75,11 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
   });
   const loadSkillsRequestId = useRef(0);
   const isMountedRef = useRef(true);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
   const [repoManagerOpen, setRepoManagerOpen] = useState(false);
+  const [skillBackups, setSkillBackups] = useState<SkillBackupEntry[]>([]);
+  const [backupActionId, setBackupActionId] = useState<string | null>(null);
+  const [zipImporting, setZipImporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [installFilter, setInstallFilter] = useState<
     "all" | "installed" | "uninstalled"
@@ -298,8 +315,19 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
     }
   };
 
+  const loadBackups = async () => {
+    try {
+      const backups = await skillsApi.getBackups();
+      if (isMountedRef.current) {
+        setSkillBackups(backups);
+      }
+    } catch (error) {
+      console.error("Failed to load skill backups:", error);
+    }
+  };
+
   useEffect(() => {
-    Promise.all([loadSkills(), loadRepos()]);
+    Promise.all([loadSkills(), loadRepos(), loadBackups()]);
   }, [currentApp]);
 
   const handleInstall = async (directory: string) => {
@@ -364,9 +392,17 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
 
   const handleUninstall = async (directory: string) => {
     try {
-      await skillsApi.uninstall(directory, currentApp);
-      toast.success(t("skills.uninstallSuccess", { name: directory }));
-      await loadSkills();
+      const result = await skillsApi.uninstall(directory, currentApp);
+      toast.success(t("skills.uninstallSuccess", { name: directory }), {
+        description: result.backup
+          ? t("skills.backup.created", {
+              defaultValue: "卸载前已创建备份：{{path}}",
+              path: result.backup.backupPath,
+            })
+          : undefined,
+        duration: result.backup ? 8000 : undefined,
+      });
+      await Promise.all([loadSkills(), loadBackups()]);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -388,6 +424,99 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
         error,
         message: errorMessage,
       });
+    }
+  };
+
+  const handleRestoreBackup = async (backup: SkillBackupEntry) => {
+    setBackupActionId(backup.backupId);
+    try {
+      await skillsApi.restoreBackup(backup.backupId, currentApp, false);
+      toast.success(
+        t("skills.backup.restoreSuccess", {
+          defaultValue: "Skill 已从备份恢复",
+        }),
+        {
+          description: backup.name || backup.directory,
+        },
+      );
+      await Promise.all([loadSkills(), loadBackups()]);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const { title, description } = formatSkillError(
+        errorMessage,
+        t,
+        "skills.backup.restoreFailed",
+      );
+      toast.error(title, { description, duration: 10000 });
+    } finally {
+      if (isMountedRef.current) {
+        setBackupActionId(null);
+      }
+    }
+  };
+
+  const handleDeleteBackup = async (backup: SkillBackupEntry) => {
+    setBackupActionId(backup.backupId);
+    try {
+      await skillsApi.deleteBackup(backup.backupId);
+      toast.success(
+        t("skills.backup.deleteSuccess", {
+          defaultValue: "Skill 备份已删除",
+        }),
+      );
+      await loadBackups();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const { title, description } = formatSkillError(
+        errorMessage,
+        t,
+        "skills.backup.deleteFailed",
+      );
+      toast.error(title, { description, duration: 10000 });
+    } finally {
+      if (isMountedRef.current) {
+        setBackupActionId(null);
+      }
+    }
+  };
+
+  const handleZipSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setZipImporting(true);
+    try {
+      const installed = await skillsApi.installFromZipFile(
+        file,
+        currentApp,
+        false,
+      );
+      toast.success(
+        t("skills.zip.importSuccess", {
+          defaultValue: "已导入 {{count}} 个 Skill",
+          count: installed.length,
+        }),
+        {
+          description: installed.map((skill) => skill.name).join(", "),
+        },
+      );
+      await loadSkills();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const { title, description } = formatSkillError(
+        errorMessage,
+        t,
+        "skills.zip.importFailed",
+      );
+      toast.error(title, { description, duration: 10000 });
+    } finally {
+      if (isMountedRef.current) {
+        setZipImporting(false);
+      }
     }
   };
 
@@ -523,6 +652,28 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
             {t("skills.title")}
           </h1>
           <div className="flex gap-2">
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip,.skill,application/zip"
+              className="hidden"
+              onChange={handleZipSelected}
+            />
+            <Button
+              variant="mcp"
+              size="sm"
+              onClick={() => zipInputRef.current?.click()}
+              disabled={zipImporting}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {zipImporting
+                ? t("skills.zip.importing", {
+                    defaultValue: "导入中",
+                  })
+                : t("skills.zip.import", {
+                    defaultValue: "导入 ZIP/.skill",
+                  })}
+            </Button>
             <Button
               variant="mcp"
               size="sm"
@@ -655,6 +806,68 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
 
       {/* 技能网格（可滚动详情区域） */}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 bg-muted/10">
+        {skillBackups.length > 0 ? (
+          <section className="mb-6 rounded-md border border-border-default bg-card p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Archive className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">
+                  {t("skills.backup.title", {
+                    defaultValue: "Skill 备份",
+                  })}
+                </h2>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {skillBackups.length}
+              </span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {skillBackups.slice(0, 6).map((backup) => (
+                <div
+                  key={backup.backupId}
+                  className="flex min-w-0 flex-col gap-2 rounded-md border border-border-default p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {backup.name || backup.directory}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {backup.app} · {backup.directory}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {backup.createdAt}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRestoreBackup(backup)}
+                      disabled={backupActionId !== null}
+                      className="flex-1"
+                    >
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                      {t("skills.backup.restore", {
+                        defaultValue: "恢复",
+                      })}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteBackup(backup)}
+                      disabled={backupActionId !== null}
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />

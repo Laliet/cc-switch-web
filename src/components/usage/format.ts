@@ -19,6 +19,19 @@ export function formatDateTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
+export function getLocaleFromLanguage(language?: string): string {
+  if (!language) return "en-US";
+  if (language.startsWith("zh")) return "zh-CN";
+  if (language.startsWith("ja")) return "ja-JP";
+  return "en-US";
+}
+
+export function parseFiniteNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const parsed = typeof value === "number" ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function compactDate(value: string): string {
   if (!value) return "-";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.slice(5);

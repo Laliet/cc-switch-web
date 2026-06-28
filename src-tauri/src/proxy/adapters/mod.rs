@@ -91,6 +91,13 @@ pub fn bearer_headers(api_key: &str) -> Vec<(HeaderName, HeaderValue)> {
     vec![(AUTHORIZATION, value)]
 }
 
+fn google_api_key_headers(api_key: &str) -> Vec<(HeaderName, HeaderValue)> {
+    let Ok(value) = HeaderValue::from_str(api_key) else {
+        return Vec::new();
+    };
+    vec![(HeaderName::from_static("x-goog-api-key"), value)]
+}
+
 pub fn insert_auth_headers(
     headers: &mut HeaderMap,
     adapter: &dyn ProviderAdapter,
@@ -104,6 +111,8 @@ pub fn insert_auth_headers(
         Some("openai_chat" | "openai_responses")
     ) {
         bearer_headers(&auth.api_key)
+    } else if auth.api_format.as_deref() == Some("gemini_native") {
+        google_api_key_headers(&auth.api_key)
     } else {
         adapter.auth_headers(auth)
     };
@@ -308,7 +317,10 @@ mod tests {
     use axum::http::Uri;
     use reqwest::header::HeaderMap;
 
-    use super::{codex::CODEX_ADAPTER, full_endpoint_url, insert_auth_headers, AuthInfo};
+    use super::{
+        claude::CLAUDE_ADAPTER, codex::CODEX_ADAPTER, full_endpoint_url, insert_auth_headers,
+        AuthInfo,
+    };
 
     #[test]
     fn full_endpoint_url_uses_endpoint_without_appending_request_path() {
@@ -371,5 +383,29 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("chatgpt-account")
         );
+    }
+
+    #[test]
+    fn gemini_native_auth_headers_use_google_api_key_header() {
+        let mut headers = HeaderMap::new();
+        insert_auth_headers(
+            &mut headers,
+            &CLAUDE_ADAPTER,
+            &AuthInfo {
+                api_key: "gemini-key".to_string(),
+                provider_type: None,
+                api_format: Some("gemini_native".to_string()),
+                account_id: None,
+            },
+        );
+
+        assert_eq!(
+            headers
+                .get("x-goog-api-key")
+                .and_then(|value| value.to_str().ok()),
+            Some("gemini-key")
+        );
+        assert!(headers.get("authorization").is_none());
+        assert!(headers.get("x-api-key").is_none());
     }
 }

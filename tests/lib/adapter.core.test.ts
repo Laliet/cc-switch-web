@@ -638,6 +638,56 @@ describe("commandToEndpoint", () => {
         },
       },
       {
+        cmd: "get_skill_backups",
+        args: {},
+        expected: { method: "GET", url: "/api/skills/backups" },
+      },
+      {
+        cmd: "restore_skill_backup",
+        args: { backupId: "backup-1", app: "claude", force: true },
+        expected: {
+          method: "POST",
+          url: "/api/skills/backups/restore",
+          body: { backupId: "backup-1", app: "claude", force: true },
+        },
+      },
+      {
+        cmd: "delete_skill_backup",
+        args: { backupId: "backup-1" },
+        expected: {
+          method: "DELETE",
+          url: "/api/skills/backups/backup-1",
+        },
+      },
+      {
+        cmd: "install_skills_from_zip",
+        args: {
+          contentBase64: "UEs=",
+          fileName: "demo.skill",
+          app: "claude",
+          force: false,
+        },
+        expected: {
+          method: "POST",
+          url: "/api/skills/import-zip",
+          body: {
+            contentBase64: "UEs=",
+            fileName: "demo.skill",
+            app: "claude",
+            force: false,
+          },
+        },
+      },
+      {
+        cmd: "migrate_skill_storage",
+        args: { target: "unified" },
+        expected: {
+          method: "POST",
+          url: "/api/skills/storage/migrate",
+          body: { target: "unified" },
+        },
+      },
+      {
         cmd: "get_skill_repos",
         args: {},
         expected: { method: "GET", url: "/api/skills/repos" },
@@ -671,6 +721,27 @@ describe("commandToEndpoint", () => {
           method: "PUT",
           url: "/api/settings",
           body: { theme: "dark" },
+        },
+      },
+      {
+        cmd: "merge_deeplink_config",
+        args: {
+          request: {
+            version: "v1",
+            resource: "provider",
+            app: "claude",
+            config: "e30",
+          },
+        },
+        expected: {
+          method: "POST",
+          url: "/api/deeplink/merge-config",
+          body: {
+            version: "v1",
+            resource: "provider",
+            app: "claude",
+            config: "e30",
+          },
         },
       },
       {

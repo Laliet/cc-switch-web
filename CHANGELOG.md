@@ -5,6 +5,26 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-06-28
+
+### Features / 新特性
+
+- Backport upstream cc-switch 3.15.0 proxy reliability behavior for request forwarding, OpenAI Responses, Gemini Native, Copilot, Codex OAuth, tool choice mapping, canonical tool arguments, usage parsing, final usage deltas, IPv6, connection pooling, retries, and failover.
+- Add provider health visibility, circuit breaker state, reset circuit breaker actions, and takeover/failover validation for Web/headless proxy workflows.
+- Add Web Deep Link import for provider, MCP, prompt, and skill resources, including upstream-style inline config merge and confirmation flow.
+- Upgrade WebDAV from one-off snapshot upload/download to usable cloud sync with automatic sync, backup history, restore, and conflict detection.
+- Complete more of the Skills workflow with uninstall backups, backup restore/delete, ZIP/.skill import, storage location selection, and sync method settings.
+- Align Usage Dashboard details with upstream usage workflows by adding date-range selection, pricing editing, richer request-log columns, cache token handling, latency fields, and unpriced usage visibility.
+
+### Fixes / 修复
+
+- Preserve Claude Deep Link model settings in both `env.ANTHROPIC_MODEL` and root `settingsConfig.model` so imported providers display and switch consistently.
+- Improve AGENTS instructions so future feature work follows upstream cc-switch implementation logic and uses China-friendly mirror fallback when fetching upstream resources.
+
+### Tests / 测试
+
+- Validate 0.18.0 with targeted frontend type checks, Vitest suites, Rust proxy/deeplink/WebDAV/optimizer/cache tests, desktop and web-server checks, and manual Web/headless smoke testing against local relay providers.
+
 ## [0.14.1] - 2026-05-31
 
 ### Fixes / 修复

@@ -16,6 +16,8 @@ mod gemini_config; // 新增
 mod gemini_mcp;
 #[cfg(feature = "desktop")]
 mod init_status;
+#[path = "proxy/json_canonical.rs"]
+pub(crate) mod json_canonical;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 pub mod local_proxy;
 mod mcp;
@@ -33,6 +35,9 @@ mod usage_script;
 #[cfg(feature = "web-server")]
 pub mod web_api;
 mod webdav_sync;
+
+#[cfg(feature = "web-server")]
+pub use webdav_sync::start_auto_sync_worker as start_webdav_auto_sync_worker;
 
 pub use app_config::{AppType, McpApps, McpServer, MultiAppConfig};
 pub use auth::{
@@ -346,13 +351,15 @@ fn handle_deeplink_url(
 
     log::info!("✓ Deep link URL detected from {source}: {url_str}");
 
-    match crate::deeplink::parse_deeplink_url(url_str) {
+    match crate::deeplink::parse_deeplink_url(url_str)
+        .and_then(|request| crate::deeplink::parse_and_merge_config(&request))
+    {
         Ok(request) => {
             log::info!(
                 "✓ Successfully parsed deep link: resource={}, app={}, name={}",
                 request.resource,
-                request.app,
-                request.name
+                request.app.as_deref().unwrap_or(""),
+                request.name.as_deref().unwrap_or("")
             );
 
             if let Err(e) = app.emit("deeplink-import", &request) {
@@ -761,6 +768,9 @@ pub fn run() {
             commands::upload_webdav_snapshot,
             commands::preview_webdav_snapshot,
             commands::download_webdav_snapshot,
+            commands::sync_webdav_snapshot,
+            commands::list_webdav_backups,
+            commands::restore_webdav_backup,
             commands::restart_app,
             commands::check_for_updates,
             commands::check_relay_pulse,
@@ -838,7 +848,9 @@ pub fn run() {
             commands::query_managed_auth_usage,
             // Deep link import
             commands::parse_deeplink,
+            commands::merge_deeplink_config,
             commands::import_from_deeplink,
+            commands::import_from_deeplink_unified,
             update_tray_menu,
             // Environment variable management
             commands::check_env_conflicts,
@@ -848,6 +860,11 @@ pub fn run() {
             commands::get_skills,
             commands::install_skill,
             commands::uninstall_skill,
+            commands::get_skill_backups,
+            commands::delete_skill_backup,
+            commands::restore_skill_backup,
+            commands::migrate_skill_storage,
+            commands::install_skills_from_zip,
             commands::get_skill_repos,
             commands::add_skill_repo,
             commands::remove_skill_repo,
@@ -882,12 +899,14 @@ pub fn run() {
 
                         if url_str.starts_with("ccswitch://") {
                             // 解析并广播深链接事件，复用与 single_instance 相同的逻辑
-                            match crate::deeplink::parse_deeplink_url(&url_str) {
+                            match crate::deeplink::parse_deeplink_url(&url_str)
+                                .and_then(|request| crate::deeplink::parse_and_merge_config(&request))
+                            {
                                 Ok(request) => {
                                     log::info!(
                                         "Successfully parsed deep link from RunEvent::Opened: resource={}, app={}",
                                         request.resource,
-                                        request.app
+                                        request.app.as_deref().unwrap_or("")
                                     );
 
                                     if let Err(e) =

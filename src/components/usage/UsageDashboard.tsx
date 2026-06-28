@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { BarChart3, Coins, FileText, RefreshCw, Server } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,6 @@ import {
 import {
   AppTypeFilter,
   KNOWN_USAGE_APP_TYPES,
-  UsageRangePreset,
   UsageRangeSelection,
   UsageStatsFilters,
   usageAppLabel,
@@ -28,7 +28,9 @@ import {
   startOfToday,
   usageRangeAroundLatestData,
   usageRangeLabel,
+  resolveUsageRange,
 } from "@/lib/usageRange";
+import { getLocaleFromLanguage } from "./format";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
 import { RequestLogTable } from "./RequestLogTable";
@@ -36,18 +38,12 @@ import { ProviderStatsTable } from "./ProviderStatsTable";
 import { ModelStatsTable } from "./ModelStatsTable";
 import { PricingConfigPanel } from "./PricingConfigPanel";
 import { DataSourceBar } from "./DataSourceBar";
+import { UsageDateRangePicker } from "./UsageDateRangePicker";
 
-const RANGE_PRESETS: UsageRangePreset[] = [
-  "today",
-  "1d",
-  "7d",
-  "14d",
-  "30d",
-  "all",
-];
 const APP_FILTERS: AppTypeFilter[] = ["all", ...KNOWN_USAGE_APP_TYPES];
 
 export function UsageDashboard() {
+  const { t, i18n } = useTranslation();
   const [range, setRange] = useState<UsageRangeSelection>({ preset: "today" });
   const [appType, setAppType] = useState<AppTypeFilter>("all");
   const [providerId, setProviderId] = useState("all");
@@ -92,6 +88,24 @@ export function UsageDashboard() {
     () => (refreshIntervalMs > 0 ? `${refreshIntervalMs / 1000}s` : "Off"),
     [refreshIntervalMs],
   );
+  const resolvedRange = useMemo(() => resolveUsageRange(range), [range]);
+  const rangeLabel = useMemo(() => {
+    if (range.preset !== "custom") {
+      return usageRangeLabel(range.preset);
+    }
+    const locale = getLocaleFromLanguage(
+      i18n.resolvedLanguage || i18n.language,
+    );
+    return `${new Date(resolvedRange.startDate).toLocaleString(locale)} - ${new Date(
+      resolvedRange.endDate,
+    ).toLocaleString(locale)}`;
+  }, [
+    i18n.language,
+    i18n.resolvedLanguage,
+    range.preset,
+    resolvedRange.endDate,
+    resolvedRange.startDate,
+  ]);
 
   const providerOptions = useMemo(() => {
     const options = new Map<
@@ -178,34 +192,24 @@ export function UsageDashboard() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold tracking-normal">
-            Usage Dashboard
+            {t("usage.title", { defaultValue: "Usage Dashboard" })}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Proxy request logs, token usage, model pricing, and cost allocation.
+            {t("usage.subtitle", {
+              defaultValue:
+                "Proxy request logs, token usage, model pricing, and cost allocation.",
+            })}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={range.preset}
-            onValueChange={(value) => {
+          <UsageDateRangePicker
+            selection={range}
+            triggerLabel={rangeLabel}
+            onApply={(value) => {
               setRangeWasSelected(true);
-              setRange({ preset: value as UsageRangePreset });
+              setRange(value);
             }}
-          >
-            <SelectTrigger className="w-[120px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_PRESETS.map((preset) => (
-                <SelectItem key={preset} value={preset}>
-                  {usageRangeLabel(preset)}
-                </SelectItem>
-              ))}
-              {range.preset === "custom" ? (
-                <SelectItem value="custom">Recent data</SelectItem>
-              ) : null}
-            </SelectContent>
-          </Select>
+          />
           <Select
             value={appType}
             onValueChange={(value) => {
@@ -230,7 +234,9 @@ export function UsageDashboard() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All providers</SelectItem>
+              <SelectItem value="all">
+                {t("usage.allProviders", { defaultValue: "All providers" })}
+              </SelectItem>
               {providerOptions.map((provider) => (
                 <SelectItem key={provider.value} value={provider.value}>
                   {provider.label}
@@ -246,7 +252,9 @@ export function UsageDashboard() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All models</SelectItem>
+              <SelectItem value="all">
+                {t("usage.allModels", { defaultValue: "All models" })}
+              </SelectItem>
               {modelOptions.map((modelOption) => (
                 <SelectItem key={modelOption} value={modelOption}>
                   {modelOption}
@@ -265,7 +273,10 @@ export function UsageDashboard() {
       {usageLoadError ? (
         <Alert variant="destructive">
           <AlertDescription>
-            Usage data failed to load: {usageLoadError}
+            {t("usage.loadFailed", {
+              defaultValue: "Usage data failed to load: {{error}}",
+              error: usageLoadError,
+            })}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -304,9 +315,14 @@ export function UsageDashboard() {
         <TabsContent value="logs">
           <RequestLogTable
             range={range}
+            rangeLabel={rangeLabel}
             appType={appType}
             filters={statsFilters}
             refreshIntervalMs={refreshIntervalMs}
+            onRangeChange={(nextRange) => {
+              setRangeWasSelected(true);
+              setRange(nextRange);
+            }}
           />
         </TabsContent>
         <TabsContent value="providers">

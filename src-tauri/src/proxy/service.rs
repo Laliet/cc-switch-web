@@ -34,6 +34,8 @@ impl ProxyService {
         let mut app_settings = settings::get_settings();
         app_settings.proxy = normalize_config(config);
         server::validate_settings(&app_settings.proxy)?;
+        ensure_failover_takeover_enabled(&app_settings.proxy)?;
+        ensure_failover_queues_seeded(state, &app_settings.proxy)?;
         state.db.save_proxy_config(&app_settings.proxy)?;
         settings::update_settings(app_settings)?;
         state.db.get_proxy_config()
@@ -55,6 +57,8 @@ impl ProxyService {
         config.enabled = true;
         config.live_takeover_active = has_takeover_apps(&config);
         config = normalize_config(config);
+        server::validate_settings(&config)?;
+        ensure_failover_takeover_enabled(&config)?;
         ensure_takeover_config_supported(&state, &config)?;
         server::start_proxy(state.clone(), config.clone()).await?;
         if let Err(err) = Self::save_config(&state, config) {
@@ -96,6 +100,9 @@ impl ProxyService {
         }
 
         let original_settings = settings::get_settings();
+        if !enabled && is_app_failover_enabled(&original_settings.proxy, &app) {
+            return Err(failover_takeover_required_error(&app));
+        }
         let mut app_settings = original_settings.clone();
         set_app_enabled(&mut app_settings.proxy, &app, enabled);
         app_settings.proxy.live_takeover_active = has_takeover_apps(&app_settings.proxy);
@@ -201,6 +208,75 @@ fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
     }
 }
 
+fn is_app_failover_enabled(config: &ProxySettings, app: &AppType) -> bool {
+    match app {
+        AppType::Claude => config.apps.claude.auto_failover_enabled,
+        AppType::Codex => config.apps.codex.auto_failover_enabled,
+        AppType::Gemini => config.apps.gemini.auto_failover_enabled,
+        AppType::Opencode => config.apps.opencode.auto_failover_enabled,
+        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
+    }
+}
+
+fn ensure_failover_takeover_enabled(config: &ProxySettings) -> Result<(), AppError> {
+    for app in [
+        AppType::Claude,
+        AppType::Codex,
+        AppType::Gemini,
+        AppType::Opencode,
+    ] {
+        if is_app_failover_enabled(config, &app) && !is_app_enabled(config, &app) {
+            return Err(failover_takeover_required_error(&app));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_failover_queues_seeded(state: &AppState, config: &ProxySettings) -> Result<(), AppError> {
+    let app_config = state.load_config()?;
+    for app in [
+        AppType::Claude,
+        AppType::Codex,
+        AppType::Gemini,
+        AppType::Opencode,
+    ] {
+        if !is_app_failover_enabled(config, &app) {
+            continue;
+        }
+        if !state.db.list_failover_queue(app.as_str())?.is_empty() {
+            continue;
+        }
+        let Some(manager) = app_config.get_manager(&app) else {
+            continue;
+        };
+        let current_id = manager.current.trim();
+        if current_id.is_empty() {
+            return Err(AppError::InvalidInput(format!(
+                "Cannot enable auto failover for {} without a current provider",
+                app.as_str()
+            )));
+        }
+        if !manager.providers.contains_key(current_id) {
+            return Err(AppError::InvalidInput(format!(
+                "Cannot seed failover queue for {} because current provider '{}' does not exist",
+                app.as_str(),
+                current_id
+            )));
+        }
+        state.db.add_failover_provider(app.as_str(), current_id)?;
+    }
+    Ok(())
+}
+
+fn failover_takeover_required_error(app: &AppType) -> AppError {
+    let app_name = app.as_str();
+    AppError::localized(
+        "proxy.failover.takeover_required",
+        format!("需要先启用 {app_name} 的代理接管，再开启或保留自动故障切换。"),
+        format!("Enable proxy takeover for {app_name} before enabling or keeping auto failover."),
+    )
+}
+
 fn is_default_proxy_config(config: &ProxySettings) -> bool {
     let default = ProxySettings::default();
     !config.enabled
@@ -243,6 +319,34 @@ fn ensure_takeover_config_supported(
         ensure_gemini_takeover_supported(&provider)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{app_config::AppType, settings::ProxySettings};
+
+    use super::{ensure_failover_takeover_enabled, is_app_failover_enabled};
+
+    #[test]
+    fn failover_requires_takeover_for_same_app() {
+        let mut config = ProxySettings::default();
+        config.apps.codex.auto_failover_enabled = true;
+
+        let err = ensure_failover_takeover_enabled(&config).expect_err("invalid config");
+        assert!(err.to_string().contains("codex"));
+
+        config.apps.codex.enabled = true;
+        ensure_failover_takeover_enabled(&config).expect("takeover enabled");
+    }
+
+    #[test]
+    fn failover_enabled_detection_is_scoped_per_app() {
+        let mut config = ProxySettings::default();
+        config.apps.claude.auto_failover_enabled = true;
+
+        assert!(is_app_failover_enabled(&config, &AppType::Claude));
+        assert!(!is_app_failover_enabled(&config, &AppType::Codex));
+    }
 }
 
 pub(crate) fn ensure_gemini_takeover_supported(

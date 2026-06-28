@@ -10,6 +10,8 @@ import type {
   ProxyTestResult,
   Settings,
   WebDavSettings,
+  WebDavAutoSyncResult,
+  WebDavBackupEntry,
   WebDavSnapshotPreview,
   WebDavSyncResult,
 } from "@/types";
@@ -241,6 +243,13 @@ export const settingsApi = {
     return await invoke("clear_failover_queue", { app });
   },
 
+  async resetProviderCircuit(
+    app: ProxyAppId,
+    providerId: string,
+  ): Promise<ProxyStatus> {
+    return await invoke("reset_provider_circuit", { app, providerId });
+  },
+
   async listModelPricing(): Promise<ModelPricingRecord[]> {
     return await invoke("list_model_pricing");
   },
@@ -269,5 +278,24 @@ export const settingsApi = {
     settings?: WebDavSettings,
   ): Promise<WebDavSyncResult> {
     return await invoke("download_webdav_snapshot", { settings });
+  },
+
+  async syncWebDavSnapshot(
+    settings?: WebDavSettings,
+  ): Promise<WebDavAutoSyncResult> {
+    return await invoke("sync_webdav_snapshot", { settings });
+  },
+
+  async listWebDavBackups(
+    settings?: WebDavSettings,
+  ): Promise<WebDavBackupEntry[]> {
+    return await invoke("list_webdav_backups", { settings });
+  },
+
+  async restoreWebDavBackup(
+    backupId: string,
+    settings?: WebDavSettings,
+  ): Promise<WebDavSyncResult> {
+    return await invoke("restore_webdav_backup", { backupId, settings });
   },
 };

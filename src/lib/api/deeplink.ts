@@ -1,35 +1,85 @@
 import { invoke } from "./adapter";
+import type { AppId } from "./types";
+
+export type DeepLinkResourceType = "provider" | "prompt" | "mcp" | "skill";
 
 export interface DeepLinkImportRequest {
   version: string;
-  resource: string;
-  app: "claude" | "codex" | "gemini";
-  name: string;
-  homepage: string;
-  endpoint: string;
-  apiKey: string;
+  resource: DeepLinkResourceType;
+  app?: AppId;
+  name?: string;
+  enabled?: boolean;
+  homepage?: string;
+  endpoint?: string;
+  apiKey?: string;
+  icon?: string;
   model?: string;
   notes?: string;
+  haikuModel?: string;
+  sonnetModel?: string;
+  opusModel?: string;
+  content?: string;
+  description?: string;
+  apps?: string;
+  repo?: string;
+  directory?: string;
+  branch?: string;
+  skillsPath?: string;
+  config?: string;
+  configFormat?: string;
+  configUrl?: string;
+  usageEnabled?: boolean;
+  usageScript?: string;
+  usageApiKey?: string;
+  usageBaseUrl?: string;
+  usageAccessToken?: string;
+  usageUserId?: string;
+  usageAutoInterval?: number;
 }
 
+export type DeepLinkImportResult =
+  | { type: "provider"; id: string; result: { id: string } }
+  | { type: "prompt"; id: string; result: { id: string } }
+  | {
+      type: "mcp";
+      importedCount?: number;
+      importedIds?: string[];
+      failed?: Array<{ id: string; error: string }>;
+      result: {
+        importedCount: number;
+        importedIds: string[];
+        failed: Array<{ id: string; error: string }>;
+      };
+    }
+  | {
+      type: "skill";
+      id?: string | null;
+      key?: string;
+      result: { key: string };
+    };
+
 export const deeplinkApi = {
-  /**
-   * Parse a deep link URL
-   * @param url The ccswitch:// URL to parse
-   * @returns Parsed deep link request
-   */
-  parseDeeplink: async (url: string): Promise<DeepLinkImportRequest> => {
-    return invoke("parse_deeplink", { url });
+  async parse(url: string): Promise<DeepLinkImportRequest> {
+    return await invoke("parse_deeplink", { url });
   },
 
-  /**
-   * Import a provider from a deep link request
-   * @param request The deep link import request
-   * @returns The ID of the imported provider
-   */
-  importFromDeeplink: async (
+  async parseDeeplink(url: string): Promise<DeepLinkImportRequest> {
+    return await this.parse(url);
+  },
+
+  async import(request: DeepLinkImportRequest): Promise<DeepLinkImportResult> {
+    return await invoke("import_from_deeplink_unified", { request });
+  },
+
+  async mergeDeeplinkConfig(
     request: DeepLinkImportRequest,
-  ): Promise<string> => {
-    return invoke("import_from_deeplink", { request });
+  ): Promise<DeepLinkImportRequest> {
+    return await invoke("merge_deeplink_config", { request });
+  },
+
+  async importFromDeeplink(
+    request: DeepLinkImportRequest,
+  ): Promise<DeepLinkImportResult> {
+    return await this.import(request);
   },
 };

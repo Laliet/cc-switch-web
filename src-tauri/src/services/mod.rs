@@ -21,5 +21,7 @@ pub use prompt::PromptService;
 pub use provider::ProviderService;
 #[cfg(feature = "desktop")]
 pub use provider::ProviderSortUpdate;
-pub use skill::{Skill, SkillRepo, SkillService};
+pub use skill::{
+    MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
+};
 pub use speedtest::{EndpointLatency, SpeedtestService};

@@ -7,8 +7,8 @@ use axum::{
 
 use super::{
     handlers::{
-        auth, config, health, mcp, model_fetch, prompts, providers, proxy, settings, skills,
-        stream_check, system, usage, webdav,
+        auth, config, deeplink, health, mcp, model_fetch, prompts, providers, proxy, settings,
+        skills, stream_check, system, usage, webdav,
     },
     SharedState,
 };
@@ -22,6 +22,7 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/prompts", prompt_routes())
         .nest("/skills", skill_routes())
         .nest("/settings", settings_routes())
+        .nest("/deeplink", deeplink_routes())
         .nest("/proxy", proxy_routes())
         .nest("/usage", usage_routes())
         .nest("/webdav", webdav_routes())
@@ -81,6 +82,12 @@ fn webdav_routes() -> Router<SharedState> {
             get(webdav::preview_snapshot).post(webdav::preview_snapshot),
         )
         .route("/snapshot/download", post(webdav::download_snapshot))
+        .route("/snapshot/sync", post(webdav::sync_snapshot))
+        .route(
+            "/backups",
+            get(webdav::list_backups).post(webdav::list_backups),
+        )
+        .route("/backups/restore", post(webdav::restore_backup))
 }
 
 fn stream_check_routes() -> Router<SharedState> {
@@ -206,6 +213,11 @@ fn skill_routes() -> Router<SharedState> {
         .route("/", get(skills::list_skills))
         .route("/install", post(skills::install_skill))
         .route("/uninstall", post(skills::uninstall_skill))
+        .route("/import-zip", post(skills::install_from_zip))
+        .route("/storage/migrate", post(skills::migrate_storage))
+        .route("/backups", get(skills::list_backups))
+        .route("/backups/restore", post(skills::restore_backup))
+        .route("/backups/:backup_id", delete(skills::delete_backup))
         .route("/repos", get(skills::list_repos).post(skills::add_repo))
         .route("/repos/:owner/:name", delete(skills::remove_repo))
 }
@@ -215,6 +227,13 @@ fn settings_routes() -> Router<SharedState> {
         "/",
         get(settings::get_settings).put(settings::save_settings),
     )
+}
+
+fn deeplink_routes() -> Router<SharedState> {
+    Router::new()
+        .route("/parse", post(deeplink::parse_deeplink))
+        .route("/merge-config", post(deeplink::merge_deeplink_config))
+        .route("/import", post(deeplink::import_from_deeplink))
 }
 
 fn proxy_routes() -> Router<SharedState> {
@@ -240,6 +259,10 @@ fn proxy_routes() -> Router<SharedState> {
         .route(
             "/failover/:app/:id",
             post(proxy::add_failover_provider).delete(proxy::remove_failover_provider),
+        )
+        .route(
+            "/health/:app/:id/reset",
+            post(proxy::reset_provider_circuit),
         )
         .route("/takeover", get(proxy::get_takeover))
         .route("/takeover/:app", put(proxy::set_takeover))

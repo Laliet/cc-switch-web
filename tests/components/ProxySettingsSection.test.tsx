@@ -83,13 +83,17 @@ const createSettings = (
   liveTakeoverActive: false,
   streamingFirstByteTimeout: 90,
   streamingIdleTimeout: 120,
-  nonStreamingTimeout: 180,
+  nonStreamingTimeout: 600,
   circuitFailureThreshold: 3,
   circuitRecoveryThreshold: 2,
   circuitRecoveryWaitSeconds: 60,
   circuitErrorRateThreshold: 80,
   rectifyThinkingSignature: true,
   rectifyThinkingBudget: true,
+  optimizerEnabled: false,
+  optimizerThinking: true,
+  optimizerCacheInjection: true,
+  optimizerCacheTtl: "1h",
   apps: {
     claude: createAppSettings(),
     codex: createAppSettings(),
@@ -248,6 +252,43 @@ describe("ProxySettingsSection", () => {
 
     await screen.findByText("运行中");
     expect(getButton("停止代理")).toBeEnabled();
+  });
+
+  it("renders Bedrock optimizer controls and updates hidden proxy settings", async () => {
+    const { onChangeSpy } = renderSection();
+    await waitForInitialStatus();
+
+    const optimizerCard = screen
+      .getByText("Bedrock optimizer")
+      .closest(".rounded-md");
+    expect(optimizerCard).toBeInstanceOf(HTMLElement);
+    const card = optimizerCard as HTMLElement;
+    const enableSwitch = within(
+      within(card).getByText("启用 Bedrock 请求优化").closest("label")!,
+    ).getByRole("switch");
+    const thinkingSwitch = within(
+      within(card).getByText("Thinking 配置优化").closest("label")!,
+    ).getByRole("switch");
+    const cacheSwitch = within(
+      within(card).getByText("Prompt cache 断点注入").closest("label")!,
+    ).getByRole("switch");
+
+    expect(enableSwitch).not.toBeChecked();
+    expect(thinkingSwitch).toBeDisabled();
+    expect(cacheSwitch).toBeDisabled();
+
+    fireEvent.click(enableSwitch);
+
+    expect(onChangeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ optimizerEnabled: true }),
+    );
+    expect(thinkingSwitch).toBeEnabled();
+    expect(cacheSwitch).toBeEnabled();
+
+    fireEvent.click(cacheSwitch);
+    expect(onChangeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ optimizerCacheInjection: false }),
+    );
   });
 
   it("loads recent logs when the collapsed section opens", async () => {

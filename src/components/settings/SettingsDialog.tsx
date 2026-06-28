@@ -29,6 +29,7 @@ import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
 import { WebDavSettingsSection } from "@/components/settings/WebDavSettingsSection";
 import { NetworkSettingsSection } from "@/components/settings/NetworkSettingsSection";
+import { SkillSettingsSection } from "@/components/settings/SkillSettingsSection";
 import { ModelTestConfigPanel } from "@/components/usage/ModelTestConfigPanel";
 import { UniversalProvidersSection } from "@/components/settings/UniversalProvidersSection";
 import { AuthCenterSection } from "@/components/settings/AuthCenterSection";
@@ -367,6 +368,11 @@ export function SettingsDialog({
                     <WebDavSettingsSection
                       value={settings.webDav}
                       onChange={(webDav) => updateSettings({ webDav })}
+                    />
+                    <SkillSettingsSection
+                      storageLocation={settings.skillStorageLocation}
+                      syncMethod={settings.skillSyncMethod}
+                      onChange={updateSettings}
                     />
                     <NetworkSettingsSection
                       value={settings.network}

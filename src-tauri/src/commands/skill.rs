@@ -1,10 +1,14 @@
 use crate::app_config::AppType;
 use crate::error::{format_skill_error, AppError};
 use crate::services::skill::SkillState;
-use crate::services::{Skill, SkillRepo, SkillService};
+use crate::services::{
+    MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
+};
 use crate::store::AppState;
+use base64::{engine::general_purpose, Engine};
 use chrono::Utc;
 use serde::Serialize;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 
@@ -18,6 +22,14 @@ pub struct SkillsResponse {
     pub warnings: Vec<String>,
     pub cache_hit: bool,
     pub refreshing: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUninstallResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<SkillBackupEntry>,
 }
 
 #[tauri::command]
@@ -144,9 +156,12 @@ pub fn uninstall_skill(
     app: Option<String>,
     _service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
-) -> Result<bool, String> {
+) -> Result<SkillUninstallResult, String> {
     let app = parse_skill_app(app)?;
     let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+    let backup = service_for_app
+        .backup_skill_before_uninstall(&directory)
+        .map_err(|e| e.to_string())?;
 
     service_for_app
         .uninstall_skill(directory.clone())
@@ -162,7 +177,10 @@ pub fn uninstall_skill(
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(true)
+    Ok(SkillUninstallResult {
+        success: true,
+        backup,
+    })
 }
 
 fn parse_skill_app(raw: Option<String>) -> Result<AppType, String> {
@@ -205,6 +223,104 @@ pub fn get_skill_repos(
     let config = app_state.load_config().map_err(|e| e.to_string())?;
 
     Ok(config.skills.repos.clone())
+}
+
+#[tauri::command]
+pub fn get_skill_backups() -> Result<Vec<SkillBackupEntry>, String> {
+    SkillService::list_backups().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_skill_backup(backup_id: String) -> Result<bool, String> {
+    SkillService::delete_backup(&backup_id).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn restore_skill_backup(
+    backup_id: String,
+    force: Option<bool>,
+    app: Option<String>,
+    _service: State<'_, SkillServiceState>,
+    app_state: State<'_, AppState>,
+) -> Result<SkillBackupEntry, String> {
+    let app = parse_skill_app(app)?;
+    let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+    let backup = service_for_app
+        .restore_backup(&backup_id, force.unwrap_or(false))
+        .map_err(|e| e.to_string())?;
+
+    app_state
+        .update_config(|config| {
+            config.skills.skills.insert(
+                SkillService::state_key(&app, &backup.directory),
+                SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(backup)
+}
+
+#[tauri::command]
+pub fn migrate_skill_storage(target: SkillStorageLocation) -> Result<MigrationResult, String> {
+    SkillService::migrate_storage(target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn install_skills_from_zip(
+    file_path: Option<String>,
+    content_base64: Option<String>,
+    file_name: Option<String>,
+    force: Option<bool>,
+    app: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<Skill>, String> {
+    let app = parse_skill_app(app)?;
+    let service_for_app = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+    let force = force.unwrap_or(false);
+
+    let installed = match (content_base64, file_path) {
+        (Some(content), _) => {
+            let bytes = general_purpose::STANDARD
+                .decode(content.trim().as_bytes())
+                .map_err(|e| e.to_string())?;
+            service_for_app
+                .install_from_zip_bytes(bytes, file_name.as_deref(), force)
+                .map_err(|e| e.to_string())?
+        }
+        (None, Some(path)) => service_for_app
+            .install_from_zip_file(Path::new(&path), force)
+            .map_err(|e| e.to_string())?,
+        (None, None) => {
+            return Err(format_skill_error(
+                "ZIP_FILE_REQUIRED",
+                &[],
+                Some("selectFile"),
+            ));
+        }
+    };
+
+    app_state
+        .update_config(|config| {
+            for skill in &installed {
+                config.skills.skills.insert(
+                    SkillService::state_key(&app, &skill.directory),
+                    SkillState {
+                        installed: true,
+                        installed_at: Utc::now(),
+                    },
+                );
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(installed)
 }
 
 #[tauri::command]
