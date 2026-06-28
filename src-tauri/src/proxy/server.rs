@@ -1883,6 +1883,7 @@ async fn switch_to_failover_provider(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_buffered_response(
     upstream: reqwest::Response,
     total_timeout: Duration,
@@ -2114,6 +2115,7 @@ async fn build_streaming_response(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_gemini_native_streaming_response(
     upstream: reqwest::Response,
     settings: &ProxySettings,

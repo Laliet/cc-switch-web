@@ -468,7 +468,10 @@ describe("SkillsPage", () => {
       expect(uninstallMock).toHaveBeenCalledWith("skills/installed", "claude");
       expect(getAllMock).toHaveBeenCalledTimes(3);
     });
-    expect(toastSuccessMock).toHaveBeenCalledWith("skills.uninstallSuccess");
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "skills.uninstallSuccess",
+      expect.any(Object),
+    );
   });
 
   it("switches target app without relying on global app switch", async () => {

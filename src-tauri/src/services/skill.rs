@@ -507,8 +507,6 @@ impl SkillService {
             .map(|ch| {
                 if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
                     ch
-                } else if ch.is_whitespace() || matches!(ch, '/' | '\\') {
-                    '-'
                 } else {
                     '-'
                 }
@@ -2266,7 +2264,7 @@ impl SkillService {
         }
 
         let skill_backup_dir = backup_path.join("skill");
-        if let Err(err) = Self::copy_dir_recursive(&source, &skill_backup_dir) {
+        if let Err(err) = Self::copy_dir_recursive(source, &skill_backup_dir) {
             let _ = fs::remove_dir_all(&backup_path);
             return Err(err);
         }

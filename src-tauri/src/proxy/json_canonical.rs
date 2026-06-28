@@ -1,6 +1,7 @@
 //! Stable JSON helpers for cache-sensitive request bodies.
 
 use serde_json::Value;
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
 pub(crate) fn canonicalize_value(value: Value) -> Value {
@@ -48,6 +49,7 @@ pub(crate) fn canonical_json_string(value: &Value) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn short_value_hash(value: Option<&Value>) -> String {
     let Some(value) = value else {
         return "absent".to_string();
@@ -55,6 +57,7 @@ pub(crate) fn short_value_hash(value: Option<&Value>) -> String {
     short_sha256_hex(canonical_json_string(value).as_bytes())
 }
 
+#[cfg(test)]
 pub(crate) fn short_sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest

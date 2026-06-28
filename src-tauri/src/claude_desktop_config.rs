@@ -1723,10 +1723,12 @@ fn map_anthropic_messages_to_gemini_native_with_shadow(
     Ok(Value::Object(result))
 }
 
+#[cfg(test)]
 pub fn map_gemini_native_response_to_anthropic(body: Value) -> Result<Value, AppError> {
     map_gemini_native_response_to_anthropic_with_shadow(body, None, None, None)
 }
 
+#[cfg(test)]
 pub fn map_gemini_native_response_to_anthropic_with_shadow(
     body: Value,
     shadow_store: Option<&GeminiShadowStore>,

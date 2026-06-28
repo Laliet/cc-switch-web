@@ -1,10 +1,8 @@
+#[cfg(any(feature = "web-server", test))]
+use crate::settings;
 use crate::{
-    app_config::MultiAppConfig,
-    database::SCHEMA_VERSION,
-    error::AppError,
-    services::ConfigService,
-    settings::{self, WebDavSettings},
-    store::AppState,
+    app_config::MultiAppConfig, database::SCHEMA_VERSION, error::AppError, services::ConfigService,
+    settings::WebDavSettings, store::AppState,
 };
 use chrono::{SecondsFormat, Utc};
 use futures::StreamExt;
@@ -12,13 +10,13 @@ use reqwest::{Client, Method, RequestBuilder, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+#[cfg(feature = "web-server")]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
+use std::time::Duration;
+#[cfg(feature = "web-server")]
 use tokio::time::MissedTickBehavior;
 
 const SNAPSHOT_KIND: &str = "cc-switch-web-snapshot";
@@ -29,7 +27,9 @@ const MAX_BACKUPS: usize = 20;
 const MAX_SNAPSHOT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_INDEX_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+#[cfg(any(feature = "web-server", test))]
 const DEFAULT_AUTO_SYNC_INTERVAL_SECS: u64 = 5 * 60;
+#[cfg(any(feature = "web-server", test))]
 const MIN_AUTO_SYNC_INTERVAL_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +262,7 @@ pub async fn sync_snapshot(
     }
 }
 
+#[cfg(feature = "web-server")]
 pub fn start_auto_sync_worker(state: Arc<AppState>) {
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::SeqCst) {
@@ -292,6 +293,7 @@ pub fn start_auto_sync_worker(state: Arc<AppState>) {
     });
 }
 
+#[cfg(any(feature = "web-server", test))]
 async fn auto_sync_once_if_enabled(
     state: &AppState,
 ) -> Result<Option<WebDavAutoSyncResult>, AppError> {
@@ -307,6 +309,7 @@ async fn auto_sync_once_if_enabled(
     Ok(Some(result))
 }
 
+#[cfg(any(feature = "web-server", test))]
 fn should_auto_sync(settings: &WebDavSettings) -> bool {
     settings.enabled
         && settings.auto_sync
@@ -314,6 +317,7 @@ fn should_auto_sync(settings: &WebDavSettings) -> bool {
         && !settings.profile.trim().is_empty()
 }
 
+#[cfg(any(feature = "web-server", test))]
 fn auto_sync_interval_secs() -> u64 {
     std::env::var("WEBDAV_AUTO_SYNC_INTERVAL_SECS")
         .ok()
@@ -323,6 +327,7 @@ fn auto_sync_interval_secs() -> u64 {
         .max(MIN_AUTO_SYNC_INTERVAL_SECS)
 }
 
+#[cfg(any(feature = "web-server", test))]
 fn persist_sync_marker_from_result(result: &WebDavAutoSyncResult) -> Result<(), AppError> {
     let Some(preview) = sync_marker_preview(result) else {
         return Ok(());
@@ -338,6 +343,7 @@ fn persist_sync_marker_from_result(result: &WebDavAutoSyncResult) -> Result<(), 
     settings::update_settings(app_settings)
 }
 
+#[cfg(any(feature = "web-server", test))]
 fn sync_marker_preview(result: &WebDavAutoSyncResult) -> Option<&WebDavSnapshotPreview> {
     result
         .result
@@ -688,10 +694,7 @@ fn build_snapshot_payload(config: MultiAppConfig) -> Result<SnapshotPayload, App
     let config_version = config.version;
     let config_hash = config_hash_for_config(&config)?;
     let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let backup_id = created_at
-        .replace(':', "")
-        .replace('.', "")
-        .replace('Z', "z");
+    let backup_id = created_at.replace([':', '.'], "").replace('Z', "z");
     let payload = json!({
         "kind": SNAPSHOT_KIND,
         "appVersion": env!("CARGO_PKG_VERSION"),

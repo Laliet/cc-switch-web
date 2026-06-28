@@ -57,7 +57,7 @@ describe("PricingConfigPanel", () => {
     mutateAsync.mockResolvedValue(2);
     renderPanel();
 
-    expect(screen.queryByPlaceholderText("model id")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Model ID")).not.toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", {
@@ -66,12 +66,10 @@ describe("PricingConfigPanel", () => {
     );
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("model id")).toHaveValue(
-      "claude-sonnet-4-6",
-    );
+    expect(screen.getByLabelText("Model ID")).toHaveValue("claude-sonnet-4-6");
 
-    await user.clear(screen.getByPlaceholderText("output"));
-    await user.type(screen.getByPlaceholderText("output"), "18");
+    await user.clear(screen.getByLabelText("Output cost / 1M tokens"));
+    await user.type(screen.getByLabelText("Output cost / 1M tokens"), "18");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mutateAsync).toHaveBeenCalledWith(
