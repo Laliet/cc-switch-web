@@ -2450,7 +2450,7 @@ impl SkillService {
             }
         }
 
-        updates.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+        updates.sort_by_key(|update| update.name.to_lowercase());
         updates.dedup_by(|left, right| left.id.eq_ignore_ascii_case(&right.id));
         Ok(updates)
     }
