@@ -4,7 +4,7 @@
 
 <sub>🙏 This project is a fork of [farion1231/cc-switch](https://github.com/farion1231/cc-switch) by Jason Young. Thanks to the original author for the excellent work. This fork adds Web Server mode for cloud/headless deployment.</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.19.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.19.1-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -346,8 +346,14 @@ pnpm test:unit
 
 ## What's New
 
-> Current release: [v0.19.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.0)<br>
-> `v0.19.0` focuses on native SQLite safety, WebDAV v2, relay-provider workflows, and upstream-aligned server session management.
+> Current release: [v0.19.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)<br>
+> `v0.19.1` is a release-quality patch for the v0.19 feature line.
+
+### v0.19.1 - Release Quality Patch
+
+- Keeps the v0.19.0 runtime behavior unchanged
+- Fixes the Skills update result sorting implementation so the source passes Clippy with warnings denied
+- Release notes: [v0.19.1](docs/release-note-v0.19.1-zh.md)
 
 ### v0.19.0 - Data Safety + Relay Workflow Completion
 
@@ -390,7 +396,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) and [v0.19.0 release notes](docs/release-note-v0.19.0-zh.md) - Current release: **v0.19.0**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.19.1 release notes](docs/release-note-v0.19.1-zh.md) - Current release: **v0.19.1**
 
 ---
 

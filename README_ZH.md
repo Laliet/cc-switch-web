@@ -4,7 +4,7 @@
 
 <sub>🙏 本项目是 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)（Jason Young）的 fork 版本。感谢原作者的出色工作。本 fork 添加了 Web 服务器模式，支持云端/无头部署。</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.19.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.19.1-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -341,8 +341,14 @@ pnpm test:unit
 
 ## 更新内容
 
-> 当前版本：[v0.19.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.0)<br>
-> `v0.19.0` 聚焦 SQLite 数据安全、WebDAV v2、中转服务体验和上游一致的服务器会话管理。
+> 当前版本：[v0.19.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)<br>
+> `v0.19.1` 是 v0.19 功能线的发布质量修复版本。
+
+### v0.19.1 - 发布质量修复版
+
+- 保持 v0.19.0 的运行时行为不变
+- 修复 Skills 更新结果的排序实现，使源码在 warnings denied 条件下通过 Clippy
+- 更新说明：[v0.19.1](docs/release-note-v0.19.1-zh.md)
 
 ### v0.19.0 - 数据安全与中转服务体验完善版
 
@@ -385,7 +391,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.19.0 发布说明](docs/release-note-v0.19.0-zh.md) - 当前版本：**v0.19.0**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.19.1 发布说明](docs/release-note-v0.19.1-zh.md) - 当前版本：**v0.19.1**
 
 ---
 
