@@ -39,6 +39,12 @@ export interface ConfigTransferResult {
   backupId?: string;
 }
 
+export interface BackupEntry {
+  filename: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -297,5 +303,17 @@ export const settingsApi = {
     settings?: WebDavSettings,
   ): Promise<WebDavSyncResult> {
     return await invoke("restore_webdav_backup", { backupId, settings });
+  },
+};
+
+export const backupsApi = {
+  createDbBackup: (): Promise<string> => invoke("create_db_backup"),
+  listDbBackups: (): Promise<BackupEntry[]> => invoke("list_db_backups"),
+  restoreDbBackup: (filename: string): Promise<string> =>
+    invoke("restore_db_backup", { filename }),
+  renameDbBackup: (oldFilename: string, newName: string): Promise<string> =>
+    invoke("rename_db_backup", { oldFilename, newName }),
+  deleteDbBackup: async (filename: string): Promise<void> => {
+    await invoke("delete_db_backup", { filename });
   },
 };

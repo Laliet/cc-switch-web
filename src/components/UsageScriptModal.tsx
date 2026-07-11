@@ -16,6 +16,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { TEMPLATE_TYPES } from "@/config/constants";
+import {
+  CODING_PLAN_PROVIDERS,
+  detectBalanceProvider,
+  detectCodingPlanProvider,
+} from "@/config/codingPlanProviders";
 
 const JsonEditor = React.lazy(() => import("./JsonEditor"));
 
@@ -35,6 +41,8 @@ const TEMPLATE_KEYS = {
   PACKYCODE: "packycode",
   CODE88: "88code",
   PRIVNODE: "privnode",
+  TOKEN_PLAN: TEMPLATE_TYPES.TOKEN_PLAN,
+  BALANCE: TEMPLATE_TYPES.BALANCE,
 } as const;
 
 // 生成预设模板的函数（支持国际化）
@@ -186,6 +194,8 @@ const generatePresetTemplates = (
     };
   }
 })`,
+  [TEMPLATE_KEYS.TOKEN_PLAN]: "",
+  [TEMPLATE_KEYS.BALANCE]: "",
 });
 
 // 模板名称国际化键映射
@@ -196,7 +206,28 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_KEYS.PACKYCODE]: "usageScript.templates.packycode",
   [TEMPLATE_KEYS.CODE88]: "usageScript.templates.88code",
   [TEMPLATE_KEYS.PRIVNODE]: "usageScript.templates.privnode",
+  [TEMPLATE_KEYS.TOKEN_PLAN]: "usageScript.templates.tokenPlan",
+  [TEMPLATE_KEYS.BALANCE]: "usageScript.templates.balance",
 };
+
+function getProviderCredentials(provider: Provider) {
+  const env = provider.settingsConfig?.env ?? {};
+  return {
+    apiKey:
+      env.ANTHROPIC_AUTH_TOKEN ??
+      env.ANTHROPIC_API_KEY ??
+      env.OPENAI_API_KEY ??
+      env.OPENROUTER_API_KEY ??
+      env.GOOGLE_API_KEY ??
+      "",
+    baseUrl:
+      env.ANTHROPIC_BASE_URL ??
+      env.OPENAI_BASE_URL ??
+      env.OPENROUTER_BASE_URL ??
+      env.GOOGLE_GEMINI_BASE_URL ??
+      "",
+  };
+}
 
 const API_KEY_TEMPLATES = new Set<string>([
   TEMPLATE_KEYS.GENERAL,
@@ -221,16 +252,26 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
   // 生成带国际化的预设模板
   const PRESET_TEMPLATES = generatePresetTemplates(t);
+  const providerCredentials = getProviderCredentials(provider);
 
   const [script, setScript] = useState<UsageScript>(() => {
-    return (
-      provider.meta?.usage_script || {
-        enabled: false,
-        language: "javascript",
-        code: PRESET_TEMPLATES[TEMPLATE_KEYS.GENERAL],
-        timeout: 10,
-      }
-    );
+    const saved = provider.meta?.usage_script;
+    if (saved) return saved;
+    const codingPlan = detectCodingPlanProvider(providerCredentials.baseUrl);
+    const balance = detectBalanceProvider(providerCredentials.baseUrl);
+    return {
+      enabled: false,
+      language: "javascript",
+      code:
+        codingPlan || balance ? "" : PRESET_TEMPLATES[TEMPLATE_KEYS.GENERAL],
+      timeout: 10,
+      templateType: codingPlan
+        ? TEMPLATE_TYPES.TOKEN_PLAN
+        : balance
+          ? TEMPLATE_TYPES.BALANCE
+          : TEMPLATE_TYPES.GENERAL,
+      codingPlanProvider: codingPlan?.id,
+    };
   });
 
   const [testing, setTesting] = useState(false);
@@ -320,10 +361,17 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(
     () => {
       const existingScript = provider.meta?.usage_script;
+      if (existingScript?.templateType) return existingScript.templateType;
       if (existingScript?.accessToken || existingScript?.userId) {
         return TEMPLATE_KEYS.NEW_API;
       }
-      return null;
+      if (detectCodingPlanProvider(providerCredentials.baseUrl)) {
+        return TEMPLATE_TYPES.TOKEN_PLAN;
+      }
+      if (detectBalanceProvider(providerCredentials.baseUrl)) {
+        return TEMPLATE_TYPES.BALANCE;
+      }
+      return TEMPLATE_TYPES.GENERAL;
     },
   );
 
@@ -333,18 +381,24 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
   const handleSave = () => {
     // 验证脚本格式
-    if (script.enabled && !script.code.trim()) {
+    const nativeTemplate =
+      selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN ||
+      selectedTemplate === TEMPLATE_TYPES.BALANCE;
+    if (script.enabled && !nativeTemplate && !script.code.trim()) {
       toast.error(t("usageScript.scriptEmpty"));
       return;
     }
 
     // 基本的 JS 语法检查（检查是否包含 return 语句）
-    if (script.enabled && !script.code.includes("return")) {
+    if (script.enabled && !nativeTemplate && !script.code.includes("return")) {
       toast.error(t("usageScript.mustHaveReturn"), { duration: 5000 });
       return;
     }
 
-    onSave(script);
+    onSave({
+      ...script,
+      templateType: selectedTemplate as UsageScript["templateType"],
+    });
     onClose();
   };
 
@@ -361,6 +415,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         script.baseUrl,
         script.accessToken,
         script.userId,
+        selectedTemplate as UsageScript["templateType"],
       );
       if (result.success && result.data && result.data.length > 0) {
         // 显示所有套餐数据
@@ -422,12 +477,26 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
   const handleUsePreset = (presetName: string) => {
     const preset = PRESET_TEMPLATES[presetName];
-    if (!preset) return;
+    if (preset === undefined) return;
 
     const nextScript: UsageScript = { ...script, code: preset };
 
     // 根据模板类型清空不同的字段
-    if (presetName === TEMPLATE_KEYS.CUSTOM) {
+    if (
+      presetName === TEMPLATE_KEYS.TOKEN_PLAN ||
+      presetName === TEMPLATE_KEYS.BALANCE
+    ) {
+      nextScript.apiKey = undefined;
+      nextScript.baseUrl = undefined;
+      nextScript.accessToken = undefined;
+      nextScript.userId = undefined;
+      nextScript.codingPlanProvider =
+        presetName === TEMPLATE_KEYS.TOKEN_PLAN
+          ? (script.codingPlanProvider ??
+            detectCodingPlanProvider(providerCredentials.baseUrl)?.id ??
+            "kimi")
+          : undefined;
+    } else if (presetName === TEMPLATE_KEYS.CUSTOM) {
       // 自定义：清空所有凭证字段
       nextScript.apiKey = undefined;
       nextScript.baseUrl = undefined;
@@ -660,34 +729,62 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                 </div>
               )}
 
-              {/* 脚本编辑器 */}
-              <div>
-                <Label className="mb-2">{t("usageScript.queryScript")}</Label>
-                <React.Suspense
-                  fallback={
-                    <textarea
-                      className="h-[300px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      value={script.code}
-                      onChange={(event) =>
-                        setScript({ ...script, code: event.target.value })
+              {selectedTemplate === TEMPLATE_KEYS.TOKEN_PLAN ? (
+                <div className="flex flex-wrap gap-2 border-t border-border-default pt-3">
+                  {CODING_PLAN_PROVIDERS.map((provider) => (
+                    <Button
+                      key={provider.id}
+                      type="button"
+                      size="sm"
+                      variant={
+                        script.codingPlanProvider === provider.id
+                          ? "default"
+                          : "outline"
                       }
+                      onClick={() =>
+                        setScript({
+                          ...script,
+                          codingPlanProvider: provider.id,
+                        })
+                      }
+                    >
+                      {provider.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* 脚本编辑器 */}
+              {selectedTemplate !== TEMPLATE_KEYS.TOKEN_PLAN &&
+              selectedTemplate !== TEMPLATE_KEYS.BALANCE ? (
+                <div>
+                  <Label className="mb-2">{t("usageScript.queryScript")}</Label>
+                  <React.Suspense
+                    fallback={
+                      <textarea
+                        className="h-[300px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                        value={script.code}
+                        onChange={(event) =>
+                          setScript({ ...script, code: event.target.value })
+                        }
+                      />
+                    }
+                  >
+                    <JsonEditor
+                      value={script.code}
+                      onChange={(code) => setScript({ ...script, code })}
+                      height="300px"
+                      language="javascript"
                     />
-                  }
-                >
-                  <JsonEditor
-                    value={script.code}
-                    onChange={(code) => setScript({ ...script, code })}
-                    height="300px"
-                    language="javascript"
-                  />
-                </React.Suspense>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                  {t("usageScript.variablesHint", {
-                    apiKey: "{{apiKey}}",
-                    baseUrl: "{{baseUrl}}",
-                  })}
-                </p>
-              </div>
+                  </React.Suspense>
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {t("usageScript.variablesHint", {
+                      apiKey: "{{apiKey}}",
+                      baseUrl: "{{baseUrl}}",
+                    })}
+                  </p>
+                </div>
+              ) : null}
 
               {/* 配置选项 */}
               <div className="grid grid-cols-2 gap-4">
@@ -755,15 +852,17 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
               </div>
 
               {/* 脚本说明 */}
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-gray-700 dark:text-gray-300">
-                <h4 className="font-medium mb-2">
-                  {t("usageScript.scriptHelp")}
-                </h4>
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <strong>{t("usageScript.configFormat")}</strong>
-                    <pre className="mt-1 p-2 bg-white/50 dark:bg-black/20 rounded text-[10px] overflow-x-auto">
-                      {`({
+              {selectedTemplate !== TEMPLATE_KEYS.TOKEN_PLAN &&
+              selectedTemplate !== TEMPLATE_KEYS.BALANCE ? (
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-gray-700 dark:text-gray-300">
+                  <h4 className="font-medium mb-2">
+                    {t("usageScript.scriptHelp")}
+                  </h4>
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <strong>{t("usageScript.configFormat")}</strong>
+                      <pre className="mt-1 p-2 bg-white/50 dark:bg-black/20 rounded text-[10px] overflow-x-auto">
+                        {`({
   request: {
     url: "{{baseUrl}}/api/usage",
     method: "POST",
@@ -782,38 +881,39 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
     };
   }
 })`}
-                    </pre>
-                  </div>
+                      </pre>
+                    </div>
 
-                  <div>
-                    <strong>{t("usageScript.extractorFormat")}</strong>
-                    <ul className="mt-1 space-y-0.5 ml-2">
-                      <li>{t("usageScript.fieldIsValid")}</li>
-                      <li>{t("usageScript.fieldInvalidMessage")}</li>
-                      <li>{t("usageScript.fieldRemaining")}</li>
-                      <li>{t("usageScript.fieldUnit")}</li>
-                      <li>{t("usageScript.fieldPlanName")}</li>
-                      <li>{t("usageScript.fieldTotal")}</li>
-                      <li>{t("usageScript.fieldUsed")}</li>
-                      <li>{t("usageScript.fieldExtra")}</li>
-                    </ul>
-                  </div>
+                    <div>
+                      <strong>{t("usageScript.extractorFormat")}</strong>
+                      <ul className="mt-1 space-y-0.5 ml-2">
+                        <li>{t("usageScript.fieldIsValid")}</li>
+                        <li>{t("usageScript.fieldInvalidMessage")}</li>
+                        <li>{t("usageScript.fieldRemaining")}</li>
+                        <li>{t("usageScript.fieldUnit")}</li>
+                        <li>{t("usageScript.fieldPlanName")}</li>
+                        <li>{t("usageScript.fieldTotal")}</li>
+                        <li>{t("usageScript.fieldUsed")}</li>
+                        <li>{t("usageScript.fieldExtra")}</li>
+                      </ul>
+                    </div>
 
-                  <div className="text-gray-600 dark:text-gray-400">
-                    <strong>{t("usageScript.tips")}</strong>
-                    <ul className="mt-1 space-y-0.5 ml-2">
-                      <li>
-                        {t("usageScript.tip1", {
-                          apiKey: "{{apiKey}}",
-                          baseUrl: "{{baseUrl}}",
-                        })}
-                      </li>
-                      <li>{t("usageScript.tip2")}</li>
-                      <li>{t("usageScript.tip3")}</li>
-                    </ul>
+                    <div className="text-gray-600 dark:text-gray-400">
+                      <strong>{t("usageScript.tips")}</strong>
+                      <ul className="mt-1 space-y-0.5 ml-2">
+                        <li>
+                          {t("usageScript.tip1", {
+                            apiKey: "{{apiKey}}",
+                            baseUrl: "{{baseUrl}}",
+                          })}
+                        </li>
+                        <li>{t("usageScript.tip2")}</li>
+                        <li>{t("usageScript.tip3")}</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </>
           )}
         </div>
@@ -831,16 +931,19 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
               <Play size={14} />
               {testing ? t("usageScript.testing") : t("usageScript.testScript")}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleFormat}
-              disabled={!script.enabled}
-              title={t("usageScript.format")}
-            >
-              <Wand2 size={14} />
-              {t("usageScript.format")}
-            </Button>
+            {selectedTemplate !== TEMPLATE_KEYS.TOKEN_PLAN &&
+            selectedTemplate !== TEMPLATE_KEYS.BALANCE ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleFormat}
+                disabled={!script.enabled}
+                title={t("usageScript.format")}
+              >
+                <Wand2 size={14} />
+                {t("usageScript.format")}
+              </Button>
+            ) : null}
           </div>
 
           {/* Right side - Cancel and Save buttons */}

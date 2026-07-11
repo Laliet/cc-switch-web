@@ -195,3 +195,10 @@ pub async fn toggle_mcp_app(
     let app_ty = AppType::parse_supported(&app).map_err(|e| e.to_string())?;
     McpService::toggle_app(&state, &server_id, app_ty, enabled).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn import_mcp_from_apps(
+    state: State<'_, AppState>,
+) -> Result<crate::services::mcp::McpImportResult, String> {
+    McpService::import_from_all_apps(&state).map_err(|error| error.to_string())
+}

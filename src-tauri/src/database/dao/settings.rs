@@ -59,6 +59,7 @@ impl Database {
             params![key, value],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("settings");
         Ok(())
     }
 
@@ -81,6 +82,7 @@ impl Database {
             params![SETTINGS_STREAM_CHECK_CONFIG, to_json_string(config)?],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("settings");
         Ok(())
     }
 }

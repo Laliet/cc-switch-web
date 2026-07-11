@@ -675,6 +675,33 @@ export function commandToEndpoint(
 ): Endpoint {
   const apiBase = getWebApiBase();
   switch (cmd) {
+    case "list_sessions":
+      return { method: "GET", url: `${apiBase}/sessions` };
+    case "get_session_messages":
+      return {
+        method: "POST",
+        url: `${apiBase}/sessions/messages`,
+        body: {
+          providerId: requireArg(args, "providerId", cmd),
+          sourcePath: requireArg(args, "sourcePath", cmd),
+        },
+      };
+    case "delete_session":
+      return {
+        method: "DELETE",
+        url: `${apiBase}/sessions`,
+        body: {
+          providerId: requireArg(args, "providerId", cmd),
+          sessionId: requireArg(args, "sessionId", cmd),
+          sourcePath: requireArg(args, "sourcePath", cmd),
+        },
+      };
+    case "delete_sessions":
+      return {
+        method: "POST",
+        url: `${apiBase}/sessions/delete-batch`,
+        body: requireArg(args, "items", cmd),
+      };
     case "parse_deeplink":
       return {
         method: "POST",
@@ -887,6 +914,13 @@ export function commandToEndpoint(
         url: `${apiBase}/providers/universal/${encode(id)}/sync`,
       };
     }
+    case "preview_universal_provider": {
+      return {
+        method: "POST",
+        url: `${apiBase}/providers/universal/preview`,
+        body: requireArg(args, "provider", cmd),
+      };
+    }
     case "queryProviderUsage": {
       const app = requireArg(args, "app", cmd);
       const providerId = requireArg(args, "providerId", cmd);
@@ -908,6 +942,7 @@ export function commandToEndpoint(
           baseUrl: args.baseUrl,
           accessToken: args.accessToken,
           userId: args.userId,
+          templateType: args.templateType,
         },
       };
     }
@@ -997,6 +1032,8 @@ export function commandToEndpoint(
     }
     case "get_mcp_servers":
       return { method: "GET", url: `${apiBase}/mcp/servers` };
+    case "import_mcp_from_apps":
+      return { method: "POST", url: `${apiBase}/mcp/servers/import-from-apps` };
     case "upsert_mcp_server": {
       const server = requireArg(args, "server", cmd);
       const id = requireArg(server, "id", cmd);
@@ -1170,6 +1207,37 @@ export function commandToEndpoint(
         method: "POST",
         url: `${apiBase}/skills/storage/migrate`,
         body: { target: requireArg(args, "target", cmd) },
+      };
+    case "check_skill_updates":
+      return { method: "GET", url: `${apiBase}/skills/updates` };
+    case "update_skill":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/updates/apply`,
+        body: { id: requireArg(args, "id", cmd) },
+      };
+    case "search_skills_sh": {
+      const query = requireArg(args, "query", cmd);
+      const limit = requireArg(args, "limit", cmd);
+      const offset = requireArg(args, "offset", cmd);
+      return {
+        method: "GET",
+        url: `${apiBase}/skills/catalog/search?query=${encode(query)}&limit=${encode(limit)}&offset=${encode(offset)}`,
+      };
+    }
+    case "install_catalog_skill":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/catalog/install`,
+        body: {
+          directory: requireArg(args, "directory", cmd),
+          repoOwner: requireArg(args, "repoOwner", cmd),
+          repoName: requireArg(args, "repoName", cmd),
+          repoBranch:
+            typeof args.repoBranch === "string" ? args.repoBranch : undefined,
+          app: typeof args.app === "string" ? args.app : undefined,
+          force: typeof args.force === "boolean" ? args.force : undefined,
+        },
       };
     case "get_skill_repos":
       return { method: "GET", url: `${apiBase}/skills/repos` };
@@ -1555,6 +1623,30 @@ export function commandToEndpoint(
         body,
       };
     }
+    case "create_db_backup":
+      return { method: "POST", url: `${apiBase}/config/backups` };
+    case "list_db_backups":
+      return { method: "GET", url: `${apiBase}/config/backups` };
+    case "restore_db_backup":
+      return {
+        method: "POST",
+        url: `${apiBase}/config/backups/restore`,
+        body: { filename: requireArg(args, "filename", cmd) },
+      };
+    case "rename_db_backup":
+      return {
+        method: "POST",
+        url: `${apiBase}/config/backups/rename`,
+        body: {
+          oldFilename: requireArg(args, "oldFilename", cmd),
+          newName: requireArg(args, "newName", cmd),
+        },
+      };
+    case "delete_db_backup":
+      return {
+        method: "DELETE",
+        url: `${apiBase}/config/backups/${encode(requireArg(args, "filename", cmd))}`,
+      };
     case "sync_current_providers_live":
       return { method: "POST", url: `${apiBase}/providers/sync-current` };
     case "get_codex_oauth_models":

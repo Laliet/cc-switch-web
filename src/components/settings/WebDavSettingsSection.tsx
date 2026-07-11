@@ -35,6 +35,7 @@ const DEFAULT_WEBDAV_SETTINGS: WebDavSettings = {
   password: "",
   remoteDir: "cc-switch-web",
   profile: "default",
+  lastSyncStatus: "idle",
 };
 
 export function WebDavSettingsSection({
@@ -55,6 +56,11 @@ export function WebDavSettingsSection({
     null,
   );
   const settings = { ...DEFAULT_WEBDAV_SETTINGS, ...(value ?? {}) };
+  const [runtimeStatus, setRuntimeStatus] = useState({
+    status: settings.lastSyncStatus ?? "idle",
+    error: settings.lastSyncError,
+    syncedAt: settings.lastSyncAt,
+  });
 
   const update = (patch: Partial<WebDavSettings>) => {
     onChange({ ...settings, ...patch });
@@ -68,6 +74,11 @@ export function WebDavSettingsSection({
       lastSyncAt: new Date().toISOString(),
       lastSyncRemoteSnapshotId: nextPreview.snapshotId,
     });
+    setRuntimeStatus({
+      status: "success",
+      error: undefined,
+      syncedAt: new Date().toISOString(),
+    });
   };
 
   const runAction = async (
@@ -80,6 +91,11 @@ export function WebDavSettingsSection({
       await task();
     } catch (error) {
       const message = friendlyWebDavError(error);
+      setRuntimeStatus((current) => ({
+        ...current,
+        status: "error",
+        error: message,
+      }));
       toast.error(message);
     } finally {
       setBusyAction(null);
@@ -183,6 +199,27 @@ export function WebDavSettingsSection({
     busyAction,
   ]);
 
+  useEffect(() => {
+    if (!settings.enabled) return;
+    const refreshStatus = async () => {
+      try {
+        const latest = await settingsApi.get();
+        const webDav = latest.webDav;
+        if (!webDav) return;
+        setRuntimeStatus({
+          status: webDav.lastSyncStatus ?? "idle",
+          error: webDav.lastSyncError,
+          syncedAt: webDav.lastSyncAt,
+        });
+      } catch {
+        // The regular action error path remains responsible for user feedback.
+      }
+    };
+    void refreshStatus();
+    const timer = window.setInterval(refreshStatus, 5000);
+    return () => window.clearInterval(timer);
+  }, [settings.enabled]);
+
   return (
     <section className="space-y-4">
       <header className="space-y-1">
@@ -244,9 +281,17 @@ export function WebDavSettingsSection({
         <div className="flex items-center justify-between gap-3 rounded-md border border-border-default p-3">
           <div>
             <Label htmlFor="webdav-auto-sync">Auto Sync</Label>
-            {settings.lastSyncAt ? (
+            {runtimeStatus.syncedAt ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Last sync: {settings.lastSyncAt}
+                Last sync: {runtimeStatus.syncedAt}
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-muted-foreground">
+              Status: {runtimeStatus.status}
+            </p>
+            {runtimeStatus.error ? (
+              <p className="mt-1 max-w-72 break-words text-xs text-destructive">
+                {runtimeStatus.error}
               </p>
             ) : null}
           </div>

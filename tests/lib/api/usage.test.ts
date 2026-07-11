@@ -57,6 +57,7 @@ describe("usageApi", () => {
       "https://example.test",
       "token",
       "user-1",
+      "token_plan",
     );
 
     expect(response).toBe(result);
@@ -69,6 +70,7 @@ describe("usageApi", () => {
       baseUrl: "https://example.test",
       accessToken: "token",
       userId: "user-1",
+      templateType: "token_plan",
     });
   });
 

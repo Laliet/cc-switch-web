@@ -271,6 +271,8 @@ export const handlers = [
 
   http.post(`${TAURI_ENDPOINT}/get_settings`, () => success(getSettings())),
 
+  http.post(`${TAURI_ENDPOINT}/list_db_backups`, () => success([])),
+
   http.post(`${TAURI_ENDPOINT}/save_settings`, async ({ request }) => {
     const { settings } = await withJson<{ settings: Settings }>(request);
     setSettings(settings);

@@ -192,6 +192,27 @@ pub(crate) fn validate_settings(settings: &ProxySettings) -> Result<(), AppError
         }
     }
     parse_proxy_app(&settings.bind_app)?;
+    for (app_name, app) in [
+        ("claude", &settings.apps.claude),
+        ("codex", &settings.apps.codex),
+        ("gemini", &settings.apps.gemini),
+        ("opencode", &settings.apps.opencode),
+    ] {
+        let valid = app.max_retries <= 10
+            && (1..=120).contains(&app.streaming_first_byte_timeout)
+            && (1..=600).contains(&app.streaming_idle_timeout)
+            && (60..=1200).contains(&app.non_streaming_timeout)
+            && (1..=20).contains(&app.circuit_failure_threshold)
+            && (1..=10).contains(&app.circuit_recovery_threshold)
+            && (1..=300).contains(&app.circuit_recovery_wait_seconds)
+            && (1.0..=100.0).contains(&app.circuit_error_rate_threshold)
+            && (5..=100).contains(&app.circuit_min_requests);
+        if !valid {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid per-app proxy settings for {app_name}"
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -648,6 +669,7 @@ async fn proxy_request(
 ) -> Result<ProxyRequestResult, AppError> {
     let settings = state.settings.read().await.clone();
     let (app, routed_uri) = route_app(&settings, &uri)?;
+    let settings = effective_proxy_settings_for_app(&settings, &app);
     let log_app = app.as_str().to_string();
     let log_path = sanitize_uri_for_log(&routed_uri);
     let request_accepts_stream = accepts_event_stream(&headers);
@@ -1633,6 +1655,19 @@ fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettin
     }
 }
 
+fn effective_proxy_settings_for_app(settings: &ProxySettings, app: &AppType) -> ProxySettings {
+    let app_settings = proxy_app_settings(settings, app);
+    let mut effective = settings.clone();
+    effective.streaming_first_byte_timeout = app_settings.streaming_first_byte_timeout;
+    effective.streaming_idle_timeout = app_settings.streaming_idle_timeout;
+    effective.non_streaming_timeout = app_settings.non_streaming_timeout;
+    effective.circuit_failure_threshold = app_settings.circuit_failure_threshold;
+    effective.circuit_recovery_threshold = app_settings.circuit_recovery_threshold;
+    effective.circuit_recovery_wait_seconds = app_settings.circuit_recovery_wait_seconds;
+    effective.circuit_error_rate_threshold = app_settings.circuit_error_rate_threshold;
+    effective
+}
+
 fn usage_app_type_for_provider<'a>(app: &'a AppType, provider: &Provider) -> &'a str {
     if matches!(app, AppType::ClaudeDesktop)
         && provider.meta.as_ref().is_some_and(|meta| {
@@ -1849,8 +1884,11 @@ async fn record_provider_failure(
     } else {
         entry.window_failures as f64 / entry.window_requests as f64 * 100.0
     };
+    let min_requests = proxy_app_settings(settings, app)
+        .circuit_min_requests
+        .max(1);
     if entry.failure_count >= threshold
-        || (entry.window_requests >= threshold
+        || (entry.window_requests >= min_requests
             && error_rate >= settings.circuit_error_rate_threshold)
         || entry.state == ProviderCircuitState::HalfOpen
     {
@@ -4161,29 +4199,21 @@ fn merge_runtime_settings(
     runtime.optimizer_thinking = saved.optimizer_thinking;
     runtime.optimizer_cache_injection = saved.optimizer_cache_injection;
     runtime.optimizer_cache_ttl = saved.optimizer_cache_ttl;
-    runtime.apps.claude.auto_failover_enabled = saved.apps.claude.auto_failover_enabled;
-    runtime.apps.claude.max_retries = saved.apps.claude.max_retries;
-    runtime.apps.claude.default_cost_multiplier = saved.apps.claude.default_cost_multiplier;
-    runtime.apps.claude.pricing_model_source = saved.apps.claude.pricing_model_source;
-    runtime.apps.codex.auto_failover_enabled = saved.apps.codex.auto_failover_enabled;
-    runtime.apps.codex.max_retries = saved.apps.codex.max_retries;
-    runtime.apps.codex.default_cost_multiplier = saved.apps.codex.default_cost_multiplier;
-    runtime.apps.codex.pricing_model_source = saved.apps.codex.pricing_model_source;
-    runtime.apps.gemini.auto_failover_enabled = saved.apps.gemini.auto_failover_enabled;
-    runtime.apps.gemini.max_retries = saved.apps.gemini.max_retries;
-    runtime.apps.gemini.default_cost_multiplier = saved.apps.gemini.default_cost_multiplier;
-    runtime.apps.gemini.pricing_model_source = saved.apps.gemini.pricing_model_source;
-    runtime.apps.opencode.auto_failover_enabled = saved.apps.opencode.auto_failover_enabled;
-    runtime.apps.opencode.max_retries = saved.apps.opencode.max_retries;
-    runtime.apps.opencode.default_cost_multiplier = saved.apps.opencode.default_cost_multiplier;
-    runtime.apps.opencode.pricing_model_source = saved.apps.opencode.pricing_model_source;
+    let takeover = (
+        runtime.apps.claude.enabled,
+        runtime.apps.codex.enabled,
+        runtime.apps.gemini.enabled,
+        runtime.apps.opencode.enabled,
+    );
+    runtime.apps = saved.apps;
 
     if include_takeover {
         runtime.live_takeover_active = saved.live_takeover_active;
-        runtime.apps.claude.enabled = saved.apps.claude.enabled;
-        runtime.apps.codex.enabled = saved.apps.codex.enabled;
-        runtime.apps.gemini.enabled = saved.apps.gemini.enabled;
-        runtime.apps.opencode.enabled = saved.apps.opencode.enabled;
+    } else {
+        runtime.apps.claude.enabled = takeover.0;
+        runtime.apps.codex.enabled = takeover.1;
+        runtime.apps.gemini.enabled = takeover.2;
+        runtime.apps.opencode.enabled = takeover.3;
     }
 
     runtime
@@ -4849,8 +4879,8 @@ fn truncate_for_log(value: &str, limit: usize) -> String {
 mod tests {
     use super::{
         apply_bedrock_optimizer, apply_copilot_header_plan, build_client,
-        build_copilot_header_plan, extract_request_model, extract_request_session_id,
-        inject_codex_oauth_headers, listen_url_for_client,
+        build_copilot_header_plan, effective_proxy_settings_for_app, extract_request_model,
+        extract_request_session_id, inject_codex_oauth_headers, listen_url_for_client,
         maybe_rectify_anthropic_upstream_response, merge_runtime_settings, parse_proxy_listen_addr,
         parse_sse_events_from_bytes, prepare_upstream_request_body, proxy_error_status,
         read_limited_upstream_body, takeover_apps, test_settings, upstream_uri_for_provider,
@@ -6137,6 +6167,8 @@ mod tests {
         saved.streaming_idle_timeout = 30;
         saved.apps.claude.auto_failover_enabled = true;
         saved.apps.claude.max_retries = 2;
+        saved.apps.claude.streaming_idle_timeout = 44;
+        saved.apps.claude.circuit_min_requests = 17;
 
         let merged = merge_runtime_settings(&current, saved, false);
 
@@ -6153,6 +6185,31 @@ mod tests {
         assert_eq!(merged.streaming_idle_timeout, 30);
         assert!(merged.apps.claude.auto_failover_enabled);
         assert_eq!(merged.apps.claude.max_retries, 2);
+        assert_eq!(merged.apps.claude.streaming_idle_timeout, 44);
+        assert_eq!(merged.apps.claude.circuit_min_requests, 17);
+    }
+
+    #[test]
+    fn effective_proxy_settings_use_selected_app_timeouts_and_circuit_values() {
+        let mut settings = ProxySettings::default();
+        settings.streaming_first_byte_timeout = 99;
+        settings.apps.codex.streaming_first_byte_timeout = 21;
+        settings.apps.codex.streaming_idle_timeout = 45;
+        settings.apps.codex.non_streaming_timeout = 321;
+        settings.apps.codex.circuit_failure_threshold = 8;
+        settings.apps.codex.circuit_recovery_threshold = 4;
+        settings.apps.codex.circuit_recovery_wait_seconds = 76;
+        settings.apps.codex.circuit_error_rate_threshold = 64.0;
+
+        let effective = effective_proxy_settings_for_app(&settings, &AppType::Codex);
+
+        assert_eq!(effective.streaming_first_byte_timeout, 21);
+        assert_eq!(effective.streaming_idle_timeout, 45);
+        assert_eq!(effective.non_streaming_timeout, 321);
+        assert_eq!(effective.circuit_failure_threshold, 8);
+        assert_eq!(effective.circuit_recovery_threshold, 4);
+        assert_eq!(effective.circuit_recovery_wait_seconds, 76);
+        assert_eq!(effective.circuit_error_rate_threshold, 64.0);
     }
 
     #[test]

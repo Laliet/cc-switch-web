@@ -11,6 +11,7 @@ import {
   useSwitchProviderMutation,
 } from "@/lib/query";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { injectNativeUsageScript } from "@/config/codingPlanProviders";
 
 /**
  * Hook for managing provider actions (add, update, delete, switch)
@@ -55,7 +56,7 @@ export function useProviderActions(activeApp: AppId) {
   // 添加供应商
   const addProvider = useCallback(
     async (provider: Omit<Provider, "id">) => {
-      await addProviderMutation.mutateAsync(provider);
+      await addProviderMutation.mutateAsync(injectNativeUsageScript(provider));
     },
     [addProviderMutation],
   );

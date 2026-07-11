@@ -1,5 +1,6 @@
 import { invoke } from "./adapter";
 import type { UsageResult } from "@/types";
+import type { TemplateType } from "@/config/constants";
 import type { AppId } from "./types";
 import i18n from "@/i18n";
 import type {
@@ -65,6 +66,7 @@ export const usageApi = {
     baseUrl?: string,
     accessToken?: string,
     userId?: string,
+    templateType?: TemplateType,
   ): Promise<UsageResult> {
     try {
       return await invoke("testUsageScript", {
@@ -76,6 +78,7 @@ export const usageApi = {
         baseUrl: baseUrl,
         accessToken: accessToken,
         userId: userId,
+        templateType: templateType,
       });
     } catch (error: unknown) {
       const message =

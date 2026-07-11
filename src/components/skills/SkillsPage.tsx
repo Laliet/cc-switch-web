@@ -20,8 +20,10 @@ import {
 } from "@/components/ui/select";
 import {
   Archive,
+  Loader2,
   RefreshCw,
   RotateCcw,
+  Search,
   Settings,
   Trash2,
   Upload,
@@ -34,6 +36,8 @@ import {
   type Skill,
   type SkillBackupEntry,
   type SkillRepo,
+  type SkillUpdateInfo,
+  type SkillsShDiscoverableSkill,
 } from "@/lib/api/skills";
 import { formatSkillError } from "@/lib/errors/skillErrorParser";
 import type { AppId } from "@/lib/api";
@@ -86,6 +90,18 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
   >("all");
   const [repoFilter, setRepoFilter] = useState("all");
   const [groupByDepth, setGroupByDepth] = useState(false);
+  const [viewMode, setViewMode] = useState<"repos" | "catalog" | "installed">(
+    "repos",
+  );
+  const [updates, setUpdates] = useState<SkillUpdateInfo[]>([]);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
+  const [catalogInput, setCatalogInput] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogResults, setCatalogResults] = useState<
+    SkillsShDiscoverableSkill[]
+  >([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   const repoOptions = useMemo(() => {
     const options = new Map<string, string>();
@@ -132,6 +148,12 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
   const filteredSkills = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return skills.filter((skill) => {
+      if (
+        viewMode === "installed" &&
+        (skill.installedApps?.length ?? 0) === 0
+      ) {
+        return false;
+      }
       if (installFilter === "installed" && !skill.installed) {
         return false;
       }
@@ -147,7 +169,12 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
       const haystack = `${skill.name} ${skill.description || ""}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [skills, searchQuery, installFilter, repoFilter]);
+  }, [skills, searchQuery, installFilter, repoFilter, viewMode]);
+
+  const updatesById = useMemo(
+    () => new Map(updates.map((update) => [update.id, update])),
+    [updates],
+  );
 
   const groupedSkills = useMemo(() => {
     if (!groupByDepth) {
@@ -427,6 +454,120 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
     }
   };
 
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      const result = await skillsApi.checkUpdates();
+      setUpdates(result);
+      if (result.length === 0) {
+        toast.success(
+          t("skills.noUpdates", { defaultValue: "所有 Skill 均为最新版本" }),
+        );
+      } else {
+        toast.info(
+          t("skills.updatesFound", {
+            count: result.length,
+            defaultValue: "发现 {{count}} 个更新",
+          }),
+        );
+      }
+    } catch (error) {
+      toast.error(
+        t("skills.checkUpdatesFailed", { defaultValue: "检查更新失败" }),
+        {
+          description: String(error),
+        },
+      );
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleUpdateSkill = async (id: string) => {
+    setUpdatingIds((current) => new Set(current).add(id));
+    try {
+      const updated = await skillsApi.updateSkill(id);
+      setUpdates((current) => current.filter((item) => item.id !== id));
+      toast.success(
+        t("skills.updateSuccess", {
+          name: updated.name,
+          defaultValue: "{{name}} 已更新",
+        }),
+      );
+      await Promise.all([loadSkills(), loadBackups()]);
+    } catch (error) {
+      toast.error(t("skills.updateFailed", { defaultValue: "更新失败" }), {
+        description: String(error),
+      });
+    } finally {
+      setUpdatingIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    for (const update of [...updates]) {
+      await handleUpdateSkill(update.id);
+    }
+  };
+
+  const handleToggleSkillApp = async (
+    skill: Skill,
+    app: AppId,
+    enabled: boolean,
+  ) => {
+    try {
+      if (enabled) {
+        await skillsApi.install(skill.directory, false, app);
+      } else {
+        await skillsApi.uninstall(skill.directory, app);
+      }
+      await loadSkills();
+    } catch (error) {
+      toast.error(
+        t("skills.toggleAppFailed", { defaultValue: "修改应用状态失败" }),
+        {
+          description: String(error),
+        },
+      );
+    }
+  };
+
+  const handleCatalogSearch = async () => {
+    const query = catalogInput.trim();
+    if (query.length < 2) return;
+    setCatalogLoading(true);
+    setCatalogQuery(query);
+    try {
+      const result = await skillsApi.searchSkillsSh(query, 50, 0);
+      setCatalogResults(result.skills);
+    } catch (error) {
+      toast.error(
+        t("skills.catalog.searchFailed", { defaultValue: "公共目录搜索失败" }),
+        {
+          description: String(error),
+        },
+      );
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const handleCatalogInstall = async (
+    catalogSkill: SkillsShDiscoverableSkill,
+  ) => {
+    try {
+      await skillsApi.installCatalogSkill(catalogSkill, currentApp, false);
+      toast.success(t("skills.installSuccess", { name: catalogSkill.name }));
+      await Promise.all([loadSkills(), loadRepos()]);
+    } catch (error) {
+      toast.error(t("skills.installFailed"), { description: String(error) });
+    }
+  };
+
   const handleRestoreBackup = async (backup: SkillBackupEntry) => {
     setBackupActionId(backup.backupId);
     try {
@@ -647,11 +788,38 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
     <div className="flex flex-col h-full min-h-0 bg-background">
       {/* 顶部操作栏（固定区域） */}
       <div className="flex-shrink-0 border-b border-border-default bg-muted/20 px-6 py-4">
-        <div className="flex items-center justify-between pr-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
           <h1 className="text-lg font-semibold leading-tight tracking-tight text-gray-900 dark:text-gray-100">
             {t("skills.title")}
           </h1>
           <div className="flex gap-2">
+            {updates.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleUpdateAll()}
+                disabled={updatingIds.size > 0}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {t("skills.updateAll", {
+                  count: updates.length,
+                  defaultValue: "全部更新 ({{count}})",
+                })}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleCheckUpdates()}
+              disabled={checkingUpdates || updatingIds.size > 0}
+            >
+              {checkingUpdates ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              {t("skills.checkUpdates", { defaultValue: "检查更新" })}
+            </Button>
             <input
               ref={zipInputRef}
               type="file"
@@ -715,6 +883,27 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
             </Button>
           ))}
         </div>
+        <div className="mt-3 inline-flex h-9 items-center rounded-md border border-border-default bg-background p-1">
+          {(["repos", "catalog", "installed"] as const).map((mode) => (
+            <Button
+              key={mode}
+              type="button"
+              size="sm"
+              variant={viewMode === mode ? "default" : "ghost"}
+              className="h-7"
+              onClick={() => setViewMode(mode)}
+            >
+              {t(`skills.views.${mode}`, {
+                defaultValue:
+                  mode === "repos"
+                    ? "仓库发现"
+                    : mode === "catalog"
+                      ? "skills.sh"
+                      : "统一管理",
+              })}
+            </Button>
+          ))}
+        </div>
         {isOmoSkillsView ? (
           <p className="mt-2 text-xs text-muted-foreground">
             {t("skills.omoUsesOpencode", {
@@ -730,78 +919,108 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
         )}
 
         {/* 搜索与过滤 */}
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="flex-1 min-w-[220px]">
+        {viewMode === "catalog" ? (
+          <div className="mt-4 flex max-w-2xl gap-2">
             <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={t("skills.searchPlaceholder", {
-                defaultValue: "搜索技能名称或描述",
+              value={catalogInput}
+              onChange={(event) => setCatalogInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleCatalogSearch();
+              }}
+              placeholder={t("skills.catalog.placeholder", {
+                defaultValue: "搜索 skills.sh 公共目录",
               })}
             />
-          </div>
-          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
-            <Select
-              value={installFilter}
-              onValueChange={(value) =>
-                setInstallFilter(value as "all" | "installed" | "uninstalled")
-              }
+            <Button
+              type="button"
+              variant="mcp"
+              onClick={() => void handleCatalogSearch()}
+              disabled={catalogInput.trim().length < 2 || catalogLoading}
             >
-              <SelectTrigger className="h-9 w-full sm:w-[170px]">
-                <SelectValue
-                  placeholder={t("skills.filter.installStatus", {
-                    defaultValue: "安装状态",
-                  })}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  {t("skills.filter.all", { defaultValue: "全部" })}
-                </SelectItem>
-                <SelectItem value="installed">
-                  {t("skills.filter.installed", {
-                    defaultValue: "已安装",
-                  })}
-                </SelectItem>
-                <SelectItem value="uninstalled">
-                  {t("skills.filter.uninstalled", {
-                    defaultValue: "未安装",
-                  })}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={repoFilter} onValueChange={setRepoFilter}>
-              <SelectTrigger className="h-9 w-full sm:w-[220px]">
-                <SelectValue
-                  placeholder={t("skills.filter.repo", {
-                    defaultValue: "仓库",
-                  })}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {repoOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Switch
-                checked={groupByDepth}
-                onCheckedChange={setGroupByDepth}
-                aria-label={t("skills.groupByDepth", {
-                  defaultValue: "按深度分组展示",
+              {catalogLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              <span className="ml-2">
+                {t("common.search", { defaultValue: "搜索" })}
+              </span>
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="flex-1 min-w-[220px]">
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t("skills.searchPlaceholder", {
+                  defaultValue: "搜索技能名称或描述",
                 })}
               />
-              <span>
-                {t("skills.groupByDepth", {
-                  defaultValue: "按深度分组展示",
-                })}
-              </span>
-            </label>
+            </div>
+            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
+              <Select
+                value={installFilter}
+                onValueChange={(value) =>
+                  setInstallFilter(value as "all" | "installed" | "uninstalled")
+                }
+              >
+                <SelectTrigger className="h-9 w-full sm:w-[170px]">
+                  <SelectValue
+                    placeholder={t("skills.filter.installStatus", {
+                      defaultValue: "安装状态",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("skills.filter.all", { defaultValue: "全部" })}
+                  </SelectItem>
+                  <SelectItem value="installed">
+                    {t("skills.filter.installed", {
+                      defaultValue: "已安装",
+                    })}
+                  </SelectItem>
+                  <SelectItem value="uninstalled">
+                    {t("skills.filter.uninstalled", {
+                      defaultValue: "未安装",
+                    })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={repoFilter} onValueChange={setRepoFilter}>
+                <SelectTrigger className="h-9 w-full sm:w-[220px]">
+                  <SelectValue
+                    placeholder={t("skills.filter.repo", {
+                      defaultValue: "仓库",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {repoOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Switch
+                  checked={groupByDepth}
+                  onCheckedChange={setGroupByDepth}
+                  aria-label={t("skills.groupByDepth", {
+                    defaultValue: "按深度分组展示",
+                  })}
+                />
+                <span>
+                  {t("skills.groupByDepth", {
+                    defaultValue: "按深度分组展示",
+                  })}
+                </span>
+              </label>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 技能网格（可滚动详情区域） */}
@@ -868,7 +1087,63 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
             </div>
           </section>
         ) : null}
-        {loading ? (
+        {viewMode === "catalog" ? (
+          catalogLoading ? (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : catalogResults.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center text-center">
+              <Search className="mb-3 h-10 w-10 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">
+                {catalogQuery
+                  ? t("skills.catalog.noResults", {
+                      query: catalogQuery,
+                      defaultValue: "未找到与 {{query}} 匹配的 Skill",
+                    })
+                  : t("skills.catalog.empty", {
+                      defaultValue: "输入关键词搜索 skills.sh 公共目录",
+                    })}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {catalogResults.map((catalogSkill) => {
+                const installedApps = skills
+                  .filter(
+                    (item) =>
+                      item.directory.toLowerCase() ===
+                      catalogSkill.directory.toLowerCase(),
+                  )
+                  .flatMap((item) => item.installedApps ?? []);
+                const skill: Skill = {
+                  key: catalogSkill.key,
+                  name: catalogSkill.name,
+                  description: "",
+                  directory: catalogSkill.directory,
+                  readmeUrl: catalogSkill.readmeUrl,
+                  installed: installedApps.includes(currentApp),
+                  installedApps: Array.from(new Set(installedApps)),
+                  repoOwner: catalogSkill.repoOwner,
+                  repoName: catalogSkill.repoName,
+                  repoBranch: catalogSkill.repoBranch,
+                };
+                return (
+                  <SkillCard
+                    key={catalogSkill.key}
+                    skill={skill}
+                    installs={catalogSkill.installs}
+                    onInstall={() => handleCatalogInstall(catalogSkill)}
+                    onUninstall={handleUninstall}
+                    onToggleApp={(app, enabled) =>
+                      handleToggleSkillApp(skill, app, enabled)
+                    }
+                  />
+                );
+              })}
+            </div>
+          )
+        ) : loading ? (
           <div className="flex items-center justify-center h-64">
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
@@ -924,6 +1199,12 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
                           skill={skill}
                           onInstall={handleInstall}
                           onUninstall={handleUninstall}
+                          hasUpdate={updatesById.has(skill.key)}
+                          updating={updatingIds.has(skill.key)}
+                          onUpdate={() => handleUpdateSkill(skill.key)}
+                          onToggleApp={(app, enabled) =>
+                            handleToggleSkillApp(skill, app, enabled)
+                          }
                         />
                       ))}
                     </div>
@@ -938,6 +1219,12 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
                     skill={skill}
                     onInstall={handleInstall}
                     onUninstall={handleUninstall}
+                    hasUpdate={updatesById.has(skill.key)}
+                    updating={updatingIds.has(skill.key)}
+                    onUpdate={() => handleUpdateSkill(skill.key)}
+                    onToggleApp={(app, enabled) =>
+                      handleToggleSkillApp(skill, app, enabled)
+                    }
                   />
                 ))}
               </div>

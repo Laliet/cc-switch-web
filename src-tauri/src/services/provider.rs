@@ -1674,7 +1674,7 @@ impl ProviderService {
         app_type: AppType,
         provider_id: &str,
     ) -> Result<UsageResult, AppError> {
-        let (script_code, timeout, api_key, base_url, access_token, user_id) = {
+        let (script_code, timeout, api_key, base_url, access_token, user_id, template_type) = {
             let config = state.load_config()?;
             let manager = config
                 .get_manager(&app_type)
@@ -1706,16 +1706,67 @@ impl ProviderService {
                 ));
             }
 
-            // 直接从 UsageScript 中获取凭证，不再从供应商配置提取
+            let env = provider.settings_config.get("env");
+            let provider_api_key = env
+                .and_then(|env| {
+                    [
+                        "ANTHROPIC_AUTH_TOKEN",
+                        "ANTHROPIC_API_KEY",
+                        "OPENAI_API_KEY",
+                        "CODEX_API_KEY",
+                        "OPENROUTER_API_KEY",
+                        "GOOGLE_API_KEY",
+                        "GEMINI_API_KEY",
+                    ]
+                    .iter()
+                    .find_map(|key| env.get(*key).and_then(serde_json::Value::as_str))
+                })
+                .unwrap_or_default();
+            let provider_base_url = env
+                .and_then(|env| {
+                    [
+                        "ANTHROPIC_BASE_URL",
+                        "OPENAI_BASE_URL",
+                        "CODEX_BASE_URL",
+                        "OPENROUTER_BASE_URL",
+                        "GOOGLE_GEMINI_BASE_URL",
+                        "GEMINI_API_BASE_URL",
+                    ]
+                    .iter()
+                    .find_map(|key| env.get(*key).and_then(serde_json::Value::as_str))
+                })
+                .unwrap_or_default();
             (
                 usage_script.code.clone(),
                 usage_script.timeout.unwrap_or(10),
-                usage_script.api_key.clone().unwrap_or_default(),
-                usage_script.base_url.clone().unwrap_or_default(),
+                usage_script
+                    .api_key
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| provider_api_key.to_string()),
+                usage_script
+                    .base_url
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| provider_base_url.trim_end_matches('/').to_string()),
                 usage_script.access_token.clone(),
                 usage_script.user_id.clone(),
+                usage_script.template_type.clone(),
             )
         };
+
+        match template_type.as_deref() {
+            Some("token_plan") => {
+                return Ok(crate::services::coding_plan::get_coding_plan_quota(
+                    &base_url, &api_key,
+                )
+                .await);
+            }
+            Some("balance") => {
+                return Ok(crate::services::balance::get_balance(&base_url, &api_key).await);
+            }
+            _ => {}
+        }
 
         Self::execute_and_format_usage_result(
             &script_code,
@@ -1731,16 +1782,61 @@ impl ProviderService {
     /// 测试用量脚本（使用临时脚本内容，不保存）
     #[allow(clippy::too_many_arguments)]
     pub async fn test_usage_script(
-        _state: &AppState,
-        _app_type: AppType,
-        _provider_id: &str,
+        state: &AppState,
+        app_type: AppType,
+        provider_id: &str,
         script_code: &str,
         timeout: u64,
         api_key: Option<&str>,
         base_url: Option<&str>,
         access_token: Option<&str>,
         user_id: Option<&str>,
+        template_type: Option<&str>,
     ) -> Result<UsageResult, AppError> {
+        if matches!(template_type, Some("token_plan" | "balance")) {
+            let config = state.load_config()?;
+            let provider = config
+                .get_manager(&app_type)
+                .and_then(|manager| manager.providers.get(provider_id));
+            let env = provider.and_then(|provider| provider.settings_config.get("env"));
+            let fallback_key = env
+                .and_then(|env| {
+                    [
+                        "ANTHROPIC_AUTH_TOKEN",
+                        "ANTHROPIC_API_KEY",
+                        "OPENAI_API_KEY",
+                        "OPENROUTER_API_KEY",
+                        "GOOGLE_API_KEY",
+                    ]
+                    .iter()
+                    .find_map(|key| env.get(*key).and_then(serde_json::Value::as_str))
+                })
+                .unwrap_or_default();
+            let fallback_url = env
+                .and_then(|env| {
+                    [
+                        "ANTHROPIC_BASE_URL",
+                        "OPENAI_BASE_URL",
+                        "OPENROUTER_BASE_URL",
+                        "GOOGLE_GEMINI_BASE_URL",
+                    ]
+                    .iter()
+                    .find_map(|key| env.get(*key).and_then(serde_json::Value::as_str))
+                })
+                .unwrap_or_default();
+            let key = api_key
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(fallback_key);
+            let url = base_url
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(fallback_url);
+            return Ok(match template_type {
+                Some("token_plan") => {
+                    crate::services::coding_plan::get_coding_plan_quota(url, key).await
+                }
+                _ => crate::services::balance::get_balance(url, key).await,
+            });
+        }
         // 直接使用传入的凭证参数进行测试
         Self::execute_and_format_usage_result(
             script_code,
@@ -1816,6 +1912,10 @@ impl ProviderService {
         config: &mut MultiAppConfig,
         next_provider: &str,
     ) -> Result<(), AppError> {
+        if Self::proxy_takeover_enabled(&AppType::Codex) {
+            return Ok(());
+        }
+
         let current_id = config
             .get_manager(&AppType::Codex)
             .map(|m| m.current.clone())
@@ -2018,6 +2118,10 @@ impl ProviderService {
         config: &mut MultiAppConfig,
         next_provider: &str,
     ) -> Result<(), AppError> {
+        if Self::proxy_takeover_enabled(&AppType::Claude) {
+            return Ok(());
+        }
+
         let settings_path = get_claude_settings_path()?;
         if !settings_path.exists() {
             return Ok(());
@@ -2046,6 +2150,10 @@ impl ProviderService {
         config: &mut MultiAppConfig,
         next_provider: &str,
     ) -> Result<(), AppError> {
+        if Self::proxy_takeover_enabled(&AppType::Gemini) {
+            return Ok(());
+        }
+
         use crate::gemini_config::{
             env_to_json, get_gemini_env_path, get_gemini_settings_path, read_gemini_env,
         };
@@ -2089,6 +2197,10 @@ impl ProviderService {
         config: &mut MultiAppConfig,
         next_provider: &str,
     ) -> Result<(), AppError> {
+        if Self::proxy_takeover_enabled(&AppType::Opencode) {
+            return Ok(());
+        }
+
         let current_id = config
             .get_manager(&AppType::Opencode)
             .map(|manager| manager.current.clone())
@@ -2913,5 +3025,21 @@ impl ProviderService {
             Ok(())
         })?;
         Ok(true)
+    }
+
+    pub fn preview_universal(
+        provider: &crate::provider::UniversalProvider,
+    ) -> std::collections::HashMap<String, Provider> {
+        let mut preview = std::collections::HashMap::new();
+        for (app, generated) in [
+            ("claude", provider.to_claude_provider()),
+            ("codex", provider.to_codex_provider()),
+            ("gemini", provider.to_gemini_provider()),
+        ] {
+            if let Some(provider) = generated {
+                preview.insert(app.to_string(), provider);
+            }
+        }
+        preview
     }
 }

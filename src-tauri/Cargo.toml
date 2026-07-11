@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "0.18.0"
+version = "0.19.0"
 description = "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
@@ -77,11 +77,11 @@ dirs = "5.0"
 toml = "0.8"
 toml_edit = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal", "sync"] }
 futures = "0.3"
 regex = "1.10"
 rquickjs = { version = "0.8", features = ["array-buffer", "classes"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 rust_decimal = "1"
 thiserror = "1.0"
 anyhow = "1.0"

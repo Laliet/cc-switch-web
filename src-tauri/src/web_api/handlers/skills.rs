@@ -17,7 +17,8 @@ use crate::{
     error::AppError,
     services::{
         skill::SkillCommand as ServiceSkillCommand, MigrationResult, Skill as ServiceSkill,
-        SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
+        SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation, SkillUpdateInfo,
+        SkillsShSearchResult,
     },
     store::AppState,
 };
@@ -172,6 +173,10 @@ pub async fn install_skill(
                 crate::services::skill::SkillState {
                     installed: true,
                     installed_at: Utc::now(),
+                    repo_owner: skill.repo_owner.clone(),
+                    repo_name: skill.repo_name.clone(),
+                    repo_branch: skill.repo_branch.clone(),
+                    skills_path: skill.skills_path.clone(),
                 },
             );
             Ok(())
@@ -238,6 +243,10 @@ pub async fn restore_backup(
                 crate::services::skill::SkillState {
                     installed: true,
                     installed_at: Utc::now(),
+                    repo_owner: None,
+                    repo_name: None,
+                    repo_branch: None,
+                    skills_path: None,
                 },
             );
             Ok(())
@@ -252,6 +261,90 @@ pub async fn migrate_storage(
 ) -> ApiResult<MigrationResult> {
     let result = SkillService::migrate_storage(payload.target).map_err(internal_error)?;
     Ok(Json(result))
+}
+
+pub async fn check_updates(State(state): State<Arc<AppState>>) -> ApiResult<Vec<SkillUpdateInfo>> {
+    let config = state.load_config().map_err(ApiError::from)?;
+    let service = SkillService::new().map_err(internal_error)?;
+    let updates = service
+        .check_updates(&config.skills.repos, &config.skills.skills)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(updates))
+}
+
+pub async fn update_skill(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<UpdateSkillPayload>,
+) -> ApiResult<SkillUpdateInfo> {
+    let config = state.load_config().map_err(ApiError::from)?;
+    let service = SkillService::new().map_err(internal_error)?;
+    let updated = service
+        .update_skill(&config.skills.repos, &config.skills.skills, &payload.id)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(updated))
+}
+
+pub async fn search_skills_sh(
+    Query(query): Query<SkillsShQuery>,
+) -> ApiResult<SkillsShSearchResult> {
+    let result = SkillService::search_skills_sh(
+        &query.query,
+        query.limit.unwrap_or(20),
+        query.offset.unwrap_or(0),
+    )
+    .await
+    .map_err(internal_error)?;
+    Ok(Json(result))
+}
+
+pub async fn install_catalog_skill(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<InstallCatalogPayload>,
+) -> ApiResult<bool> {
+    let app = parse_skill_app(payload.app.clone())?;
+    let repo = SkillRepo {
+        owner: payload.repo_owner,
+        name: payload.repo_name,
+        branch: payload.repo_branch.unwrap_or_else(|| "main".to_string()),
+        enabled: true,
+        skills_path: None,
+    };
+    let service = SkillService::new_for_app(&app).map_err(internal_error)?;
+    service
+        .install_skill(
+            payload.directory.clone(),
+            repo.clone(),
+            payload.force.unwrap_or(false),
+        )
+        .await
+        .map_err(internal_error)?;
+    state
+        .update_config(|config| {
+            if !config
+                .skills
+                .repos
+                .iter()
+                .any(|item| item.owner == repo.owner && item.name == repo.name)
+            {
+                config.skills.repos.push(repo.clone());
+            }
+            config.skills.skills.insert(
+                SkillService::state_key(&app, &payload.directory),
+                crate::services::skill::SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                    repo_owner: Some(repo.owner.clone()),
+                    repo_name: Some(repo.name.clone()),
+                    repo_branch: Some(repo.branch.clone()),
+                    skills_path: repo.skills_path.clone(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(internal_error)?;
+    Ok(Json(true))
 }
 
 pub async fn install_from_zip(
@@ -291,6 +384,10 @@ pub async fn install_from_zip(
                     crate::services::skill::SkillState {
                         installed: true,
                         installed_at: Utc::now(),
+                        repo_owner: None,
+                        repo_name: None,
+                        repo_branch: None,
+                        skills_path: None,
                     },
                 );
             }
@@ -381,6 +478,35 @@ pub struct InstallZipPayload {
 #[serde(rename_all = "camelCase")]
 pub struct MigrateStoragePayload {
     pub target: SkillStorageLocation,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSkillPayload {
+    pub id: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallCatalogPayload {
+    pub directory: String,
+    pub repo_owner: String,
+    pub repo_name: String,
+    #[serde(default)]
+    pub repo_branch: Option<String>,
+    #[serde(default)]
+    pub app: Option<String>,
+    #[serde(default)]
+    pub force: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsShQuery {
+    #[serde(alias = "q")]
+    pub query: String,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 fn internal_error(err: impl ToString) -> ApiError {

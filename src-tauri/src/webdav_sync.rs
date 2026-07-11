@@ -1,4 +1,3 @@
-#[cfg(any(feature = "web-server", test))]
 use crate::settings;
 use crate::{
     app_config::MultiAppConfig, database::SCHEMA_VERSION, error::AppError, services::ConfigService,
@@ -8,17 +7,31 @@ use chrono::{SecondsFormat, Utc};
 use futures::StreamExt;
 use reqwest::{Client, Method, RequestBuilder, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-#[cfg(feature = "web-server")]
+use std::collections::BTreeMap;
+use std::fs;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, OnceLock,
 };
 use std::time::Duration;
-#[cfg(feature = "web-server")]
 use tokio::time::MissedTickBehavior;
 
+mod archive;
+use archive::{
+    backup_current_skills, restore_skills_from_backup, restore_skills_zip, zip_skills_ssot,
+};
+
+const PROTOCOL_FORMAT: &str = "cc-switch-webdav-sync";
+const PROTOCOL_VERSION: u32 = 2;
+const DB_COMPAT_VERSION: u32 = SCHEMA_VERSION as u32;
+const REMOTE_DB_SQL: &str = "db.sql";
+const REMOTE_SKILLS_ZIP: &str = "skills.zip";
+const REMOTE_MANIFEST: &str = "manifest.json";
+const HISTORY_DIR: &str = "history";
+const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_SYNC_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const SNAPSHOT_KIND: &str = "cc-switch-web-snapshot";
 const SNAPSHOT_FILE_EXT: &str = "json";
 const BACKUP_DIR_SUFFIX: &str = "history";
@@ -27,9 +40,7 @@ const MAX_BACKUPS: usize = 20;
 const MAX_SNAPSHOT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_INDEX_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
-#[cfg(any(feature = "web-server", test))]
 const DEFAULT_AUTO_SYNC_INTERVAL_SECS: u64 = 5 * 60;
-#[cfg(any(feature = "web-server", test))]
 const MIN_AUTO_SYNC_INTERVAL_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,10 +121,45 @@ pub struct WebDavAutoSyncResult {
 
 #[derive(Debug, Clone)]
 struct RemoteTarget {
+    manifest_url: Url,
+    db_url: Url,
+    skills_url: Url,
     snapshot_url: Url,
     backup_index_url: Url,
     backup_segments: Vec<String>,
+    legacy_backup_index_url: Url,
+    legacy_backup_segments: Vec<String>,
     collection_urls: Vec<Url>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncManifest {
+    format: String,
+    version: u32,
+    db_compat_version: u32,
+    device_name: String,
+    created_at: String,
+    artifacts: BTreeMap<String, ArtifactMeta>,
+    snapshot_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ArtifactMeta {
+    sha256: String,
+    size: u64,
+}
+
+struct V2SnapshotPayload {
+    db_sql: Vec<u8>,
+    skills_zip: Vec<u8>,
+    manifest: SyncManifest,
+    manifest_bytes: Vec<u8>,
+}
+
+struct DownloadedManifest {
+    manifest: SyncManifest,
+    modified_at: Option<String>,
 }
 
 #[derive(Debug)]
@@ -126,16 +172,6 @@ struct ParsedSnapshot {
     config_hash: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-struct SnapshotPayload {
-    bytes: Vec<u8>,
-    backup_id: String,
-    created_at: String,
-    artifact_list: Vec<String>,
-    config_version: u32,
-    schema_version: i32,
-}
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BackupIndex {
@@ -143,57 +179,109 @@ struct BackupIndex {
     backups: Vec<WebDavBackupEntry>,
 }
 
+fn sync_mutex() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 pub async fn upload_snapshot(
     state: &AppState,
     settings: &WebDavSettings,
 ) -> Result<WebDavSyncResult, AppError> {
+    let _sync_guard = sync_mutex().lock().await;
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
     ensure_remote_collections(&client, &settings, &target.collection_urls).await?;
 
-    let config = state.load_config()?;
-    let payload = build_snapshot_payload(config)?;
-    let backup_url = backup_file_url(&settings, &target, &payload.backup_id)?;
+    let payload = build_v2_snapshot_payload(state)?;
+    let backup_id = payload.manifest.snapshot_id.clone();
+    let backup_segments = backup_snapshot_segments(&target, &backup_id)?;
+    let backup_collection = collection_url(&settings, &backup_segments)?;
+    ensure_remote_collections(&client, &settings, &[backup_collection]).await?;
 
-    let response = with_auth(
-        client
-            .put(target.snapshot_url.clone())
-            .header("content-type", "application/json")
-            .body(payload.bytes.clone()),
+    // Artifacts are uploaded first. The manifest is the commit marker.
+    put_bytes(
+        &client,
         &settings,
+        target.db_url.clone(),
+        payload.db_sql.clone(),
+        "application/sql",
     )
-    .send()
-    .await
-    .map_err(reqwest_error)?;
-    if !response.status().is_success() {
-        return Err(status_error("WebDAV upload failed", response).await);
-    }
-
-    let backup_response = with_auth(
-        client
-            .put(backup_url.clone())
-            .header("content-type", "application/json")
-            .body(payload.bytes.clone()),
+    .await?;
+    put_bytes(
+        &client,
         &settings,
+        target.skills_url.clone(),
+        payload.skills_zip.clone(),
+        "application/zip",
     )
-    .send()
-    .await
-    .map_err(reqwest_error)?;
-    if !backup_response.status().is_success() {
-        return Err(status_error("WebDAV backup upload failed", backup_response).await);
-    }
+    .await?;
+    put_bytes(
+        &client,
+        &settings,
+        target.manifest_url.clone(),
+        payload.manifest_bytes.clone(),
+        "application/json",
+    )
+    .await?;
 
-    let preview = preview_snapshot_with_client(&client, &settings, target.snapshot_url.clone())
-        .await?
-        .unwrap_or_else(|| missing_preview(target.snapshot_url.as_str()));
-    update_backup_index(&client, &settings, &target, &payload, &backup_url, &preview).await?;
+    let backup_db_url = artifact_url(&settings, &backup_segments, REMOTE_DB_SQL)?;
+    let backup_skills_url = artifact_url(&settings, &backup_segments, REMOTE_SKILLS_ZIP)?;
+    let backup_manifest_url = artifact_url(&settings, &backup_segments, REMOTE_MANIFEST)?;
+    put_bytes(
+        &client,
+        &settings,
+        backup_db_url,
+        payload.db_sql,
+        "application/sql",
+    )
+    .await?;
+    put_bytes(
+        &client,
+        &settings,
+        backup_skills_url,
+        payload.skills_zip,
+        "application/zip",
+    )
+    .await?;
+    put_bytes(
+        &client,
+        &settings,
+        backup_manifest_url.clone(),
+        payload.manifest_bytes,
+        "application/json",
+    )
+    .await?;
+
+    let preview = preview_from_manifest(
+        target.manifest_url.as_str(),
+        Some(
+            payload
+                .manifest
+                .artifacts
+                .values()
+                .map(|meta| meta.size)
+                .sum(),
+        ),
+        None,
+        &payload.manifest,
+    );
+    update_v2_backup_index(
+        &client,
+        &settings,
+        &target,
+        &payload.manifest,
+        &backup_manifest_url,
+        &preview,
+    )
+    .await?;
 
     Ok(WebDavSyncResult {
         success: true,
-        message: "Snapshot uploaded".to_string(),
-        remote_path: target.snapshot_url.to_string(),
-        backup_id: Some(payload.backup_id),
+        message: "WebDAV v2 snapshot uploaded".to_string(),
+        remote_path: target.manifest_url.to_string(),
+        backup_id: Some(backup_id),
         preview: Some(preview),
     })
 }
@@ -204,10 +292,27 @@ pub async fn preview_snapshot(
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
+    if let Some(manifest) =
+        download_manifest(&client, &settings, target.manifest_url.clone()).await?
+    {
+        return Ok(preview_from_manifest(
+            target.manifest_url.as_str(),
+            Some(
+                manifest
+                    .manifest
+                    .artifacts
+                    .values()
+                    .map(|meta| meta.size)
+                    .sum(),
+            ),
+            manifest.modified_at,
+            &manifest.manifest,
+        ));
+    }
     Ok(
         preview_snapshot_with_client(&client, &settings, target.snapshot_url.clone())
             .await?
-            .unwrap_or_else(|| missing_preview(target.snapshot_url.as_str())),
+            .unwrap_or_else(|| missing_preview(target.manifest_url.as_str())),
     )
 }
 
@@ -262,8 +367,8 @@ pub async fn sync_snapshot(
     }
 }
 
-#[cfg(feature = "web-server")]
 pub fn start_auto_sync_worker(state: Arc<AppState>) {
+    crate::webdav_auto_sync::start_worker(state.clone());
     static STARTED: AtomicBool = AtomicBool::new(false);
     if STARTED.swap(true, Ordering::SeqCst) {
         log::debug!("WebDAV auto sync worker is already running");
@@ -287,13 +392,15 @@ pub fn start_auto_sync_worker(state: Arc<AppState>) {
                     );
                 }
                 Ok(None) => {}
-                Err(err) => log::warn!("WebDAV auto sync failed: {err}"),
+                Err(err) => {
+                    let _ = persist_sync_state("error", Some(err.to_string()));
+                    log::warn!("WebDAV auto sync failed: {err}");
+                }
             }
         }
     });
 }
 
-#[cfg(any(feature = "web-server", test))]
 async fn auto_sync_once_if_enabled(
     state: &AppState,
 ) -> Result<Option<WebDavAutoSyncResult>, AppError> {
@@ -309,7 +416,35 @@ async fn auto_sync_once_if_enabled(
     Ok(Some(result))
 }
 
-#[cfg(any(feature = "web-server", test))]
+pub(crate) async fn auto_sync_upload_if_enabled(state: &AppState) -> Result<(), AppError> {
+    let webdav_settings = settings::get_settings().webdav;
+    if !should_auto_sync(&webdav_settings) {
+        return Ok(());
+    }
+    persist_sync_state("syncing", None)?;
+    match upload_snapshot(state, &webdav_settings).await {
+        Ok(result) => {
+            let marker = WebDavAutoSyncResult {
+                action: "uploaded".to_string(),
+                message: result.message.clone(),
+                local_config_hash: result
+                    .preview
+                    .as_ref()
+                    .and_then(|preview| preview.config_hash.clone())
+                    .unwrap_or_default(),
+                remote_preview: result.preview.clone(),
+                result: Some(result),
+            };
+            persist_sync_marker_from_result(&marker)?;
+            persist_sync_state("success", None)
+        }
+        Err(error) => {
+            let _ = persist_sync_state("error", Some(error.to_string()));
+            Err(error)
+        }
+    }
+}
+
 fn should_auto_sync(settings: &WebDavSettings) -> bool {
     settings.enabled
         && settings.auto_sync
@@ -317,7 +452,6 @@ fn should_auto_sync(settings: &WebDavSettings) -> bool {
         && !settings.profile.trim().is_empty()
 }
 
-#[cfg(any(feature = "web-server", test))]
 fn auto_sync_interval_secs() -> u64 {
     std::env::var("WEBDAV_AUTO_SYNC_INTERVAL_SECS")
         .ok()
@@ -327,7 +461,6 @@ fn auto_sync_interval_secs() -> u64 {
         .max(MIN_AUTO_SYNC_INTERVAL_SECS)
 }
 
-#[cfg(any(feature = "web-server", test))]
 fn persist_sync_marker_from_result(result: &WebDavAutoSyncResult) -> Result<(), AppError> {
     let Some(preview) = sync_marker_preview(result) else {
         return Ok(());
@@ -340,10 +473,18 @@ fn persist_sync_marker_from_result(result: &WebDavAutoSyncResult) -> Result<(), 
     app_settings.webdav.last_sync_config_hash = Some(config_hash.to_string());
     app_settings.webdav.last_sync_at = Some(Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true));
     app_settings.webdav.last_sync_remote_snapshot_id = preview.snapshot_id.clone();
+    app_settings.webdav.last_sync_status = "success".to_string();
+    app_settings.webdav.last_sync_error = None;
     settings::update_settings(app_settings)
 }
 
-#[cfg(any(feature = "web-server", test))]
+fn persist_sync_state(status: &str, error: Option<String>) -> Result<(), AppError> {
+    let mut app_settings = settings::get_settings();
+    app_settings.webdav.last_sync_status = status.to_string();
+    app_settings.webdav.last_sync_error = error;
+    settings::update_settings(app_settings)
+}
+
 fn sync_marker_preview(result: &WebDavAutoSyncResult) -> Option<&WebDavSnapshotPreview> {
     result
         .result
@@ -356,11 +497,20 @@ pub async fn list_backups(settings: &WebDavSettings) -> Result<Vec<WebDavBackupE
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
-    Ok(
-        load_backup_index(&client, &settings, target.backup_index_url.clone())
-            .await?
-            .backups,
-    )
+    let mut backups = load_backup_index(&client, &settings, target.backup_index_url.clone())
+        .await?
+        .backups;
+    let legacy = load_backup_index(&client, &settings, target.legacy_backup_index_url.clone())
+        .await?
+        .backups;
+    for entry in legacy {
+        if !backups.iter().any(|current| current.id == entry.id) {
+            backups.push(entry);
+        }
+    }
+    backups.sort_by(|left, right| right.id.cmp(&left.id));
+    backups.truncate(MAX_BACKUPS);
+    Ok(backups)
 }
 
 pub async fn restore_backup(
@@ -368,19 +518,77 @@ pub async fn restore_backup(
     settings: &WebDavSettings,
     backup_id: &str,
 ) -> Result<WebDavSyncResult, AppError> {
+    let _sync_guard = sync_mutex().lock().await;
     let backup_id = sanitize_backup_id(backup_id)?;
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
     let index = load_backup_index(&client, &settings, target.backup_index_url.clone()).await?;
-    let entry = index
+    if let Some(entry) = index
+        .backups
+        .iter()
+        .find(|backup| backup.id == backup_id)
+        .cloned()
+    {
+        let segments = backup_snapshot_segments(&target, &backup_id)?;
+        let manifest_url = artifact_url(&settings, &segments, REMOTE_MANIFEST)?;
+        let manifest = download_manifest(&client, &settings, manifest_url.clone())
+            .await?
+            .ok_or_else(|| {
+                AppError::InvalidInput("Remote WebDAV backup manifest was not found".into())
+            })?;
+        let preview = preview_from_manifest(
+            manifest_url.as_str(),
+            Some(
+                manifest
+                    .manifest
+                    .artifacts
+                    .values()
+                    .map(|meta| meta.size)
+                    .sum(),
+            ),
+            manifest.modified_at,
+            &manifest.manifest,
+        );
+        ensure_preview_compatible(&preview)?;
+        let db_url = artifact_url(&settings, &segments, REMOTE_DB_SQL)?;
+        let skills_url = artifact_url(&settings, &segments, REMOTE_SKILLS_ZIP)?;
+        let db_sql = download_and_verify(
+            &client,
+            &settings,
+            db_url,
+            REMOTE_DB_SQL,
+            &manifest.manifest.artifacts,
+        )
+        .await?;
+        let skills_zip = download_and_verify(
+            &client,
+            &settings,
+            skills_url,
+            REMOTE_SKILLS_ZIP,
+            &manifest.manifest.artifacts,
+        )
+        .await?;
+        let local_backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
+        return Ok(WebDavSyncResult {
+            success: true,
+            message: "WebDAV v2 backup restored".to_string(),
+            remote_path: entry.remote_path,
+            backup_id: Some(local_backup_id),
+            preview: Some(preview),
+        });
+    }
+
+    let legacy_index =
+        load_backup_index(&client, &settings, target.legacy_backup_index_url.clone()).await?;
+    let entry = legacy_index
         .backups
         .iter()
         .find(|backup| backup.id == backup_id)
         .cloned()
         .ok_or_else(|| AppError::InvalidInput("WebDAV backup was not found".into()))?;
 
-    let backup_url = backup_file_url(&settings, &target, &backup_id)?;
+    let backup_url = legacy_backup_file_url(&settings, &target, &backup_id)?;
     let Some(downloaded) = download_snapshot_bytes(&client, &settings, backup_url.clone()).await?
     else {
         return Err(AppError::InvalidInput(
@@ -400,7 +608,10 @@ pub async fn restore_backup(
         ));
     }
 
-    let local_backup_id = ConfigService::apply_import_config(parsed.config, state)?;
+    let local_backup_id = {
+        let _guard = crate::webdav_auto_sync::AutoSyncSuppressionGuard::new();
+        ConfigService::apply_import_config(parsed.config, state)?
+    };
     Ok(WebDavSyncResult {
         success: true,
         message: "Backup restored".to_string(),
@@ -414,9 +625,54 @@ pub async fn download_snapshot(
     state: &AppState,
     settings: &WebDavSettings,
 ) -> Result<WebDavSyncResult, AppError> {
+    let _sync_guard = sync_mutex().lock().await;
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
+    if let Some(manifest) =
+        download_manifest(&client, &settings, target.manifest_url.clone()).await?
+    {
+        let preview = preview_from_manifest(
+            target.manifest_url.as_str(),
+            Some(
+                manifest
+                    .manifest
+                    .artifacts
+                    .values()
+                    .map(|meta| meta.size)
+                    .sum(),
+            ),
+            manifest.modified_at,
+            &manifest.manifest,
+        );
+        ensure_preview_compatible(&preview)?;
+        let db_sql = download_and_verify(
+            &client,
+            &settings,
+            target.db_url,
+            REMOTE_DB_SQL,
+            &manifest.manifest.artifacts,
+        )
+        .await?;
+        let skills_zip = download_and_verify(
+            &client,
+            &settings,
+            target.skills_url,
+            REMOTE_SKILLS_ZIP,
+            &manifest.manifest.artifacts,
+        )
+        .await?;
+        let backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
+        return Ok(WebDavSyncResult {
+            success: true,
+            message: "WebDAV v2 snapshot downloaded".to_string(),
+            remote_path: target.manifest_url.to_string(),
+            backup_id: Some(backup_id),
+            preview: Some(preview),
+        });
+    }
+
+    // 0.18.x snapshots remain read-only compatible.
     let Some(downloaded) =
         download_snapshot_bytes(&client, &settings, target.snapshot_url.clone()).await?
     else {
@@ -437,7 +693,10 @@ pub async fn download_snapshot(
         ));
     }
 
-    let backup_id = ConfigService::apply_import_config(parsed.config, state)?;
+    let backup_id = {
+        let _guard = crate::webdav_auto_sync::AutoSyncSuppressionGuard::new();
+        ConfigService::apply_import_config(parsed.config, state)?
+    };
     Ok(WebDavSyncResult {
         success: true,
         message: "Snapshot downloaded".to_string(),
@@ -505,30 +764,122 @@ fn remote_target(settings: &WebDavSettings) -> Result<RemoteTarget, AppError> {
             None,
         )?);
     }
-    let mut backup_segments = remote_segments.clone();
-    backup_segments.push(format!("{profile}.{BACKUP_DIR_SUFFIX}"));
+    let mut current_segments = remote_segments.clone();
+    current_segments.extend([
+        format!("v{PROTOCOL_VERSION}"),
+        format!("db-v{DB_COMPAT_VERSION}"),
+        profile.clone(),
+    ]);
+    for index in (remote_segments.len() + 1)..=current_segments.len() {
+        collection_urls.push(build_url(
+            base.clone(),
+            &base_segments,
+            &current_segments[..index],
+            None,
+        )?);
+    }
+    let mut backup_segments = current_segments.clone();
+    backup_segments.push(HISTORY_DIR.to_string());
     collection_urls.push(build_url(
         base.clone(),
         &base_segments,
         &backup_segments,
         None,
     )?);
-    let snapshot_url = build_url(base, &base_segments, &remote_segments, Some(&file_name))?;
-    let base = Url::parse(&settings.base_url)
-        .map_err(|e| AppError::InvalidInput(format!("Invalid WebDAV base URL: {e}")))?;
+
+    let mut legacy_backup_segments = remote_segments.clone();
+    legacy_backup_segments.push(format!("{profile}.{BACKUP_DIR_SUFFIX}"));
+    let snapshot_url = build_url(
+        base.clone(),
+        &base_segments,
+        &remote_segments,
+        Some(&file_name),
+    )?;
+    let manifest_url = build_url(
+        base.clone(),
+        &base_segments,
+        &current_segments,
+        Some(REMOTE_MANIFEST),
+    )?;
+    let db_url = build_url(
+        base.clone(),
+        &base_segments,
+        &current_segments,
+        Some(REMOTE_DB_SQL),
+    )?;
+    let skills_url = build_url(
+        base.clone(),
+        &base_segments,
+        &current_segments,
+        Some(REMOTE_SKILLS_ZIP),
+    )?;
     let backup_index_url = build_url(
-        base,
+        base.clone(),
         &base_segments,
         &backup_segments,
         Some(BACKUP_INDEX_FILE),
     )?;
+    let legacy_backup_index_url = build_url(
+        base,
+        &base_segments,
+        &legacy_backup_segments,
+        Some(BACKUP_INDEX_FILE),
+    )?;
 
     Ok(RemoteTarget {
+        manifest_url,
+        db_url,
+        skills_url,
         snapshot_url,
         backup_index_url,
         backup_segments,
+        legacy_backup_index_url,
+        legacy_backup_segments,
         collection_urls,
     })
+}
+
+fn collection_url(settings: &WebDavSettings, segments: &[String]) -> Result<Url, AppError> {
+    let base = Url::parse(&settings.base_url)
+        .map_err(|error| AppError::InvalidInput(format!("Invalid WebDAV base URL: {error}")))?;
+    let base_segments = base
+        .path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    build_url(base, &base_segments, segments, None)
+}
+
+fn artifact_url(
+    settings: &WebDavSettings,
+    segments: &[String],
+    artifact: &str,
+) -> Result<Url, AppError> {
+    let base = Url::parse(&settings.base_url)
+        .map_err(|error| AppError::InvalidInput(format!("Invalid WebDAV base URL: {error}")))?;
+    let base_segments = base
+        .path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    build_url(base, &base_segments, segments, Some(artifact))
+}
+
+fn backup_snapshot_segments(
+    target: &RemoteTarget,
+    backup_id: &str,
+) -> Result<Vec<String>, AppError> {
+    let mut segments = target.backup_segments.clone();
+    segments.push(sanitize_backup_id(backup_id)?);
+    Ok(segments)
 }
 
 fn split_relative_segments(path: &str) -> Result<Vec<String>, AppError> {
@@ -612,7 +963,7 @@ fn build_url(
     Ok(base)
 }
 
-fn backup_file_url(
+fn legacy_backup_file_url(
     settings: &WebDavSettings,
     target: &RemoteTarget,
     backup_id: &str,
@@ -631,7 +982,7 @@ fn backup_file_url(
     build_url(
         base,
         &base_segments,
-        &target.backup_segments,
+        &target.legacy_backup_segments,
         Some(&format!(
             "{}.{}",
             sanitize_backup_id(backup_id)?,
@@ -689,44 +1040,284 @@ async fn preview_snapshot_with_client(
     )))
 }
 
-fn build_snapshot_payload(config: MultiAppConfig) -> Result<SnapshotPayload, AppError> {
-    let artifact_list = artifact_list(&config);
-    let config_version = config.version;
-    let config_hash = config_hash_for_config(&config)?;
-    let created_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let backup_id = created_at.replace([':', '.'], "").replace('Z', "z");
-    let payload = json!({
-        "kind": SNAPSHOT_KIND,
-        "appVersion": env!("CARGO_PKG_VERSION"),
-        "schemaVersion": SCHEMA_VERSION,
-        "snapshotId": backup_id,
-        "createdAt": created_at,
-        "configHash": config_hash,
-        "artifactList": artifact_list,
-        "config": config,
-    });
-    let bytes =
-        serde_json::to_vec_pretty(&payload).map_err(|e| AppError::JsonSerialize { source: e })?;
+fn build_v2_snapshot_payload(state: &AppState) -> Result<V2SnapshotPayload, AppError> {
+    let db_sql = state.db.export_sql_string_for_sync()?.into_bytes();
+    let temporary = tempfile::tempdir().map_err(|source| AppError::IoContext {
+        context: "Failed to create WebDAV snapshot directory".to_string(),
+        source,
+    })?;
+    let skills_path = temporary.path().join(REMOTE_SKILLS_ZIP);
+    zip_skills_ssot(&skills_path)?;
+    let skills_zip = fs::read(&skills_path).map_err(|error| AppError::io(&skills_path, error))?;
+    validate_artifact_size(REMOTE_DB_SQL, db_sql.len() as u64)?;
+    validate_artifact_size(REMOTE_SKILLS_ZIP, skills_zip.len() as u64)?;
 
-    Ok(SnapshotPayload {
-        bytes,
-        backup_id,
-        created_at,
-        artifact_list,
-        config_version,
-        schema_version: SCHEMA_VERSION,
+    let mut artifacts = BTreeMap::new();
+    artifacts.insert(
+        REMOTE_DB_SQL.to_string(),
+        ArtifactMeta {
+            sha256: sha256_hex(&db_sql),
+            size: db_sql.len() as u64,
+        },
+    );
+    artifacts.insert(
+        REMOTE_SKILLS_ZIP.to_string(),
+        ArtifactMeta {
+            sha256: sha256_hex(&skills_zip),
+            size: skills_zip.len() as u64,
+        },
+    );
+    let snapshot_id = compute_snapshot_id(&artifacts);
+    let manifest = SyncManifest {
+        format: PROTOCOL_FORMAT.to_string(),
+        version: PROTOCOL_VERSION,
+        db_compat_version: DB_COMPAT_VERSION,
+        device_name: device_name(),
+        created_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        artifacts,
+        snapshot_id,
+    };
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|source| AppError::JsonSerialize { source })?;
+    Ok(V2SnapshotPayload {
+        db_sql,
+        skills_zip,
+        manifest,
+        manifest_bytes,
     })
 }
 
-fn local_config_hash(state: &AppState) -> Result<String, AppError> {
-    let config = state.load_config()?;
-    config_hash_for_config(&config)
+fn compute_snapshot_id(artifacts: &BTreeMap<String, ArtifactMeta>) -> String {
+    let identity = artifacts
+        .iter()
+        .map(|(name, meta)| format!("{name}:{}", meta.sha256))
+        .collect::<Vec<_>>()
+        .join("|");
+    sha256_hex(identity.as_bytes())
 }
 
-fn config_hash_for_config(config: &MultiAppConfig) -> Result<String, AppError> {
-    let config_bytes =
-        serde_json::to_vec(config).map_err(|e| AppError::JsonSerialize { source: e })?;
-    Ok(sha256_hex(&config_bytes))
+fn device_name() -> String {
+    ["CC_SWITCH_DEVICE_NAME", "HOSTNAME", "COMPUTERNAME"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .find(|value| !value.is_empty())
+        .map(|value| value.chars().take(64).collect())
+        .unwrap_or_else(|| "Unknown Device".to_string())
+}
+
+async fn put_bytes(
+    client: &Client,
+    settings: &WebDavSettings,
+    url: Url,
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<(), AppError> {
+    let response = with_auth(
+        client
+            .put(url)
+            .header("content-type", content_type)
+            .body(bytes),
+        settings,
+    )
+    .send()
+    .await
+    .map_err(reqwest_error)?;
+    if !response.status().is_success() {
+        return Err(status_error("WebDAV upload failed", response).await);
+    }
+    Ok(())
+}
+
+async fn download_manifest(
+    client: &Client,
+    settings: &WebDavSettings,
+    url: Url,
+) -> Result<Option<DownloadedManifest>, AppError> {
+    let response = with_auth(client.get(url), settings)
+        .send()
+        .await
+        .map_err(reqwest_error)?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !response.status().is_success() {
+        return Err(status_error("WebDAV manifest download failed", response).await);
+    }
+    let modified_at = response
+        .headers()
+        .get(reqwest::header::LAST_MODIFIED)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let bytes = read_limited_response_body(response, MAX_MANIFEST_BYTES, "WebDAV manifest").await?;
+    let manifest = serde_json::from_slice::<SyncManifest>(&bytes)
+        .map_err(|error| AppError::Config(format!("Invalid WebDAV manifest JSON: {error}")))?;
+    Ok(Some(DownloadedManifest {
+        manifest,
+        modified_at,
+    }))
+}
+
+async fn download_and_verify(
+    client: &Client,
+    settings: &WebDavSettings,
+    url: Url,
+    artifact_name: &str,
+    artifacts: &BTreeMap<String, ArtifactMeta>,
+) -> Result<Vec<u8>, AppError> {
+    let metadata = artifacts.get(artifact_name).ok_or_else(|| {
+        AppError::InvalidInput(format!("WebDAV manifest is missing {artifact_name}"))
+    })?;
+    validate_artifact_size(artifact_name, metadata.size)?;
+    let response = with_auth(client.get(url), settings)
+        .send()
+        .await
+        .map_err(reqwest_error)?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Err(AppError::InvalidInput(format!(
+            "WebDAV artifact was not found: {artifact_name}"
+        )));
+    }
+    if !response.status().is_success() {
+        return Err(status_error("WebDAV artifact download failed", response).await);
+    }
+    let bytes = read_limited_response_body(
+        response,
+        MAX_SYNC_ARTIFACT_BYTES as usize,
+        "WebDAV artifact",
+    )
+    .await?;
+    if bytes.len() as u64 != metadata.size {
+        return Err(AppError::InvalidInput(format!(
+            "WebDAV artifact size mismatch for {artifact_name}: expected {}, got {}",
+            metadata.size,
+            bytes.len()
+        )));
+    }
+    let hash = sha256_hex(&bytes);
+    if hash != metadata.sha256 {
+        return Err(AppError::InvalidInput(format!(
+            "WebDAV artifact SHA256 mismatch for {artifact_name}"
+        )));
+    }
+    Ok(bytes)
+}
+
+fn validate_artifact_size(name: &str, size: u64) -> Result<(), AppError> {
+    if size > MAX_SYNC_ARTIFACT_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "WebDAV artifact {name} exceeds the 512 MiB limit"
+        )));
+    }
+    Ok(())
+}
+
+fn preview_from_manifest(
+    remote_path: &str,
+    size_bytes: Option<u64>,
+    modified_at: Option<String>,
+    manifest: &SyncManifest,
+) -> WebDavSnapshotPreview {
+    let checks = vec![
+        WebDavCompatibilityCheck {
+            name: "protocolFormat".to_string(),
+            ok: manifest.format == PROTOCOL_FORMAT,
+            message: format!("format {}", manifest.format),
+        },
+        WebDavCompatibilityCheck {
+            name: "protocolVersion".to_string(),
+            ok: manifest.version == PROTOCOL_VERSION,
+            message: format!(
+                "protocol {}, supported {}",
+                manifest.version, PROTOCOL_VERSION
+            ),
+        },
+        WebDavCompatibilityCheck {
+            name: "databaseSchema".to_string(),
+            ok: manifest.db_compat_version == DB_COMPAT_VERSION,
+            message: format!(
+                "db-v{}, supported db-v{}",
+                manifest.db_compat_version, DB_COMPAT_VERSION
+            ),
+        },
+        WebDavCompatibilityCheck {
+            name: "artifacts".to_string(),
+            ok: [REMOTE_DB_SQL, REMOTE_SKILLS_ZIP]
+                .iter()
+                .all(|name| manifest.artifacts.contains_key(*name)),
+            message: manifest
+                .artifacts
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+        },
+        WebDavCompatibilityCheck {
+            name: "artifactSize".to_string(),
+            ok: manifest
+                .artifacts
+                .iter()
+                .all(|(name, meta)| validate_artifact_size(name, meta.size).is_ok()),
+            message: "maximum 512 MiB per artifact".to_string(),
+        },
+    ];
+    WebDavSnapshotPreview {
+        exists: true,
+        remote_path: remote_path.to_string(),
+        snapshot_id: Some(manifest.snapshot_id.clone()),
+        created_at: Some(manifest.created_at.clone()),
+        config_hash: Some(manifest.snapshot_id.clone()),
+        size_bytes,
+        modified_at,
+        artifact_list: manifest.artifacts.keys().cloned().collect(),
+        config_version: Some(manifest.version),
+        schema_version: i32::try_from(manifest.db_compat_version).ok(),
+        compatible: checks.iter().all(|check| check.ok),
+        checks,
+    }
+}
+
+fn ensure_preview_compatible(preview: &WebDavSnapshotPreview) -> Result<(), AppError> {
+    if preview.compatible {
+        Ok(())
+    } else {
+        let failures = preview
+            .checks
+            .iter()
+            .filter(|check| !check.ok)
+            .map(|check| check.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        Err(AppError::InvalidInput(format!(
+            "Remote WebDAV snapshot is incompatible: {failures}"
+        )))
+    }
+}
+
+fn apply_v2_snapshot(
+    state: &AppState,
+    db_sql: &[u8],
+    skills_zip: &[u8],
+) -> Result<String, AppError> {
+    let sql = std::str::from_utf8(db_sql)
+        .map_err(|error| AppError::InvalidInput(format!("WebDAV db.sql is not UTF-8: {error}")))?;
+    let skills_backup = backup_current_skills()?;
+    restore_skills_zip(skills_zip)?;
+    match state.db.import_sql_string_for_sync(sql) {
+        Ok(backup_id) => Ok(backup_id),
+        Err(database_error) => {
+            restore_skills_from_backup(&skills_backup).map_err(|rollback_error| {
+                AppError::Config(format!(
+                    "Database restore failed: {database_error}; Skills rollback failed: {rollback_error}"
+                ))
+            })?;
+            Err(database_error)
+        }
+    }
+}
+
+fn local_config_hash(state: &AppState) -> Result<String, AppError> {
+    Ok(build_v2_snapshot_payload(state)?.manifest.snapshot_id)
 }
 
 fn decide_sync_action(
@@ -759,50 +1350,45 @@ fn decide_sync_action(
     }
 }
 
-async fn update_backup_index(
+async fn update_v2_backup_index(
     client: &Client,
     settings: &WebDavSettings,
     target: &RemoteTarget,
-    payload: &SnapshotPayload,
-    backup_url: &Url,
+    manifest: &SyncManifest,
+    backup_manifest_url: &Url,
     preview: &WebDavSnapshotPreview,
 ) -> Result<(), AppError> {
     let mut index = load_backup_index(client, settings, target.backup_index_url.clone()).await?;
-    index.backups.retain(|entry| entry.id != payload.backup_id);
+    index
+        .backups
+        .retain(|entry| entry.id != manifest.snapshot_id);
     index.backups.insert(
         0,
         WebDavBackupEntry {
-            id: payload.backup_id.clone(),
-            remote_path: backup_url.to_string(),
-            size_bytes: Some(payload.bytes.len() as u64),
+            id: manifest.snapshot_id.clone(),
+            remote_path: backup_manifest_url.to_string(),
+            size_bytes: Some(manifest.artifacts.values().map(|meta| meta.size).sum()),
             modified_at: preview.modified_at.clone(),
-            created_at: Some(payload.created_at.clone()),
-            artifact_list: payload.artifact_list.clone(),
-            config_version: Some(payload.config_version),
-            schema_version: Some(payload.schema_version),
+            created_at: Some(manifest.created_at.clone()),
+            artifact_list: manifest.artifacts.keys().cloned().collect(),
+            config_version: Some(manifest.version),
+            schema_version: i32::try_from(manifest.db_compat_version).ok(),
             compatible: preview.compatible,
             checks: preview.checks.clone(),
         },
     );
-    index.backups.sort_by(|a, b| b.id.cmp(&a.id));
+    index.backups.sort_by(|left, right| right.id.cmp(&left.id));
     index.backups.truncate(MAX_BACKUPS);
-
     let bytes =
-        serde_json::to_vec_pretty(&index).map_err(|e| AppError::JsonSerialize { source: e })?;
-    let response = with_auth(
-        client
-            .put(target.backup_index_url.clone())
-            .header("content-type", "application/json")
-            .body(bytes),
+        serde_json::to_vec_pretty(&index).map_err(|source| AppError::JsonSerialize { source })?;
+    put_bytes(
+        client,
         settings,
+        target.backup_index_url.clone(),
+        bytes,
+        "application/json",
     )
-    .send()
     .await
-    .map_err(reqwest_error)?;
-    if !response.status().is_success() {
-        return Err(status_error("WebDAV backup index upload failed", response).await);
-    }
-    Ok(())
 }
 
 async fn load_backup_index(
@@ -1141,21 +1727,25 @@ mod tests {
         let target = remote_target(&settings).expect("remote target");
 
         assert_eq!(
+            target.manifest_url.as_str(),
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/manifest.json"
+        );
+        assert_eq!(
             target.snapshot_url.as_str(),
             "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/main-profile.json"
         );
-        assert_eq!(target.collection_urls.len(), 3);
+        assert_eq!(target.collection_urls.len(), 6);
         assert_eq!(
             target.collection_urls[0].as_str(),
             "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/"
         );
         assert_eq!(
-            target.collection_urls[2].as_str(),
-            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/main-profile.history/"
+            target.collection_urls[5].as_str(),
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/history/"
         );
         assert_eq!(
             target.backup_index_url.as_str(),
-            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/main-profile.history/index.json"
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/history/index.json"
         );
     }
 
@@ -1170,7 +1760,7 @@ mod tests {
         };
         let target = remote_target(&settings).expect("remote target");
 
-        let err = backup_file_url(&settings, &target, "../bad").unwrap_err();
+        let err = backup_snapshot_segments(&target, "../bad").unwrap_err();
 
         assert!(err.to_string().contains("backup id"));
     }
@@ -1253,6 +1843,69 @@ mod tests {
         assert!(preview.compatible);
         assert_eq!(preview.artifact_list, vec!["providers:1"]);
         assert_eq!(preview.config_version, Some(2));
+    }
+
+    #[test]
+    fn v2_snapshot_id_is_deterministic_for_artifact_hashes() {
+        let mut first = BTreeMap::new();
+        first.insert(
+            REMOTE_DB_SQL.to_string(),
+            ArtifactMeta {
+                sha256: "db-hash".to_string(),
+                size: 10,
+            },
+        );
+        first.insert(
+            REMOTE_SKILLS_ZIP.to_string(),
+            ArtifactMeta {
+                sha256: "skills-hash".to_string(),
+                size: 20,
+            },
+        );
+        let second = first.clone();
+
+        assert_eq!(compute_snapshot_id(&first), compute_snapshot_id(&second));
+
+        first.get_mut(REMOTE_DB_SQL).expect("db artifact").sha256 = "changed".to_string();
+        assert_ne!(compute_snapshot_id(&first), compute_snapshot_id(&second));
+    }
+
+    #[test]
+    fn v2_preview_rejects_protocol_database_and_artifact_mismatches() {
+        let mut artifacts = BTreeMap::new();
+        artifacts.insert(
+            REMOTE_DB_SQL.to_string(),
+            ArtifactMeta {
+                sha256: "db".to_string(),
+                size: 10,
+            },
+        );
+        artifacts.insert(
+            REMOTE_SKILLS_ZIP.to_string(),
+            ArtifactMeta {
+                sha256: "skills".to_string(),
+                size: 20,
+            },
+        );
+        let mut manifest = SyncManifest {
+            format: PROTOCOL_FORMAT.to_string(),
+            version: PROTOCOL_VERSION,
+            db_compat_version: DB_COMPAT_VERSION,
+            device_name: "test".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            snapshot_id: compute_snapshot_id(&artifacts),
+            artifacts,
+        };
+        assert!(preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+
+        manifest.version += 1;
+        assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+        manifest.version = PROTOCOL_VERSION;
+        manifest.db_compat_version += 1;
+        assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+        manifest.db_compat_version = DB_COMPAT_VERSION;
+        manifest.artifacts.remove(REMOTE_SKILLS_ZIP);
+        assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
     }
 
     #[test]

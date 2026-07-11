@@ -84,6 +84,12 @@ pub async fn sync_universal_provider(
     Ok(Json(synced))
 }
 
+pub async fn preview_universal_provider(
+    Json(provider): Json<UniversalProvider>,
+) -> ApiResult<HashMap<String, Provider>> {
+    Ok(Json(ProviderService::preview_universal(&provider)))
+}
+
 pub async fn current_provider(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
@@ -277,6 +283,7 @@ pub struct TestUsageScriptRequest {
     base_url: Option<String>,
     access_token: Option<String>,
     user_id: Option<String>,
+    template_type: Option<String>,
 }
 
 pub async fn test_usage_script(
@@ -295,6 +302,7 @@ pub async fn test_usage_script(
         req.base_url.as_deref(),
         req.access_token.as_deref(),
         req.user_id.as_deref(),
+        req.template_type.as_deref(),
     )
     .await;
     match result {

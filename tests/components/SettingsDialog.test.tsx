@@ -128,6 +128,18 @@ vi.mock("@/hooks/useImportExport", () => ({
     useImportExportSpy(options),
 }));
 
+vi.mock("@/hooks/useBackupManager", () => ({
+  useBackupManager: () => ({
+    backups: [],
+    isLoading: false,
+    create: vi.fn(),
+    restore: vi.fn(),
+    rename: vi.fn(),
+    remove: vi.fn(),
+    isBusy: false,
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),

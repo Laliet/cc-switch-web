@@ -90,10 +90,17 @@ pub struct UsageScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "userId")]
     pub user_id: Option<String>,
+    /// 内置查询类型；token_plan / balance 由 Rust 服务执行。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "templateType")]
+    pub template_type: Option<String>,
     /// 自动查询间隔（单位：分钟，0 表示禁用自动查询）
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "autoQueryInterval")]
     pub auto_query_interval: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "codingPlanProvider")]
+    pub coding_plan_provider: Option<String>,
 }
 
 /// 用量数据

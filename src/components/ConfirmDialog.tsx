@@ -16,6 +16,7 @@ interface ConfirmDialogProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  variant?: "destructive" | "info";
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -26,6 +27,7 @@ export function ConfirmDialog({
   message,
   confirmText,
   cancelText,
+  variant = "destructive",
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -43,7 +45,9 @@ export function ConfirmDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader className="space-y-3">
           <DialogTitle className="flex items-center gap-2 text-lg font-semibold">
-            <AlertTriangle className="h-5 w-5 text-destructive" />
+            <AlertTriangle
+              className={`h-5 w-5 ${variant === "info" ? "text-amber-500" : "text-destructive"}`}
+            />
             {title}
           </DialogTitle>
           <DialogDescription className="whitespace-pre-line text-sm leading-relaxed">
@@ -54,7 +58,10 @@ export function ConfirmDialog({
           <Button variant="outline" onClick={onCancel}>
             {cancelText || t("common.cancel")}
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button
+            variant={variant === "info" ? "default" : "destructive"}
+            onClick={onConfirm}
+          >
             {confirmText || t("common.confirm")}
           </Button>
         </DialogFooter>

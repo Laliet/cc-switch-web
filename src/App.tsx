@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { BarChart3, Plus, Settings, Edit3 } from "lucide-react";
+import { BarChart3, Plus, Settings, Edit3, History } from "lucide-react";
 import type { Provider } from "@/types";
 import type { EnvConflict } from "@/types/env";
 import { useProvidersQuery } from "@/lib/query";
@@ -85,6 +85,11 @@ const SkillsPage = lazy(() =>
     default: module.SkillsPage,
   })),
 );
+const SessionManagerPage = lazy(() =>
+  import("@/components/sessions/SessionManagerPage").then((module) => ({
+    default: module.SessionManagerPage,
+  })),
+);
 
 async function validateWebCredentials(url: string): Promise<boolean> {
   const headers = buildWebAuthHeadersForUrl(url);
@@ -131,6 +136,7 @@ function AppContent() {
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
   const [isUsageDashboardOpen, setIsUsageDashboardOpen] = useState(false);
+  const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
@@ -618,7 +624,7 @@ function AppContent() {
         />
       )}
 
-      <header className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4 dark:border-gray-800 dark:bg-gray-900">
+      <header className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-gray-900 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1">
             <a
@@ -656,8 +662,8 @@ function AppContent() {
             <UpdateBadge onClick={() => setIsSettingsOpen(true)} />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+            <div className="flex min-w-0 max-w-full flex-col gap-1">
               <AppSwitcher activeApp={activeApp} onSwitch={handleSwitchApp} />
               <span className="text-xs text-muted-foreground">
                 {t("apps.scopeHint", {
@@ -723,6 +729,14 @@ function AppContent() {
                 {t("skills.manage")}
               </Button>
             ) : null}
+            <Button
+              variant="outline"
+              onClick={() => setIsSessionManagerOpen(true)}
+              className="min-w-[92px]"
+            >
+              <History className="h-4 w-4" />
+              {t("sessionManager.manage")}
+            </Button>
             <Button
               variant="outline"
               onClick={() => setIsUsageDashboardOpen(true)}
@@ -894,6 +908,14 @@ function AppContent() {
             </Suspense>
           </DialogContent>
         </Dialog>
+      ) : null}
+      {isSessionManagerOpen ? (
+        <Suspense fallback={null}>
+          <SessionManagerPage
+            open={isSessionManagerOpen}
+            onOpenChange={setIsSessionManagerOpen}
+          />
+        </Suspense>
       ) : null}
       <DeepLinkImportDialog />
     </div>

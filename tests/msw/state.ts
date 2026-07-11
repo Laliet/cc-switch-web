@@ -194,6 +194,14 @@ const createDefaultProxyAppSettings = () => ({
   enabled: false,
   autoFailoverEnabled: false,
   maxRetries: 0,
+  streamingFirstByteTimeout: 90,
+  streamingIdleTimeout: 120,
+  nonStreamingTimeout: 600,
+  circuitFailureThreshold: 3,
+  circuitRecoveryThreshold: 2,
+  circuitRecoveryWaitSeconds: 60,
+  circuitErrorRateThreshold: 80,
+  circuitMinRequests: 10,
 });
 
 const createDefaultProxySettings = (): ProxySettings => ({

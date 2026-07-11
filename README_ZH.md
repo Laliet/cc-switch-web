@@ -4,7 +4,7 @@
 
 <sub>🙏 本项目是 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)（Jason Young）的 fork 版本。感谢原作者的出色工作。本 fork 添加了 Web 服务器模式，支持云端/无头部署。</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.18.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.19.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -341,8 +341,17 @@ pnpm test:unit
 
 ## 更新内容
 
-> 当前版本：[v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
-> `v0.15.0` 是 Local Routing + Claude Desktop 对齐版，补齐本地路由、用量统计可见性、Web 模式 JSON 404 与 API 错误反馈。
+> 当前版本：[v0.19.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.0)<br>
+> `v0.19.0` 聚焦 SQLite 数据安全、WebDAV v2、中转服务体验和上游一致的服务器会话管理。
+
+### v0.19.0 - 数据安全与中转服务体验完善版
+
+- 新增 SQLite 原生 SQL 备份恢复、完整性校验、失败回滚、备份管理和定时保留
+- 新增 WebDAV v2：`manifest.json`、`db.sql`、`skills.zip`、哈希和兼容性校验、恢复回滚及变更触发同步
+- 中转 Provider 额度和余额改为 Rust 原生查询，不再要求用户手写 JavaScript
+- 补齐 Universal Provider、MCP 导入、Skills 更新/目录和每 App 独立代理参数闭环
+- 新增 Claude、Codex、Gemini、OpenCode 服务器会话管理，支持搜索、消息、目录、删除和复制恢复命令
+- 更新说明：[v0.19.0](docs/release-note-v0.19.0-zh.md)
 
 ### v0.15.0 - Local Routing + Claude Desktop 对齐版
 
@@ -376,7 +385,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.15.0 发布说明](docs/release-note-v0.15.0-zh.md) — 当前版本：**v0.15.0**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.19.0 发布说明](docs/release-note-v0.19.0-zh.md) - 当前版本：**v0.19.0**
 
 ---
 

@@ -16,9 +16,12 @@ import {
   Trash2,
   Loader2,
   ChevronDown,
+  RefreshCw,
 } from "lucide-react";
 import { settingsApi } from "@/lib/api";
 import type { Skill } from "@/lib/api/skills";
+import type { AppId } from "@/lib/api";
+import { Switch } from "@/components/ui/switch";
 import {
   Collapsible,
   CollapsibleContent,
@@ -29,9 +32,25 @@ interface SkillCardProps {
   skill: Skill;
   onInstall: (directory: string) => Promise<void>;
   onUninstall: (directory: string) => Promise<void>;
+  onUpdate?: () => Promise<void>;
+  onToggleApp?: (app: AppId, enabled: boolean) => Promise<void>;
+  hasUpdate?: boolean;
+  updating?: boolean;
+  installs?: number;
 }
 
-export function SkillCard({ skill, onInstall, onUninstall }: SkillCardProps) {
+const MANAGED_SKILL_APPS: AppId[] = ["claude", "codex", "gemini", "opencode"];
+
+export function SkillCard({
+  skill,
+  onInstall,
+  onUninstall,
+  onUpdate,
+  onToggleApp,
+  hasUpdate = false,
+  updating = false,
+  installs,
+}: SkillCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const isMountedRef = useRef(true);
@@ -121,6 +140,14 @@ export function SkillCard({ skill, onInstall, onUninstall }: SkillCardProps) {
               {t("skills.installed")}
             </Badge>
           )}
+          {hasUpdate && (
+            <Badge
+              variant="outline"
+              className="shrink-0 border-amber-500 text-amber-600"
+            >
+              {t("skills.updateAvailable", { defaultValue: "有更新" })}
+            </Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent className="flex-1 pt-0" style={indentStyle}>
@@ -173,12 +200,64 @@ export function SkillCard({ skill, onInstall, onUninstall }: SkillCardProps) {
               </CollapsibleContent>
             </Collapsible>
           )}
+          {typeof installs === "number" && (
+            <p className="text-xs text-muted-foreground">
+              {t("skills.catalog.installs", {
+                count: installs,
+                defaultValue: "{{count}} 次安装",
+              })}
+            </p>
+          )}
+          {onToggleApp && (skill.installedApps?.length ?? 0) > 0 && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border-default/60 pt-3">
+              {MANAGED_SKILL_APPS.map((app) => {
+                const enabled = (skill.installedApps ?? []).includes(app);
+                return (
+                  <label
+                    key={app}
+                    className="flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span className="truncate">
+                      {t(`apps.${app}`, { defaultValue: app })}
+                    </span>
+                    <Switch
+                      checked={enabled}
+                      disabled={loading || updating}
+                      onCheckedChange={(checked) =>
+                        void onToggleApp(app, checked)
+                      }
+                      aria-label={t("skills.toggleApp", {
+                        app: t(`apps.${app}`, { defaultValue: app }),
+                        defaultValue: "切换 {{app}}",
+                      })}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
       </CardContent>
       <CardFooter
         className="flex gap-2 pt-3 border-t border-border-default"
         style={indentStyle}
       >
+        {hasUpdate && onUpdate && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void onUpdate()}
+            disabled={loading || updating}
+            className="flex-1 border-amber-300 text-amber-700 dark:text-amber-400"
+          >
+            {updating ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            {t("skills.update", { defaultValue: "更新" })}
+          </Button>
+        )}
         {skill.readmeUrl && (
           <Button
             variant="ghost"

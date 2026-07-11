@@ -49,6 +49,19 @@ describe("mcpApi", () => {
     expect(adapterMocks.invoke).toHaveBeenCalledWith("get_claude_mcp_status");
   });
 
+  it("imports MCP definitions from server-host applications", async () => {
+    const response = {
+      imported: 2,
+      merged: 1,
+      conflicts: 1,
+      sources: [],
+    };
+    adapterMocks.invoke.mockResolvedValueOnce(response);
+
+    await expect(mcpApi.importFromApps()).resolves.toBe(response);
+    expect(adapterMocks.invoke).toHaveBeenCalledWith("import_mcp_from_apps");
+  });
+
   it("readConfig calls invoke with read_claude_mcp_config", async () => {
     adapterMocks.invoke.mockResolvedValueOnce("config-content");
 

@@ -3,6 +3,7 @@ use crate::error::{format_skill_error, AppError};
 use crate::services::skill::SkillState;
 use crate::services::{
     MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
+    SkillUpdateInfo, SkillsShSearchResult,
 };
 use crate::store::AppState;
 use base64::{engine::general_purpose, Engine};
@@ -141,6 +142,10 @@ pub async fn install_skill(
                 SkillState {
                     installed: true,
                     installed_at: Utc::now(),
+                    repo_owner: skill.repo_owner.clone(),
+                    repo_name: skill.repo_name.clone(),
+                    repo_branch: skill.repo_branch.clone(),
+                    skills_path: skill.skills_path.clone(),
                 },
             );
             Ok(())
@@ -257,6 +262,10 @@ pub fn restore_skill_backup(
                 SkillState {
                     installed: true,
                     installed_at: Utc::now(),
+                    repo_owner: None,
+                    repo_name: None,
+                    repo_branch: None,
+                    skills_path: None,
                 },
             );
             Ok(())
@@ -269,6 +278,97 @@ pub fn restore_skill_backup(
 #[tauri::command]
 pub fn migrate_skill_storage(target: SkillStorageLocation) -> Result<MigrationResult, String> {
     SkillService::migrate_storage(target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn check_skill_updates(
+    _service: State<'_, SkillServiceState>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<SkillUpdateInfo>, String> {
+    let config = app_state.load_config().map_err(|e| e.to_string())?;
+    let service = SkillService::new().map_err(|e| e.to_string())?;
+    service
+        .check_updates(&config.skills.repos, &config.skills.skills)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_skill(
+    id: String,
+    _service: State<'_, SkillServiceState>,
+    app_state: State<'_, AppState>,
+) -> Result<SkillUpdateInfo, String> {
+    let config = app_state.load_config().map_err(|e| e.to_string())?;
+    let service = SkillService::new().map_err(|e| e.to_string())?;
+    service
+        .update_skill(&config.skills.repos, &config.skills.skills, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_skills_sh(
+    query: String,
+    limit: usize,
+    offset: usize,
+) -> Result<SkillsShSearchResult, String> {
+    SkillService::search_skills_sh(&query, limit, offset)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 安装来自 skills.sh 等公共目录的仓库 Skill。来源仓库会加入仓库列表，
+/// 从而让后续更新检测继续使用同一来源。
+#[tauri::command]
+pub async fn install_catalog_skill(
+    directory: String,
+    repo_owner: String,
+    repo_name: String,
+    repo_branch: Option<String>,
+    app: Option<String>,
+    force: Option<bool>,
+    app_state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let app = parse_skill_app(app)?;
+    let repo = SkillRepo {
+        owner: repo_owner,
+        name: repo_name,
+        branch: repo_branch.unwrap_or_else(|| "main".to_string()),
+        enabled: true,
+        skills_path: None,
+    };
+    let service = SkillService::new_for_app(&app).map_err(|e| e.to_string())?;
+    service
+        .install_skill(directory.clone(), repo.clone(), force.unwrap_or(false))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app_state
+        .update_config(|config| {
+            if !config
+                .skills
+                .repos
+                .iter()
+                .any(|item| item.owner == repo.owner && item.name == repo.name)
+            {
+                config.skills.repos.push(repo.clone());
+            }
+            config.skills.skills.insert(
+                SkillService::state_key(&app, &directory),
+                SkillState {
+                    installed: true,
+                    installed_at: Utc::now(),
+                    repo_owner: Some(repo.owner.clone()),
+                    repo_name: Some(repo.name.clone()),
+                    repo_branch: Some(repo.branch.clone()),
+                    skills_path: repo.skills_path.clone(),
+                },
+            );
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -313,6 +413,10 @@ pub fn install_skills_from_zip(
                     SkillState {
                         installed: true,
                         installed_at: Utc::now(),
+                        repo_owner: None,
+                        repo_name: None,
+                        repo_branch: None,
+                        skills_path: None,
                     },
                 );
             }

@@ -12,6 +12,7 @@ const addRepoMock = vi.hoisted(() => vi.fn());
 const removeRepoMock = vi.hoisted(() => vi.fn());
 const installMock = vi.hoisted(() => vi.fn());
 const uninstallMock = vi.hoisted(() => vi.fn());
+const getBackupsMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock("@/lib/api/skills", () => ({
     getRepos: (...args: unknown[]) => getReposMock(...args),
     install: (...args: unknown[]) => installMock(...args),
     uninstall: (...args: unknown[]) => uninstallMock(...args),
+    getBackups: (...args: unknown[]) => getBackupsMock(...args),
     addRepo: (...args: unknown[]) => addRepoMock(...args),
     removeRepo: (...args: unknown[]) => removeRepoMock(...args),
   },
@@ -210,6 +212,7 @@ beforeEach(() => {
   removeRepoMock.mockReset();
   installMock.mockReset();
   uninstallMock.mockReset();
+  getBackupsMock.mockReset();
   toastSuccessMock.mockClear();
   toastErrorMock.mockClear();
   toastWarningMock.mockClear();
@@ -221,6 +224,7 @@ beforeEach(() => {
   removeRepoMock.mockResolvedValue(true);
   installMock.mockResolvedValue(true);
   uninstallMock.mockResolvedValue(true);
+  getBackupsMock.mockResolvedValue([]);
 });
 
 describe("SkillsPage", () => {

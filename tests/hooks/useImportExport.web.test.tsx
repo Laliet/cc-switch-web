@@ -220,7 +220,7 @@ describe("useImportExport (web mode)", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ config: true }),
+      text: async () => "-- CC Switch SQLite export\n",
     } as Response);
 
     try {

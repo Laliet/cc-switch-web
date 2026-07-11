@@ -60,6 +60,7 @@ impl Database {
             .map_err(|e| AppError::Database(e.to_string()))?;
         }
         tx.commit().map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("failover_queue");
         Ok(())
     }
 
@@ -74,12 +75,16 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )
             .map_err(|e| AppError::Database(e.to_string()))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO failover_queue (app_type, provider_id, position)
+        let changed = conn
+            .execute(
+                "INSERT OR IGNORE INTO failover_queue (app_type, provider_id, position)
              VALUES (?1, ?2, ?3)",
-            params![app_type, provider_id, next_position],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+                params![app_type, provider_id, next_position],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        if changed > 0 {
+            crate::webdav_auto_sync::notify_db_changed("failover_queue");
+        }
         Ok(())
     }
 
@@ -99,11 +104,15 @@ impl Database {
 
     pub fn clear_failover_queue(&self, app_type: &str) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
-        conn.execute(
-            "DELETE FROM failover_queue WHERE app_type = ?1",
-            params![app_type],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
+        let changed = conn
+            .execute(
+                "DELETE FROM failover_queue WHERE app_type = ?1",
+                params![app_type],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        if changed > 0 {
+            crate::webdav_auto_sync::notify_db_changed("failover_queue");
+        }
         Ok(())
     }
 }

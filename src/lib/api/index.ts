@@ -1,9 +1,10 @@
 export type { AppId } from "./types";
 export { providersApi } from "./providers";
 export { authApi } from "./auth";
-export { settingsApi } from "./settings";
+export { settingsApi, backupsApi } from "./settings";
 export { mcpApi } from "./mcp";
 export { promptsApi } from "./prompts";
+export { sessionsApi } from "./sessions";
 export { deeplinkApi } from "./deeplink";
 export { usageApi } from "./usage";
 export { vscodeApi } from "./vscode";

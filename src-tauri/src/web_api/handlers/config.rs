@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ use crate::{
         atomic_write, get_app_config_dir, get_app_config_path as resolve_app_config_path,
         get_claude_settings_path,
     },
+    database::{BackupEntry, Database},
     error::AppError,
     gemini_config,
     services::ConfigService,
@@ -48,30 +50,33 @@ pub struct FilePathPayload {
     pub content: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreBackupPayload {
+    pub filename: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameBackupPayload {
+    pub old_filename: String,
+    pub new_name: String,
+}
+
 pub async fn export_config(
     State(state): State<Arc<AppState>>,
     payload: Option<Json<FilePathPayload>>,
 ) -> ApiResult<Value> {
-    // 当未提供 body 时，直接返回 config 快照，兼容 bash 测试和备份逻辑。
-    if payload.is_none() {
-        let cfg = state.load_config().map_err(ApiError::from)?;
-        let value = serde_json::to_value(cfg)
-            .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        return Ok(Json(value));
-    }
-
-    // 提供了 body：走文件导出分支
-    let Json(payload) = payload.unwrap();
+    let Json(payload) = payload.ok_or_else(|| ApiError::bad_request("filePath is required"))?;
     let file_path = payload
         .file_path
         .ok_or_else(|| ApiError::bad_request("filePath is required"))?;
     let target_path = ConfigService::sanitize_transfer_path(&file_path).map_err(ApiError::from)?;
-    let cfg = state.load_config().map_err(ApiError::from)?;
-    ConfigService::export_config_to_path(&cfg, &target_path).map_err(ApiError::from)?;
+    state.db.export_sql(&target_path).map_err(ApiError::from)?;
 
     Ok(Json(serde_json::json!(ConfigTransferResult {
         success: true,
-        message: "Configuration exported successfully".into(),
+        message: "SQL backup exported successfully".into(),
         file_path: Some(file_path),
         backup_id: None,
     })))
@@ -81,10 +86,7 @@ pub async fn import_config(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> ApiResult<ConfigTransferResult> {
-    // 三种输入形态：
-    // 1) { filePath, content? } 与桌面端兼容
-    // 2) { content } 直接传配置文本（Web 手动粘贴）
-    // 3) 直接传 MultiAppConfig JSON（bash 测试）
+    // Legacy JSON remains readable for 0.18.x migration. New exports are SQL.
 
     // 3) 纯配置 JSON
     let is_plain_config = body.get("providers").is_some() || body.get("mcp").is_some();
@@ -112,20 +114,43 @@ pub async fn import_config(
     let mut file_path_ret = payload.file_path.clone();
 
     let backup_id = if let Some(content) = payload.content {
-        let config_path = resolve_app_config_path().map_err(ApiError::from)?;
-        let backup_id = ConfigService::create_backup(&config_path).map_err(ApiError::from)?;
-        let parsed: MultiAppConfig =
-            serde_json::from_str(&content).map_err(|e| ApiError::bad_request(e.to_string()))?;
-        state.replace_config(&parsed).map_err(ApiError::from)?;
-        atomic_write(&config_path, content.as_bytes()).map_err(ApiError::from)?;
-        backup_id
+        if content
+            .trim_start_matches('\u{feff}')
+            .trim_start()
+            .starts_with("-- CC Switch SQLite export")
+        {
+            state
+                .db
+                .import_sql_string(&content)
+                .map_err(ApiError::from)?
+        } else {
+            let config_path = resolve_app_config_path().map_err(ApiError::from)?;
+            let backup_id = ConfigService::create_backup(&config_path).map_err(ApiError::from)?;
+            let parsed: MultiAppConfig =
+                serde_json::from_str(&content).map_err(|e| ApiError::bad_request(e.to_string()))?;
+            state.replace_config(&parsed).map_err(ApiError::from)?;
+            atomic_write(&config_path, content.as_bytes()).map_err(ApiError::from)?;
+            backup_id
+        }
     } else if let Some(file_path) = &payload.file_path {
         let path_buf = ConfigService::sanitize_transfer_path(file_path).map_err(ApiError::from)?;
-        let parsed = ConfigService::load_config_for_import(&path_buf).map_err(ApiError::from)?;
-        ConfigService::apply_import_config(parsed, state.as_ref()).map_err(ApiError::from)?
+        if path_buf
+            .extension()
+            .is_some_and(|extension| extension == "sql")
+        {
+            state.db.import_sql(&path_buf).map_err(ApiError::from)?
+        } else {
+            let parsed =
+                ConfigService::load_config_for_import(&path_buf).map_err(ApiError::from)?;
+            ConfigService::apply_import_config(parsed, state.as_ref()).map_err(ApiError::from)?
+        }
     } else {
         return Err(ApiError::bad_request("filePath or content is required"));
     };
+
+    state
+        .update_config(ConfigService::sync_current_providers_to_live)
+        .map_err(ApiError::from)?;
 
     Ok(Json(ConfigTransferResult {
         success: true,
@@ -135,12 +160,65 @@ pub async fn import_config(
     }))
 }
 
-/// GET 导出：直接返回当前配置内容，便于 Web 端下载。
+/// GET export returns a complete SQL backup for browser download.
 pub async fn export_config_snapshot(
     State(state): State<Arc<AppState>>,
-) -> ApiResult<MultiAppConfig> {
-    let config = state.load_config().map_err(ApiError::from)?;
-    Ok(Json(config))
+) -> Result<Response, ApiError> {
+    let sql = state.db.export_sql_string().map_err(ApiError::from)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/sql; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=cc-switch-backup.sql",
+            ),
+        ],
+        sql,
+    )
+        .into_response())
+}
+
+pub async fn create_db_backup(State(state): State<Arc<AppState>>) -> ApiResult<String> {
+    let filename = state
+        .db
+        .backup_database_file()
+        .map_err(ApiError::from)?
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .ok_or_else(|| ApiError::bad_request("Database file not found, backup skipped"))?;
+    Ok(Json(filename))
+}
+
+pub async fn list_db_backups() -> ApiResult<Vec<BackupEntry>> {
+    Ok(Json(Database::list_backups().map_err(ApiError::from)?))
+}
+
+pub async fn restore_db_backup(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RestoreBackupPayload>,
+) -> ApiResult<String> {
+    let safety_id = state
+        .db
+        .restore_from_backup(&payload.filename)
+        .map_err(ApiError::from)?;
+    state
+        .update_config(ConfigService::sync_current_providers_to_live)
+        .map_err(ApiError::from)?;
+    Ok(Json(safety_id))
+}
+
+pub async fn rename_db_backup(Json(payload): Json<RenameBackupPayload>) -> ApiResult<String> {
+    Ok(Json(
+        Database::rename_backup(&payload.old_filename, &payload.new_name)
+            .map_err(ApiError::from)?,
+    ))
+}
+
+pub async fn delete_db_backup(Path(filename): Path<String>) -> ApiResult<bool> {
+    Database::delete_backup(&filename).map_err(ApiError::from)?;
+    Ok(Json(true))
 }
 
 pub async fn get_config_dir(Path(app): Path<String>) -> ApiResult<String> {

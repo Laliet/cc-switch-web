@@ -62,6 +62,32 @@ export interface SkillsResponse {
   refreshing?: boolean;
 }
 
+export interface SkillUpdateInfo {
+  id: string;
+  name: string;
+  directory: string;
+  currentHash?: string;
+  remoteHash: string;
+  installedApps: string[];
+}
+
+export interface SkillsShDiscoverableSkill {
+  key: string;
+  name: string;
+  directory: string;
+  repoOwner: string;
+  repoName: string;
+  repoBranch: string;
+  installs: number;
+  readmeUrl?: string;
+}
+
+export interface SkillsShSearchResult {
+  skills: SkillsShDiscoverableSkill[];
+  totalCount: number;
+  query: string;
+}
+
 const toBoolean = (value: unknown): boolean =>
   typeof value === "boolean" ? value : false;
 
@@ -221,6 +247,38 @@ export const skillsApi = {
 
   async migrateStorage(target: SkillStorageLocation): Promise<MigrationResult> {
     return await invoke("migrate_skill_storage", { target });
+  },
+
+  async checkUpdates(): Promise<SkillUpdateInfo[]> {
+    return await invoke("check_skill_updates");
+  },
+
+  async updateSkill(id: string): Promise<SkillUpdateInfo> {
+    return await invoke("update_skill", { id });
+  },
+
+  async searchSkillsSh(
+    query: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<SkillsShSearchResult> {
+    return await invoke("search_skills_sh", { query, limit, offset });
+  },
+
+  async installCatalogSkill(
+    skill: SkillsShDiscoverableSkill,
+    app?: AppId,
+    force?: boolean,
+  ): Promise<boolean> {
+    const targetApp = resolveSkillsApp(app);
+    return await invoke("install_catalog_skill", {
+      directory: skill.directory,
+      repoOwner: skill.repoOwner,
+      repoName: skill.repoName,
+      repoBranch: skill.repoBranch,
+      app: targetApp,
+      force,
+    });
   },
 
   async getRepos(): Promise<SkillRepo[]> {

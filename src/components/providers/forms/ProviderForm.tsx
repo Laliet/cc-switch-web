@@ -91,6 +91,7 @@ import { useOmoDraftState } from "./hooks/useOmoDraftState";
 import { useOmoModelSource } from "./hooks/useOmoModelSource";
 import { useOpencodeConfigState } from "./hooks/useOpencodeConfigState";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const CLAUDE_DEFAULT_CONFIG = JSON.stringify({ env: {} }, null, 2);
 const CLAUDE_DESKTOP_DEFAULT_CONFIG = JSON.stringify(
@@ -316,6 +317,23 @@ function hasManualAuthKey(settingsConfig?: Record<string, unknown>): boolean {
   ].some((value) => typeof value === "string" && value.trim().length > 0);
 }
 
+function configuredEndpoint(settingsConfig?: Record<string, unknown>): string {
+  const env =
+    settingsConfig?.env && typeof settingsConfig.env === "object"
+      ? (settingsConfig.env as Record<string, unknown>)
+      : {};
+  for (const value of [
+    env.ANTHROPIC_BASE_URL,
+    env.OPENAI_BASE_URL,
+    env.GOOGLE_GEMINI_BASE_URL,
+    settingsConfig?.baseUrl,
+    settingsConfig?.base_url,
+  ]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function stripManualAuthKeysForManagedMode(
   appId: AppId,
   settingsConfig: string,
@@ -403,7 +421,7 @@ interface ProviderFormProps {
   appId: AppId;
   providerId?: string;
   submitLabel: string;
-  onSubmit: (values: ProviderFormValues) => void;
+  onSubmit: (values: ProviderFormValues) => Promise<void> | void;
   onCancel: () => void;
   initialData?: {
     name?: string;
@@ -596,6 +614,10 @@ export function ProviderForm({
     defaultValues,
     mode: "onSubmit",
   });
+  const [softIssues, setSoftIssues] = useState<string[] | null>(null);
+  const [pendingFormValues, setPendingFormValues] =
+    useState<ProviderFormData | null>(null);
+  const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false);
   const settingsConfigValue = form.watch("settingsConfig");
 
   // 使用 API Key hook
@@ -1048,22 +1070,88 @@ export function ProviderForm({
     return nextMeta;
   };
 
-  const handleSubmit = (values: ProviderFormData) => {
-    // 验证模板变量（仅 Claude 模式）
+  const handleSubmit = async (values: ProviderFormData) => {
+    const issues: string[] = [];
+
+    // 空模板变量不会破坏配置结构，但切换后可能无法使用。
     if (appId === "claude" && templateValueEntries.length > 0) {
       const validation = validateTemplateValues();
       if (!validation.isValid && validation.missingField) {
-        form.setError("settingsConfig", {
-          type: "manual",
-          message: t("providerForm.fillParameter", {
+        issues.push(
+          t("providerForm.fillParameter", {
             label: validation.missingField.label,
             defaultValue: `请填写 ${validation.missingField.label}`,
           }),
-        });
-        return;
+        );
       }
     }
 
+    if (!values.name.trim()) {
+      issues.push(
+        t("providerForm.fillSupplierName", {
+          defaultValue: "请填写供应商名称",
+        }),
+      );
+    }
+
+    if (
+      category !== "official" &&
+      category !== "cloud_provider" &&
+      !usesManagedAuth
+    ) {
+      const addEndpointAndKeyIssues = (endpoint: string, key: string) => {
+        const effectiveEndpoint =
+          endpoint.trim() ||
+          (isEditMode ? configuredEndpoint(initialData?.settingsConfig) : "");
+        if (!effectiveEndpoint) {
+          issues.push(
+            t("providerForm.endpointRequired", {
+              defaultValue: "非官方供应商请填写 API 端点",
+            }),
+          );
+        } else {
+          try {
+            const parsed = new URL(effectiveEndpoint);
+            if (!["http:", "https:"].includes(parsed.protocol))
+              throw new Error();
+          } catch {
+            issues.push(
+              t("providerForm.endpointInvalid", {
+                defaultValue: "API 端点不是有效的 HTTP(S) URL",
+              }),
+            );
+          }
+        }
+        const hasExistingKey =
+          isEditMode && hasManualAuthKey(initialData?.settingsConfig);
+        if (!key.trim() && !hasExistingKey) {
+          issues.push(
+            t("providerForm.apiKeyRequired", {
+              defaultValue: "非官方供应商请填写 API Key",
+            }),
+          );
+        }
+      };
+
+      if (appId === "claude") {
+        addEndpointAndKeyIssues(baseUrl, apiKey);
+      } else if (appId === "codex") {
+        addEndpointAndKeyIssues(codexBaseUrl, codexApiKey);
+      } else if (appId === "gemini") {
+        addEndpointAndKeyIssues(geminiBaseUrl, geminiApiKey);
+      }
+    }
+
+    if (issues.length > 0) {
+      setSoftIssues(Array.from(new Set(issues)));
+      setPendingFormValues(values);
+      return;
+    }
+
+    await performSubmit(values);
+  };
+
+  const performSubmit = async (values: ProviderFormData) => {
     let settingsConfig: string;
 
     // Codex: 组合 auth 和 config
@@ -1249,7 +1337,7 @@ export function ProviderForm({
       payload.meta = authMeta;
     }
 
-    onSubmit(payload);
+    await onSubmit(payload);
   };
 
   const groupedPresets = useMemo(() => {
@@ -2177,6 +2265,40 @@ export function ProviderForm({
           </div>
         )}
       </form>
+      <ConfirmDialog
+        isOpen={softIssues !== null && softIssues.length > 0}
+        variant="info"
+        title={t("providerForm.softValidation.title", {
+          defaultValue: "配置存在以下问题",
+        })}
+        message={`${(softIssues ?? []).map((issue) => `- ${issue}`).join("\n")}\n\n${t(
+          "providerForm.softValidation.hint",
+          {
+            defaultValue:
+              "仍要保存吗？保存后切换此供应商时可能失败，可以之后再补全。",
+          },
+        )}`}
+        confirmText={t("providerForm.softValidation.saveAnyway", {
+          defaultValue: "仍要保存",
+        })}
+        cancelText={t("common.cancel")}
+        onConfirm={async () => {
+          if (isConfirmSubmitting || !pendingFormValues) return;
+          setIsConfirmSubmitting(true);
+          try {
+            await performSubmit(pendingFormValues);
+            setSoftIssues(null);
+            setPendingFormValues(null);
+          } finally {
+            setIsConfirmSubmitting(false);
+          }
+        }}
+        onCancel={() => {
+          if (isConfirmSubmitting) return;
+          setSoftIssues(null);
+          setPendingFormValues(null);
+        }}
+      />
     </Form>
   );
 }

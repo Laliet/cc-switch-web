@@ -7,8 +7,8 @@ use axum::{
 
 use super::{
     handlers::{
-        auth, config, deeplink, health, mcp, model_fetch, prompts, providers, proxy, settings,
-        skills, stream_check, system, usage, webdav,
+        auth, config, deeplink, health, mcp, model_fetch, prompts, providers, proxy, sessions,
+        settings, skills, stream_check, system, usage, webdav,
     },
     SharedState,
 };
@@ -21,6 +21,7 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/mcp", mcp_routes())
         .nest("/prompts", prompt_routes())
         .nest("/skills", skill_routes())
+        .nest("/sessions", session_routes())
         .nest("/settings", settings_routes())
         .nest("/deeplink", deeplink_routes())
         .nest("/proxy", proxy_routes())
@@ -45,6 +46,16 @@ pub fn create_router(state: SharedState) -> Router {
         .route("/fs/save-file", post(config::save_file_dialog))
         .route("/fs/open-file", post(config::open_file_dialog))
         .with_state(state)
+}
+
+fn session_routes() -> Router<SharedState> {
+    Router::new()
+        .route(
+            "/",
+            get(sessions::list_sessions).delete(sessions::delete_session),
+        )
+        .route("/messages", post(sessions::get_messages))
+        .route("/delete-batch", post(sessions::delete_sessions))
 }
 
 fn auth_routes() -> Router<SharedState> {
@@ -106,6 +117,10 @@ fn stream_check_routes() -> Router<SharedState> {
 fn provider_routes() -> Router<SharedState> {
     Router::new()
         .route("/universal", get(providers::list_universal_providers))
+        .route(
+            "/universal/preview",
+            post(providers::preview_universal_provider),
+        )
         .route(
             "/universal/:id",
             get(providers::get_universal_provider)
@@ -189,6 +204,7 @@ fn mcp_routes() -> Router<SharedState> {
         )
         .route("/config/:app/servers/:id/enabled", post(mcp::set_enabled))
         .route("/servers", get(mcp::list_servers).post(mcp::upsert_server))
+        .route("/servers/import-from-apps", post(mcp::import_from_apps))
         .route(
             "/servers/:id",
             put(mcp::update_server).delete(mcp::delete_server),
@@ -215,6 +231,10 @@ fn skill_routes() -> Router<SharedState> {
         .route("/uninstall", post(skills::uninstall_skill))
         .route("/import-zip", post(skills::install_from_zip))
         .route("/storage/migrate", post(skills::migrate_storage))
+        .route("/updates", get(skills::check_updates))
+        .route("/updates/apply", post(skills::update_skill))
+        .route("/catalog/search", get(skills::search_skills_sh))
+        .route("/catalog/install", post(skills::install_catalog_skill))
         .route("/backups", get(skills::list_backups))
         .route("/backups/restore", post(skills::restore_backup))
         .route("/backups/:backup_id", delete(skills::delete_backup))
@@ -300,6 +320,13 @@ fn config_routes() -> Router<SharedState> {
             get(config::export_config_snapshot).post(config::export_config),
         )
         .route("/import", post(config::import_config))
+        .route(
+            "/backups",
+            get(config::list_db_backups).post(config::create_db_backup),
+        )
+        .route("/backups/restore", post(config::restore_db_backup))
+        .route("/backups/rename", post(config::rename_db_backup))
+        .route("/backups/:filename", delete(config::delete_db_backup))
         .route("/:app/dir", get(config::get_config_dir))
         .route("/:app/dir-info", get(config::get_config_dir_info))
         .route("/:app/open", post(config::open_config_folder))

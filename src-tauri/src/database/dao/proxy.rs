@@ -112,6 +112,7 @@ impl Database {
         Self::save_proxy_app_config_tx(&tx, "opencode", &config.apps.opencode)?;
 
         tx.commit().map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("proxy_config");
         Ok(())
     }
 
@@ -121,7 +122,11 @@ impl Database {
     ) -> Result<ProxyAppSettings, AppError> {
         conn.query_row(
             "SELECT enabled, auto_failover_enabled, max_retries,
-                    default_cost_multiplier, pricing_model_source
+                    default_cost_multiplier, pricing_model_source,
+                    streaming_first_byte_timeout, streaming_idle_timeout,
+                    non_streaming_timeout, circuit_failure_threshold,
+                    circuit_recovery_threshold, circuit_recovery_wait_seconds,
+                    circuit_error_rate_threshold, circuit_min_requests
              FROM proxy_config
              WHERE app_type = ?1",
             params![app_type],
@@ -132,6 +137,14 @@ impl Database {
                     max_retries: row.get::<_, i64>(2)? as u8,
                     default_cost_multiplier: row.get(3)?,
                     pricing_model_source: row.get(4)?,
+                    streaming_first_byte_timeout: row.get::<_, i64>(5)? as u64,
+                    streaming_idle_timeout: row.get::<_, i64>(6)? as u64,
+                    non_streaming_timeout: row.get::<_, i64>(7)? as u64,
+                    circuit_failure_threshold: row.get::<_, i64>(8)? as u64,
+                    circuit_recovery_threshold: row.get::<_, i64>(9)? as u64,
+                    circuit_recovery_wait_seconds: row.get::<_, i64>(10)? as u64,
+                    circuit_error_rate_threshold: row.get(11)?,
+                    circuit_min_requests: row.get::<_, i64>(12)? as u64,
                 })
             },
         )
@@ -148,8 +161,15 @@ impl Database {
         tx.execute(
             "INSERT OR REPLACE INTO proxy_config (
                 app_type, enabled, auto_failover_enabled, max_retries,
-                default_cost_multiplier, pricing_model_source, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
+                default_cost_multiplier, pricing_model_source,
+                streaming_first_byte_timeout, streaming_idle_timeout,
+                non_streaming_timeout, circuit_failure_threshold,
+                circuit_recovery_threshold, circuit_recovery_wait_seconds,
+                circuit_error_rate_threshold, circuit_min_requests, updated_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                datetime('now')
+            )",
             params![
                 app_type,
                 i64::from(config.enabled),
@@ -157,6 +177,14 @@ impl Database {
                 config.max_retries as i64,
                 config.default_cost_multiplier,
                 config.pricing_model_source,
+                config.streaming_first_byte_timeout as i64,
+                config.streaming_idle_timeout as i64,
+                config.non_streaming_timeout as i64,
+                config.circuit_failure_threshold as i64,
+                config.circuit_recovery_threshold as i64,
+                config.circuit_recovery_wait_seconds as i64,
+                config.circuit_error_rate_threshold,
+                config.circuit_min_requests as i64,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

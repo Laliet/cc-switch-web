@@ -542,7 +542,8 @@ describe("ProviderForm", () => {
     await user.type(nameInput, "New Provider");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
-
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "仍要保存" }));
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalled();
     });
@@ -581,7 +582,6 @@ describe("ProviderForm", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Save" }));
-
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalled();
     });
@@ -1010,6 +1010,7 @@ describe("ProviderForm", () => {
     await user.click(screen.getByRole("switch", { name: "FAST mode" }));
     await user.click(screen.getByText("Select Codex API Key"));
     await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "仍要保存" }));
 
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalled();
@@ -1033,6 +1034,7 @@ describe("ProviderForm", () => {
     await user.click(screen.getByRole("switch", { name: "FAST mode" }));
     await user.click(screen.getByText("Select Codex API Key"));
     await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("button", { name: "仍要保存" }));
 
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalled();

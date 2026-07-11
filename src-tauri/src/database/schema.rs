@@ -6,6 +6,10 @@ impl Database {
     pub(crate) fn create_tables(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
 
+        Self::create_tables_on_conn(&conn)
+    }
+
+    pub(crate) fn create_tables_on_conn(conn: &Connection) -> Result<(), AppError> {
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS providers (
@@ -73,7 +77,11 @@ impl Database {
             CREATE TABLE IF NOT EXISTS skill_states (
                 state_key TEXT PRIMARY KEY,
                 installed INTEGER NOT NULL DEFAULT 0,
-                installed_at TEXT NOT NULL
+                installed_at TEXT NOT NULL,
+                repo_owner TEXT,
+                repo_name TEXT,
+                repo_branch TEXT,
+                skills_path TEXT
             );
 
             CREATE TABLE IF NOT EXISTS skill_repo_cache (
@@ -107,6 +115,7 @@ impl Database {
                 circuit_recovery_threshold INTEGER NOT NULL DEFAULT 2,
                 circuit_recovery_wait_seconds INTEGER NOT NULL DEFAULT 60,
                 circuit_error_rate_threshold REAL NOT NULL DEFAULT 80,
+                circuit_min_requests INTEGER NOT NULL DEFAULT 10,
                 rectify_thinking_signature INTEGER NOT NULL DEFAULT 1,
                 rectify_thinking_budget INTEGER NOT NULL DEFAULT 1,
                 optimizer_enabled INTEGER NOT NULL DEFAULT 0,
@@ -240,6 +249,10 @@ impl Database {
 
     pub(crate) fn apply_schema_migrations(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
+        Self::apply_schema_migrations_on_conn(&conn)
+    }
+
+    pub(crate) fn apply_schema_migrations_on_conn(conn: &Connection) -> Result<(), AppError> {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -249,13 +262,19 @@ impl Database {
             )));
         }
         if version < 2 {
-            Self::migrate_v1_to_v2(&conn)?;
+            Self::migrate_v1_to_v2(conn)?;
         }
         if version < 3 {
-            Self::migrate_v2_to_v3(&conn)?;
+            Self::migrate_v2_to_v3(conn)?;
         }
         if version < 4 {
-            Self::migrate_v3_to_v4(&conn)?;
+            Self::migrate_v3_to_v4(conn)?;
+        }
+        if version < 5 {
+            Self::migrate_v4_to_v5(conn)?;
+        }
+        if version < 6 {
+            Self::migrate_v5_to_v6(conn)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -417,12 +436,55 @@ impl Database {
         Ok(())
     }
 
+    fn migrate_v4_to_v5(conn: &Connection) -> Result<(), AppError> {
+        for (column, definition) in [
+            ("repo_owner", "TEXT"),
+            ("repo_name", "TEXT"),
+            ("repo_branch", "TEXT"),
+            ("skills_path", "TEXT"),
+        ] {
+            Self::add_column_if_missing(conn, "skill_states", column, definition)?;
+        }
+        Ok(())
+    }
+
+    fn migrate_v5_to_v6(conn: &Connection) -> Result<(), AppError> {
+        Self::add_column_if_missing(
+            conn,
+            "proxy_config",
+            "circuit_min_requests",
+            "INTEGER NOT NULL DEFAULT 10",
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO proxy_config (app_type)
+             VALUES ('claude'), ('codex'), ('gemini'), ('opencode')",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "UPDATE proxy_config
+             SET streaming_first_byte_timeout = (SELECT streaming_first_byte_timeout FROM proxy_config WHERE app_type = 'global'),
+                 streaming_idle_timeout = (SELECT streaming_idle_timeout FROM proxy_config WHERE app_type = 'global'),
+                 non_streaming_timeout = (SELECT non_streaming_timeout FROM proxy_config WHERE app_type = 'global'),
+                 circuit_failure_threshold = (SELECT circuit_failure_threshold FROM proxy_config WHERE app_type = 'global'),
+                 circuit_recovery_threshold = (SELECT circuit_recovery_threshold FROM proxy_config WHERE app_type = 'global'),
+                 circuit_recovery_wait_seconds = (SELECT circuit_recovery_wait_seconds FROM proxy_config WHERE app_type = 'global'),
+                 circuit_error_rate_threshold = (SELECT circuit_error_rate_threshold FROM proxy_config WHERE app_type = 'global'),
+                 circuit_min_requests = 10
+             WHERE app_type IN ('claude', 'codex', 'gemini', 'opencode')
+               AND EXISTS (SELECT 1 FROM proxy_config WHERE app_type = 'global')",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     pub(crate) fn seed_model_pricing(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
         Self::seed_model_pricing_on_conn(&conn)
     }
 
-    fn seed_model_pricing_on_conn(conn: &Connection) -> Result<(), AppError> {
+    pub(crate) fn seed_model_pricing_on_conn(conn: &Connection) -> Result<(), AppError> {
         let pricing_data = [
             (
                 "claude-opus-4-7",
@@ -1097,5 +1159,80 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_v4_skill_states_with_source_columns() {
+        let conn = Connection::open_in_memory().expect("memory database");
+        conn.execute_batch(
+            "CREATE TABLE skill_states (
+                state_key TEXT PRIMARY KEY,
+                installed INTEGER NOT NULL DEFAULT 0,
+                installed_at TEXT NOT NULL
+             );
+             CREATE TABLE proxy_config (
+                app_type TEXT PRIMARY KEY,
+                streaming_first_byte_timeout INTEGER NOT NULL DEFAULT 90,
+                streaming_idle_timeout INTEGER NOT NULL DEFAULT 120,
+                non_streaming_timeout INTEGER NOT NULL DEFAULT 600,
+                circuit_failure_threshold INTEGER NOT NULL DEFAULT 3,
+                circuit_recovery_threshold INTEGER NOT NULL DEFAULT 2,
+                circuit_recovery_wait_seconds INTEGER NOT NULL DEFAULT 60,
+                circuit_error_rate_threshold REAL NOT NULL DEFAULT 80
+             );
+             INSERT INTO proxy_config (
+                app_type, streaming_first_byte_timeout, streaming_idle_timeout,
+                non_streaming_timeout, circuit_failure_threshold,
+                circuit_recovery_threshold, circuit_recovery_wait_seconds,
+                circuit_error_rate_threshold
+             ) VALUES ('global', 17, 23, 456, 7, 4, 88, 55);
+             PRAGMA user_version = 4;",
+        )
+        .expect("create v4 schema");
+
+        Database::apply_schema_migrations_on_conn(&conn).expect("migrate schema");
+        let columns = conn
+            .prepare("PRAGMA table_info(skill_states)")
+            .expect("prepare table info")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("read columns")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect columns");
+
+        for expected in ["repo_owner", "repo_name", "repo_branch", "skills_path"] {
+            assert!(columns.iter().any(|column| column == expected));
+        }
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read schema version");
+        assert_eq!(version, SCHEMA_VERSION);
+        let migrated: (i64, i64, i64, i64, i64, i64, f64, i64) = conn
+            .query_row(
+                "SELECT streaming_first_byte_timeout, streaming_idle_timeout,
+                        non_streaming_timeout, circuit_failure_threshold,
+                        circuit_recovery_threshold, circuit_recovery_wait_seconds,
+                        circuit_error_rate_threshold, circuit_min_requests
+                 FROM proxy_config WHERE app_type = 'codex'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                    ))
+                },
+            )
+            .expect("read migrated proxy config");
+        assert_eq!(migrated, (17, 23, 456, 7, 4, 88, 55.0, 10));
     }
 }

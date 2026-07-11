@@ -30,6 +30,22 @@ const normalizeNetworkSettings = (network?: Settings["network"]) => ({
   githubMirrorBaseUrl: network?.githubMirrorBaseUrl?.trim() ?? "",
 });
 
+const defaultProxyAppSettings = () => ({
+  enabled: false,
+  autoFailoverEnabled: false,
+  maxRetries: 0,
+  streamingFirstByteTimeout: 90,
+  streamingIdleTimeout: 120,
+  nonStreamingTimeout: 600,
+  circuitFailureThreshold: 3,
+  circuitRecoveryThreshold: 2,
+  circuitRecoveryWaitSeconds: 60,
+  circuitErrorRateThreshold: 80,
+  circuitMinRequests: 10,
+  defaultCostMultiplier: "1",
+  pricingModelSource: "response",
+});
+
 const defaultProxySettings = () => ({
   enabled: false,
   host: "127.0.0.1",
@@ -53,34 +69,10 @@ const defaultProxySettings = () => ({
   optimizerCacheInjection: true,
   optimizerCacheTtl: "1h" as const,
   apps: {
-    claude: {
-      enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
-      defaultCostMultiplier: "1",
-      pricingModelSource: "response",
-    },
-    codex: {
-      enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
-      defaultCostMultiplier: "1",
-      pricingModelSource: "response",
-    },
-    gemini: {
-      enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
-      defaultCostMultiplier: "1",
-      pricingModelSource: "response",
-    },
-    opencode: {
-      enabled: false,
-      autoFailoverEnabled: false,
-      maxRetries: 0,
-      defaultCostMultiplier: "1",
-      pricingModelSource: "response",
-    },
+    claude: defaultProxyAppSettings(),
+    codex: defaultProxyAppSettings(),
+    gemini: defaultProxyAppSettings(),
+    opencode: defaultProxyAppSettings(),
   },
 });
 

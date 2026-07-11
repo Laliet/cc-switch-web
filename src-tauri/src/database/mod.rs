@@ -10,6 +10,7 @@ mod migration;
 mod schema;
 mod token_crypto;
 
+pub use backup::BackupEntry;
 pub use dao::{
     FailoverQueueItem, ModelPricing, ModelPricingRecord, ProviderHealthRecord,
     ProxyRequestLogRecord, ProxyRequestUsageUpdate, PRICING_SOURCE_REQUEST,
@@ -22,7 +23,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{path::PathBuf, sync::Mutex};
 use token_crypto::TokenCipher;
 
-pub(crate) const SCHEMA_VERSION: i32 = 4;
+pub(crate) const SCHEMA_VERSION: i32 = 6;
 pub(crate) const SETTINGS_CONFIG_VERSION: &str = "config_version";
 pub(crate) const SETTINGS_COMMON_SNIPPETS: &str = "common_config_snippets";
 pub(crate) const SETTINGS_DB_MIGRATED_FROM_JSON: &str = "migrated_from_config_json";
@@ -153,6 +154,14 @@ mod tests {
         config.apps.claude.enabled = true;
         config.apps.claude.auto_failover_enabled = true;
         config.apps.claude.max_retries = 2;
+        config.apps.claude.streaming_first_byte_timeout = 19;
+        config.apps.claude.streaming_idle_timeout = 29;
+        config.apps.claude.non_streaming_timeout = 390;
+        config.apps.claude.circuit_failure_threshold = 6;
+        config.apps.claude.circuit_recovery_threshold = 3;
+        config.apps.claude.circuit_recovery_wait_seconds = 77;
+        config.apps.claude.circuit_error_rate_threshold = 52.0;
+        config.apps.claude.circuit_min_requests = 14;
         config.apps.claude.default_cost_multiplier = "1.5".to_string();
         config.apps.claude.pricing_model_source = "request".to_string();
         config.apps.codex.enabled = true;
@@ -188,6 +197,9 @@ mod tests {
         assert!(loaded.apps.claude.enabled);
         assert!(loaded.apps.claude.auto_failover_enabled);
         assert_eq!(loaded.apps.claude.max_retries, 2);
+        assert_eq!(loaded.apps.claude.streaming_first_byte_timeout, 19);
+        assert_eq!(loaded.apps.claude.circuit_failure_threshold, 6);
+        assert_eq!(loaded.apps.claude.circuit_min_requests, 14);
         assert_eq!(loaded.apps.claude.default_cost_multiplier, "1.5");
         assert_eq!(loaded.apps.claude.pricing_model_source, "request");
         assert!(loaded.apps.codex.enabled);
@@ -447,6 +459,10 @@ mod tests {
                     SkillState {
                         installed: true,
                         installed_at,
+                        repo_owner: Some("owner".to_string()),
+                        repo_name: Some("repo".to_string()),
+                        repo_branch: Some("main".to_string()),
+                        skills_path: None,
                     },
                 )]),
                 repo_cache: HashMap::from([(
@@ -487,6 +503,12 @@ mod tests {
             Some("skills")
         );
         assert!(loaded.skills.skills["owner/repo:skill-a"].installed);
+        assert_eq!(
+            loaded.skills.skills["owner/repo:skill-a"]
+                .repo_owner
+                .as_deref(),
+            Some("owner")
+        );
         let cache = loaded
             .skills
             .repo_cache

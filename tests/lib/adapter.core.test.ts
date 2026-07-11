@@ -321,6 +321,36 @@ describe("adapter helpers", () => {
 });
 
 describe("commandToEndpoint", () => {
+  it("maps session manager commands without exposing a terminal endpoint", async () => {
+    const { commandToEndpoint } = await importAdapter();
+    expect(commandToEndpoint("list_sessions")).toEqual({
+      method: "GET",
+      url: "/api/sessions",
+    });
+    expect(
+      commandToEndpoint("get_session_messages", {
+        providerId: "claude",
+        sourcePath: "/server/.claude/projects/session.jsonl",
+      }),
+    ).toEqual({
+      method: "POST",
+      url: "/api/sessions/messages",
+      body: {
+        providerId: "claude",
+        sourcePath: "/server/.claude/projects/session.jsonl",
+      },
+    });
+    expect(
+      commandToEndpoint("delete_session", {
+        providerId: "claude",
+        sessionId: "session-1",
+        sourcePath: "/server/.claude/projects/session.jsonl",
+      }),
+    ).toMatchObject({ method: "DELETE", url: "/api/sessions" });
+    expect(() => commandToEndpoint("launch_session_terminal")).toThrow(
+      "not supported in web mode",
+    );
+  });
   it("maps commands to endpoints", async () => {
     const { commandToEndpoint } = await importAdapter();
 
@@ -406,6 +436,15 @@ describe("commandToEndpoint", () => {
         },
       },
       {
+        cmd: "preview_universal_provider",
+        args: { provider: { id: "gateway" } },
+        expected: {
+          method: "POST",
+          url: "/api/providers/universal/preview",
+          body: { id: "gateway" },
+        },
+      },
+      {
         cmd: "queryProviderUsage",
         args: { app: "claude", providerId: "p-1" },
         expected: {
@@ -424,6 +463,7 @@ describe("commandToEndpoint", () => {
           baseUrl: "https://api.example.com",
           accessToken: "token",
           userId: "user",
+          templateType: "balance",
         },
         expected: {
           method: "POST",
@@ -435,6 +475,7 @@ describe("commandToEndpoint", () => {
             baseUrl: "https://api.example.com",
             accessToken: "token",
             userId: "user",
+            templateType: "balance",
           },
         },
       },
@@ -515,6 +556,14 @@ describe("commandToEndpoint", () => {
         cmd: "get_mcp_servers",
         args: {},
         expected: { method: "GET", url: "/api/mcp/servers" },
+      },
+      {
+        cmd: "import_mcp_from_apps",
+        args: {},
+        expected: {
+          method: "POST",
+          url: "/api/mcp/servers/import-from-apps",
+        },
       },
       {
         cmd: "upsert_mcp_server",
@@ -685,6 +734,51 @@ describe("commandToEndpoint", () => {
           method: "POST",
           url: "/api/skills/storage/migrate",
           body: { target: "unified" },
+        },
+      },
+      {
+        cmd: "check_skill_updates",
+        args: {},
+        expected: { method: "GET", url: "/api/skills/updates" },
+      },
+      {
+        cmd: "update_skill",
+        args: { id: "owner/repo:demo" },
+        expected: {
+          method: "POST",
+          url: "/api/skills/updates/apply",
+          body: { id: "owner/repo:demo" },
+        },
+      },
+      {
+        cmd: "search_skills_sh",
+        args: { query: "code review", limit: 20, offset: 0 },
+        expected: {
+          method: "GET",
+          url: "/api/skills/catalog/search?query=code%20review&limit=20&offset=0",
+        },
+      },
+      {
+        cmd: "install_catalog_skill",
+        args: {
+          directory: "demo",
+          repoOwner: "owner",
+          repoName: "repo",
+          repoBranch: "main",
+          app: "codex",
+          force: false,
+        },
+        expected: {
+          method: "POST",
+          url: "/api/skills/catalog/install",
+          body: {
+            directory: "demo",
+            repoOwner: "owner",
+            repoName: "repo",
+            repoBranch: "main",
+            app: "codex",
+            force: false,
+          },
         },
       },
       {
@@ -938,6 +1032,42 @@ describe("commandToEndpoint", () => {
           method: "POST",
           url: "/api/config/import",
           body: { filePath: "/tmp/config.json", content: "{}" },
+        },
+      },
+      {
+        cmd: "create_db_backup",
+        args: {},
+        expected: { method: "POST", url: "/api/config/backups" },
+      },
+      {
+        cmd: "list_db_backups",
+        args: {},
+        expected: { method: "GET", url: "/api/config/backups" },
+      },
+      {
+        cmd: "restore_db_backup",
+        args: { filename: "db_backup.db" },
+        expected: {
+          method: "POST",
+          url: "/api/config/backups/restore",
+          body: { filename: "db_backup.db" },
+        },
+      },
+      {
+        cmd: "rename_db_backup",
+        args: { oldFilename: "old.db", newName: "new" },
+        expected: {
+          method: "POST",
+          url: "/api/config/backups/rename",
+          body: { oldFilename: "old.db", newName: "new" },
+        },
+      },
+      {
+        cmd: "delete_db_backup",
+        args: { filename: "backup name.db" },
+        expected: {
+          method: "DELETE",
+          url: "/api/config/backups/backup%20name.db",
         },
       },
       {

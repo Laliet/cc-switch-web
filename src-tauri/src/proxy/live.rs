@@ -567,6 +567,13 @@ mod tests {
     use serial_test::serial;
     use tempfile::{tempdir, TempDir};
 
+    use super::{
+        apply_takeover, backup_path, restore_all, restore_takeover,
+        sync_current_provider_from_live, write_claude_takeover, write_codex_takeover,
+        PROXY_MANAGED_TOKEN,
+    };
+    #[cfg(feature = "web-server")]
+    use crate::services::provider::ProviderService;
     use crate::{
         app_config::{AppType, MultiAppConfig},
         codex_config::{get_codex_auth_path, get_codex_config_path},
@@ -577,13 +584,6 @@ mod tests {
         settings::{self, AppSettings},
         store::AppState,
     };
-
-    use super::{
-        apply_takeover, backup_path, restore_all, restore_takeover,
-        sync_current_provider_from_live, write_claude_takeover, write_codex_takeover,
-        PROXY_MANAGED_TOKEN,
-    };
-
     struct EnvGuard {
         home: Option<OsString>,
         userprofile: Option<OsString>,
@@ -1047,5 +1047,87 @@ mod tests {
             gemini["env"]["GOOGLE_GEMINI_BASE_URL"],
             json!("https://provider-gemini.example")
         );
+    }
+
+    #[cfg(feature = "web-server")]
+    #[test]
+    #[serial]
+    fn switching_during_takeover_keeps_provider_upstream_config() {
+        let (_temp, _env) = isolated_settings();
+        let state = state_with_providers();
+        state
+            .update_config(|config| {
+                let claude = Provider::with_id(
+                    "next-claude".to_string(),
+                    "Next Claude".to_string(),
+                    json!({
+                        "env": {
+                            "ANTHROPIC_AUTH_TOKEN": "next-claude-key",
+                            "ANTHROPIC_BASE_URL": "https://next-claude.example"
+                        }
+                    }),
+                    None,
+                );
+                config
+                    .get_manager_mut(&AppType::Claude)
+                    .expect("claude manager")
+                    .providers
+                    .insert(claude.id.clone(), claude);
+
+                let codex = Provider::with_id(
+                    "next-codex".to_string(),
+                    "Next Codex".to_string(),
+                    json!({
+                        "auth": { "OPENAI_API_KEY": "next-openai-key" },
+                        "config": "model_provider = \"next\"\n"
+                    }),
+                    None,
+                );
+                config
+                    .get_manager_mut(&AppType::Codex)
+                    .expect("codex manager")
+                    .providers
+                    .insert(codex.id.clone(), codex);
+                Ok(())
+            })
+            .expect("add switch targets");
+
+        let mut app_settings = settings::get_settings();
+        app_settings.proxy.apps.claude.enabled = true;
+        app_settings.proxy.apps.codex.enabled = true;
+        settings::update_settings(app_settings).expect("enable proxy takeover");
+        write_claude_takeover("http://127.0.0.1:3456").expect("write claude takeover");
+        write_codex_takeover("http://127.0.0.1:3456").expect("write codex takeover");
+
+        ProviderService::switch(&state, AppType::Claude, "next-claude")
+            .expect("switch claude during takeover");
+        ProviderService::switch(&state, AppType::Codex, "next-codex")
+            .expect("switch codex during takeover");
+
+        let config = state.load_config().expect("load switched config");
+        let claude = &config
+            .get_manager(&AppType::Claude)
+            .expect("claude manager")
+            .providers["current"]
+            .settings_config;
+        assert_eq!(
+            claude["env"]["ANTHROPIC_BASE_URL"],
+            json!("https://provider-claude.example")
+        );
+        assert_eq!(
+            claude["env"]["ANTHROPIC_AUTH_TOKEN"],
+            json!("provider-claude-key")
+        );
+
+        let codex = &config
+            .get_manager(&AppType::Codex)
+            .expect("codex manager")
+            .providers["current"]
+            .settings_config;
+        assert_eq!(
+            codex["auth"]["OPENAI_API_KEY"],
+            json!("provider-openai-key")
+        );
+        assert_eq!(codex["config"], json!("model_provider = \"provider\"\n"));
     }
 }

@@ -73,26 +73,28 @@ export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
   };
 
   return (
-    <div className="inline-flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1 border border-transparent ">
-      {SWITCHER_APPS.map((app) => {
-        const isActive = activeApp === app.id;
+    <div className="max-w-full overflow-x-auto rounded-lg">
+      <div className="inline-flex min-w-max gap-1 rounded-lg border border-transparent bg-gray-100 p-1 dark:bg-gray-800">
+        {SWITCHER_APPS.map((app) => {
+          const isActive = activeApp === app.id;
 
-        return (
-          <button
-            key={app.id}
-            type="button"
-            onClick={() => handleSwitch(app.id)}
-            className={`group inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-              isActive
-                ? "bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-gray-100 dark:shadow-none"
-                : "text-gray-500 hover:text-gray-900 hover:bg-white/50 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800/60"
-            }`}
-          >
-            {renderIcon(app.id, isActive)}
-            <span>{t(app.labelKey)}</span>
-          </button>
-        );
-      })}
+          return (
+            <button
+              key={app.id}
+              type="button"
+              onClick={() => handleSwitch(app.id)}
+              className={`group inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
+                isActive
+                  ? "bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-gray-100 dark:shadow-none"
+                  : "text-gray-500 hover:bg-white/50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800/60 dark:hover:text-gray-100"
+              }`}
+            >
+              {renderIcon(app.id, isActive)}
+              <span>{t(app.labelKey)}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -240,4 +240,46 @@ describe("skills API module", () => {
       target: "unified",
     });
   });
+
+  it("checks, applies, and searches Skill updates", async () => {
+    invokeMock.mockResolvedValue([]);
+
+    await skillsApi.checkUpdates();
+    await skillsApi.updateSkill("owner/repo:demo");
+    await skillsApi.searchSkillsSh("review", 20, 40);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "check_skill_updates");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "update_skill", {
+      id: "owner/repo:demo",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "search_skills_sh", {
+      query: "review",
+      limit: 20,
+      offset: 40,
+    });
+  });
+
+  it("installs a skills.sh result into the selected app", async () => {
+    invokeMock.mockResolvedValue(true);
+    const catalogSkill = {
+      key: "owner/repo:demo",
+      name: "Demo",
+      directory: "demo",
+      repoOwner: "owner",
+      repoName: "repo",
+      repoBranch: "main",
+      installs: 42,
+    };
+
+    await skillsApi.installCatalogSkill(catalogSkill, "omo", false);
+
+    expect(invokeMock).toHaveBeenCalledWith("install_catalog_skill", {
+      directory: "demo",
+      repoOwner: "owner",
+      repoName: "repo",
+      repoBranch: "main",
+      app: "opencode",
+      force: false,
+    });
+  });
 });

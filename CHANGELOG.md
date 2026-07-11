@@ -5,6 +5,37 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-07-11
+
+### Features / 新特性
+
+- Add upstream-aligned native SQLite SQL export/import with pre-restore safety backups, temporary database validation, integrity checks, atomic replacement, backup management, scheduled backups, and retention controls.
+- Introduce WebDAV v2 snapshots using `manifest.json`, `db.sql`, and `skills.zip`, with SHA256/size/protocol/schema validation, database and Skills rollback, and legacy 0.18 JSON snapshot compatibility.
+- Trigger debounced WebDAV synchronization from persistent configuration changes while excluding usage, health, logs, and session runtime data; expose last sync status, time, and error.
+- Add native Rust quota and balance queries for Kimi, Zhipu GLM, MiniMax CN/International, DeepSeek, StepFun, SiliconFlow CN/International, OpenRouter, and Novita AI.
+- Complete Universal Provider workflows for NewAPI and custom gateways with save-and-sync, duplication, confirmation, backend preview, credential masking, and richer model conversion.
+- Import MCP definitions from server-host Claude, Codex, Gemini, and OpenCode configurations with app merging, deduplication, conflict reporting, and no silent overwrite.
+- Add Skills update detection, individual/batch updates, `skills.sh` catalog search/install, cross-app management, source metadata persistence, atomic staging, backups, rollback, and resynchronization.
+- Store and apply timeout, retry, and circuit-breaker settings independently for Claude, Codex, Gemini, and OpenCode, including `circuit_min_requests` and migration of legacy values.
+- Distinguish blocking Provider form errors from confirmable warnings so incomplete relay configurations can still be saved deliberately.
+- Add a Web-compatible Session Manager for Claude, Codex, Gemini, and OpenCode with server-host session scanning, search, message detail/outline, single and batch deletion, and copied resume commands without launching a server terminal.
+
+### Security / 安全
+
+- Restrict Session Manager message reads and deletion to canonical paths under known server-host session roots, including strict OpenCode SQLite database validation.
+- Harden WebDAV Skills extraction against unsafe archive paths and preserve database/Skills rollback behavior across partial restore failures.
+
+### Fixes / 修复
+
+- Prevent Provider switches during proxy takeover from backfilling proxy-managed live addresses into persistent Provider upstream configuration, which could otherwise create a self-referential forwarding loop.
+- Use the non-trailing-slash Session API route expected by the Axum Web server so session listing and single deletion no longer return 404.
+- Keep the mobile app switcher within the viewport by scrolling its tab row inside the header instead of expanding the document width.
+
+### Tests / 测试
+
+- Add focused Rust coverage for SQLite backup/restore, WebDAV v2/auto-sync, balance and quota parsing, MCP import, Skills updates, per-app proxy migration/runtime behavior, and all four Session Manager parsers.
+- Add frontend coverage for Universal Provider, Skills/MCP/session APIs, Provider warning confirmation, proxy settings, Session Manager search/detail/copy behavior, adapter mappings, and settings normalization.
+
 ## [0.18.0] - 2026-06-28
 
 ### Features / 新特性

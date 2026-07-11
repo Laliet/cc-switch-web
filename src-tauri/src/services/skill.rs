@@ -134,6 +134,22 @@ pub struct SkillState {
     /// 安装时间
     #[serde(rename = "installedAt")]
     pub installed_at: DateTime<Utc>,
+    #[serde(rename = "repoOwner", default, skip_serializing_if = "Option::is_none")]
+    pub repo_owner: Option<String>,
+    #[serde(rename = "repoName", default, skip_serializing_if = "Option::is_none")]
+    pub repo_name: Option<String>,
+    #[serde(
+        rename = "repoBranch",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub repo_branch: Option<String>,
+    #[serde(
+        rename = "skillsPath",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub skills_path: Option<String>,
 }
 
 /// 仓库技能缓存
@@ -195,6 +211,57 @@ pub struct MigrationResult {
     pub migrated_count: usize,
     pub skipped_count: usize,
     pub errors: Vec<String>,
+}
+
+/// Skill 更新检测结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUpdateInfo {
+    pub id: String,
+    pub name: String,
+    pub directory: String,
+    pub current_hash: Option<String>,
+    pub remote_hash: String,
+    pub installed_apps: Vec<String>,
+}
+
+/// skills.sh 公共目录搜索结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsShSearchResult {
+    pub skills: Vec<SkillsShDiscoverableSkill>,
+    pub total_count: usize,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsShDiscoverableSkill {
+    pub key: String,
+    pub name: String,
+    pub directory: String,
+    pub repo_owner: String,
+    pub repo_name: String,
+    pub repo_branch: String,
+    pub installs: u64,
+    pub readme_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillsShApiResponse {
+    pub query: String,
+    pub skills: Vec<SkillsShApiSkill>,
+    pub count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillsShApiSkill {
+    pub id: String,
+    #[serde(rename = "skillId")]
+    pub skill_id: String,
+    pub name: String,
+    pub installs: u64,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,6 +495,30 @@ impl SkillService {
 
     pub fn state_key(app: &AppType, directory: &str) -> String {
         format!("{}:{directory}", app.as_str())
+    }
+
+    fn state_matches_source(
+        states: &HashMap<String, SkillState>,
+        directory: &str,
+        repo: &SkillRepo,
+    ) -> bool {
+        states.iter().any(|(state_key, state)| {
+            if !state.installed {
+                return false;
+            }
+            let state_directory = state_key
+                .split_once(':')
+                .map(|(_, directory)| directory)
+                .unwrap_or(state_key);
+            state_directory.eq_ignore_ascii_case(directory)
+                && match (&state.repo_owner, &state.repo_name) {
+                    (Some(owner), Some(name)) => {
+                        owner.eq_ignore_ascii_case(&repo.owner)
+                            && name.eq_ignore_ascii_case(&repo.name)
+                    }
+                    _ => true,
+                }
+        })
     }
 
     fn get_backup_dir() -> Result<PathBuf> {
@@ -2147,6 +2238,52 @@ impl SkillService {
             None => temp_path.join(directory),
         };
 
+        if source.join("SKILL.md").is_file() {
+            return Ok(source);
+        }
+
+        fn find_by_name(current: &Path, target: &str, depth: usize) -> Option<PathBuf> {
+            if depth > MAX_SKILL_SCAN_DEPTH {
+                return None;
+            }
+            for entry in fs::read_dir(current).ok()?.flatten() {
+                let file_type = entry.file_type().ok()?;
+                if !file_type.is_dir() || file_type.is_symlink() {
+                    continue;
+                }
+                let path = entry.path();
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(target)
+                    && path.join("SKILL.md").is_file()
+                {
+                    return Some(path);
+                }
+                if let Some(found) = find_by_name(&path, target, depth + 1) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
+        let search_root = match skills_path {
+            Some(path) => Self::normalize_skills_path(path)?
+                .map(|path| temp_path.join(path))
+                .unwrap_or_else(|| temp_path.to_path_buf()),
+            None => temp_path.to_path_buf(),
+        };
+        let target = Path::new(directory)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(directory);
+        if let Some(found) = find_by_name(&search_root, target, 0) {
+            return Ok(found);
+        }
+        if search_root.join("SKILL.md").is_file() {
+            return Ok(search_root);
+        }
+
         Ok(source)
     }
 
@@ -2185,6 +2322,319 @@ impl SkillService {
         }
 
         Ok(())
+    }
+
+    /// 计算 Skill 目录的稳定 SHA-256。隐藏文件和符号链接不参与计算，
+    /// 与上游的更新检测规则保持一致。
+    pub fn compute_dir_hash(dir: &Path) -> Result<String> {
+        use sha2::{Digest, Sha256};
+
+        fn collect(root: &Path, current: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+            for entry in fs::read_dir(current)? {
+                let entry = entry?;
+                let name = entry.file_name();
+                if name.to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                let file_type = entry.file_type()?;
+                if file_type.is_symlink() {
+                    continue;
+                }
+                let path = entry.path();
+                if file_type.is_dir() {
+                    collect(root, &path, files)?;
+                } else if file_type.is_file() && path.starts_with(root) {
+                    files.push(path);
+                }
+            }
+            Ok(())
+        }
+
+        let mut files = Vec::new();
+        collect(dir, dir, &mut files)?;
+        files.sort();
+
+        let mut hasher = Sha256::new();
+        for path in files {
+            let relative = path.strip_prefix(dir).unwrap_or(&path);
+            hasher.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
+            hasher.update(b"\0");
+            hasher.update(fs::read(&path)?);
+            hasher.update(b"\0");
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    /// 检查所有由仓库安装且当前至少在一个 App 中启用的 Skill。
+    /// 每个仓库只下载一次，避免逐 Skill 重复拉取。
+    pub async fn check_updates(
+        &self,
+        repos: &[SkillRepo],
+        states: &HashMap<String, SkillState>,
+    ) -> Result<Vec<SkillUpdateInfo>> {
+        let mut updates = Vec::new();
+
+        for repo in repos.iter().filter(|repo| repo.enabled) {
+            let downloaded =
+                match timeout(Duration::from_secs(180), self.download_repo(repo, None)).await {
+                    Ok(Ok(RepoDownloadResult::Downloaded(download))) => download,
+                    Ok(Ok(RepoDownloadResult::NotModified)) => continue,
+                    Ok(Err(err)) => {
+                        log::warn!("检查 {}/{} 更新失败: {err:#}", repo.owner, repo.name);
+                        continue;
+                    }
+                    Err(_) => {
+                        log::warn!("检查 {}/{} 更新超时", repo.owner, repo.name);
+                        continue;
+                    }
+                };
+
+            let root = downloaded.temp_dir.path();
+            let normalized_path = repo
+                .skills_path
+                .as_deref()
+                .map(Self::normalize_skills_path)
+                .transpose()?
+                .flatten();
+            let scan_root = normalized_path
+                .as_deref()
+                .map(|path| root.join(path))
+                .unwrap_or_else(|| root.to_path_buf());
+            if !scan_root.is_dir() {
+                continue;
+            }
+
+            let mut remote_skills = Vec::new();
+            self.scan_skills_recursive(
+                &scan_root,
+                &scan_root,
+                repo,
+                normalized_path.as_deref(),
+                &mut remote_skills,
+            )?;
+
+            for remote in remote_skills {
+                let source_is_installed =
+                    Self::state_matches_source(states, &remote.directory, repo);
+                if !source_is_installed {
+                    continue;
+                }
+                let installed_apps = Self::installed_apps_for_directory(&remote.directory);
+                if installed_apps.is_empty() {
+                    continue;
+                }
+                let local_dir = self.install_dir.join(&remote.directory);
+                if !local_dir.join("SKILL.md").is_file() {
+                    continue;
+                }
+                let source = Self::resolve_install_source_path(
+                    root,
+                    &remote.directory,
+                    repo.skills_path.as_deref(),
+                )?;
+                if !source.join("SKILL.md").is_file() {
+                    continue;
+                }
+                let current_hash = Self::compute_dir_hash(&local_dir).ok();
+                let remote_hash = Self::compute_dir_hash(&source)?;
+                if current_hash.as_deref() != Some(remote_hash.as_str()) {
+                    updates.push(SkillUpdateInfo {
+                        id: remote.key,
+                        name: remote.name,
+                        directory: remote.directory,
+                        current_hash,
+                        remote_hash,
+                        installed_apps,
+                    });
+                }
+            }
+        }
+
+        updates.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+        updates.dedup_by(|left, right| left.id.eq_ignore_ascii_case(&right.id));
+        Ok(updates)
+    }
+
+    /// 更新一个 Skill。先复制到同文件系统暂存目录，再用 rename 替换 SSOT；
+    /// 任一步失败都会恢复旧目录，并重新同步已经启用的 App。
+    pub async fn update_skill(
+        &self,
+        repos: &[SkillRepo],
+        states: &HashMap<String, SkillState>,
+        id: &str,
+    ) -> Result<SkillUpdateInfo> {
+        let repo = repos
+            .iter()
+            .filter(|repo| repo.enabled)
+            .find(|repo| id.starts_with(&format!("{}/{}:", repo.owner, repo.name)))
+            .ok_or_else(|| anyhow!("Skill source not found: {id}"))?;
+        let directory = id
+            .strip_prefix(&format!("{}/{}:", repo.owner, repo.name))
+            .ok_or_else(|| anyhow!("Invalid Skill id: {id}"))?;
+        Self::validate_skill_directory(directory)?;
+
+        let source_is_installed = Self::state_matches_source(states, directory, repo);
+        if !source_is_installed {
+            return Err(anyhow!(
+                "Skill source does not match installed record: {id}"
+            ));
+        }
+
+        let installed_apps = Self::installed_apps_for_directory(directory);
+        if installed_apps.is_empty() {
+            return Err(anyhow!("Skill is not installed: {directory}"));
+        }
+
+        let downloaded = timeout(Duration::from_secs(180), self.download_repo(repo, None))
+            .await
+            .map_err(|_| anyhow!("Skill update download timed out: {id}"))??;
+        let downloaded = match downloaded {
+            RepoDownloadResult::Downloaded(downloaded) => downloaded,
+            RepoDownloadResult::NotModified => {
+                return Err(anyhow!("Skill update returned an empty 304 response: {id}"));
+            }
+        };
+        let source = Self::resolve_install_source_path(
+            downloaded.temp_dir.path(),
+            directory,
+            repo.skills_path.as_deref(),
+        )?;
+        if !source.join("SKILL.md").is_file() {
+            return Err(anyhow!(format_skill_error(
+                "SKILL_DIR_NOT_FOUND",
+                &[("path", &source.display().to_string())],
+                Some("checkRepoUrl"),
+            )));
+        }
+
+        let destination = self.install_dir.join(directory);
+        let current_hash = Self::compute_dir_hash(&destination).ok();
+        let remote_hash = Self::compute_dir_hash(&source)?;
+        let metadata = self.parse_skill_metadata(&source.join("SKILL.md"))?;
+        if current_hash.as_deref() == Some(remote_hash.as_str()) {
+            return Ok(SkillUpdateInfo {
+                id: id.to_string(),
+                name: metadata.name.unwrap_or_else(|| directory.to_string()),
+                directory: directory.to_string(),
+                current_hash,
+                remote_hash,
+                installed_apps,
+            });
+        }
+
+        let _ = self.backup_skill_before_uninstall(directory)?;
+        let parent = destination
+            .parent()
+            .ok_or_else(|| anyhow!("Invalid Skill destination: {}", destination.display()))?;
+        fs::create_dir_all(parent)?;
+        let nonce = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+        let leaf = destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("skill");
+        let staging = parent.join(format!(".{leaf}.update-{nonce}"));
+        let rollback = parent.join(format!(".{leaf}.rollback-{nonce}"));
+        Self::copy_dir_recursive(&source, &staging)?;
+
+        let replace_result = (|| -> Result<()> {
+            fs::rename(&destination, &rollback)?;
+            if let Err(err) = fs::rename(&staging, &destination) {
+                let _ = fs::rename(&rollback, &destination);
+                return Err(err.into());
+            }
+            for app_id in &installed_apps {
+                let app = AppType::parse_skills_app(app_id)?;
+                Self::new_for_app(&app)?.sync_to_current_app(directory)?;
+            }
+            Ok(())
+        })();
+
+        if let Err(err) = replace_result {
+            let _ = Self::remove_path(&staging);
+            if rollback.exists() {
+                let _ = Self::remove_path(&destination);
+                let _ = fs::rename(&rollback, &destination);
+                for app_id in &installed_apps {
+                    if let Ok(app) = AppType::parse_skills_app(app_id) {
+                        let _ = Self::new_for_app(&app)
+                            .and_then(|service| service.sync_to_current_app(directory));
+                    }
+                }
+            }
+            return Err(err);
+        }
+        let _ = Self::remove_path(&rollback);
+
+        Ok(SkillUpdateInfo {
+            id: id.to_string(),
+            name: metadata.name.unwrap_or_else(|| directory.to_string()),
+            directory: directory.to_string(),
+            current_hash,
+            remote_hash,
+            installed_apps,
+        })
+    }
+
+    /// 搜索 skills.sh 公共目录。只接收可映射到 GitHub owner/repo 的结果，
+    /// 与上游保持相同的来源过滤规则。
+    pub async fn search_skills_sh(
+        query: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SkillsShSearchResult> {
+        let query = query.trim();
+        if query.len() < 2 {
+            return Ok(SkillsShSearchResult {
+                skills: Vec::new(),
+                total_count: 0,
+                query: query.to_string(),
+            });
+        }
+        let limit = limit.clamp(1, 100);
+        let url = Url::parse_with_params(
+            "https://skills.sh/api/search",
+            &[
+                ("q", query.to_string()),
+                ("limit", limit.to_string()),
+                ("offset", offset.to_string()),
+            ],
+        )?;
+        let response = Client::builder()
+            .user_agent("cc-switch-web")
+            .timeout(Duration::from_secs(15))
+            .build()?
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<SkillsShApiResponse>()
+            .await?;
+        let skills = response
+            .skills
+            .into_iter()
+            .filter_map(|skill| {
+                let (owner, repo) = skill.source.split_once('/')?;
+                if owner.contains('.') || repo.contains('.') || owner.is_empty() || repo.is_empty()
+                {
+                    return None;
+                }
+                Some(SkillsShDiscoverableSkill {
+                    key: skill.id,
+                    name: skill.name,
+                    directory: skill.skill_id,
+                    repo_owner: owner.to_string(),
+                    repo_name: repo.to_string(),
+                    repo_branch: "main".to_string(),
+                    installs: skill.installs,
+                    readme_url: Some(format!("https://github.com/{owner}/{repo}")),
+                })
+            })
+            .collect();
+        Ok(SkillsShSearchResult {
+            skills,
+            total_count: response.count,
+            query: response.query,
+        })
     }
 
     pub fn list_backups() -> Result<Vec<SkillBackupEntry>> {
@@ -2970,6 +3420,54 @@ description: Useful skill
         let parsed: Value =
             serde_json::from_str(&err.to_string()).expect("should parse error json");
         assert_eq!(parsed["code"], "SKILL_PATH_INVALID");
+    }
+
+    #[test]
+    fn state_source_matching_rejects_same_directory_from_other_repo() {
+        let states = HashMap::from([(
+            "claude:demo".to_string(),
+            SkillState {
+                installed: true,
+                installed_at: Utc::now(),
+                repo_owner: Some("owner-a".to_string()),
+                repo_name: Some("repo-a".to_string()),
+                repo_branch: Some("main".to_string()),
+                skills_path: None,
+            },
+        )]);
+        let matching = SkillRepo {
+            owner: "owner-a".to_string(),
+            name: "repo-a".to_string(),
+            branch: "main".to_string(),
+            enabled: true,
+            skills_path: None,
+        };
+        let other = SkillRepo {
+            owner: "owner-b".to_string(),
+            name: "repo-b".to_string(),
+            branch: "main".to_string(),
+            enabled: true,
+            skills_path: None,
+        };
+
+        assert!(SkillService::state_matches_source(
+            &states, "demo", &matching
+        ));
+        assert!(!SkillService::state_matches_source(&states, "demo", &other));
+    }
+
+    #[test]
+    fn compute_dir_hash_ignores_hidden_files_and_tracks_content() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        fs::write(dir.path().join("SKILL.md"), "one").expect("write skill");
+        let first = SkillService::compute_dir_hash(dir.path()).expect("hash directory");
+        fs::write(dir.path().join(".local"), "ignored").expect("write hidden file");
+        let hidden = SkillService::compute_dir_hash(dir.path()).expect("hash directory");
+        assert_eq!(first, hidden);
+
+        fs::write(dir.path().join("SKILL.md"), "two").expect("update skill");
+        let changed = SkillService::compute_dir_hash(dir.path()).expect("hash directory");
+        assert_ne!(first, changed);
     }
 
     #[test]

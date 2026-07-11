@@ -48,6 +48,7 @@ impl Database {
             params![id, to_json_string(value)?],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("universal_providers");
         Ok(())
     }
 
@@ -55,6 +56,7 @@ impl Database {
         let conn = lock_conn!(self.conn);
         conn.execute("DELETE FROM universal_providers WHERE id = ?1", params![id])
             .map_err(|e| AppError::Database(e.to_string()))?;
+        crate::webdav_auto_sync::notify_db_changed("universal_providers");
         Ok(())
     }
 
@@ -93,6 +95,9 @@ impl Database {
         let changed = conn
             .execute("DELETE FROM universal_providers WHERE id = ?1", params![id])
             .map_err(|e| AppError::Database(e.to_string()))?;
+        if changed > 0 {
+            crate::webdav_auto_sync::notify_db_changed("universal_providers");
+        }
         Ok(changed > 0)
     }
 }

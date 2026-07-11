@@ -8,6 +8,23 @@ import type {
 import { invoke } from "./adapter";
 import type { AppId } from "./types";
 
+export interface McpImportSourceResult {
+  source: string;
+  discovered: number;
+  imported: number;
+  merged: number;
+  conflicts: number;
+  unchanged: number;
+  error?: string;
+}
+
+export interface McpImportResult {
+  imported: number;
+  merged: number;
+  conflicts: number;
+  sources: McpImportSourceResult[];
+}
+
 export const mcpApi = {
   async getStatus(): Promise<McpStatus> {
     return await invoke("get_claude_mcp_status");
@@ -118,5 +135,9 @@ export const mcpApi = {
     enabled: boolean,
   ): Promise<void> {
     return await invoke("toggle_mcp_app", { serverId, app, enabled });
+  },
+
+  async importFromApps(): Promise<McpImportResult> {
+    return await invoke("import_mcp_from_apps");
   },
 };

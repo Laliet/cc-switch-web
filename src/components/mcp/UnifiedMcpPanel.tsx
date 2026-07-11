@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Plus, Server } from "lucide-react";
+import { Check, Download, Loader2, Plus, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,6 +18,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { useDeleteMcpServer } from "@/hooks/useMcp";
 import { toast } from "sonner";
 import UnifiedMcpListItem from "./McpListItem";
+import { mcpApi } from "@/lib/api/mcp";
 
 interface UnifiedMcpPanelProps {
   open: boolean;
@@ -54,6 +55,7 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
   const deleteServerMutation = useDeleteMcpServer();
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const [isImporting, setIsImporting] = useState(false);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -166,6 +168,50 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
     setEditingId(null);
   };
 
+  const handleImportFromApps = async () => {
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      const result = await mcpApi.importFromApps();
+      await refetch();
+      const failed = result.sources.filter((source) => source.error);
+      const description = [
+        `${result.imported} new`,
+        `${result.merged} merged`,
+        `${result.conflicts} conflicts kept local`,
+        ...(failed.length
+          ? [`${failed.map((source) => source.source).join(", ")} failed`]
+          : []),
+      ].join(" · ");
+      if (failed.length) {
+        toast.warning(
+          t("mcp.importPartial", {
+            defaultValue: "MCP import completed with errors",
+          }),
+          {
+            description,
+          },
+        );
+      } else {
+        toast.success(
+          t("mcp.importComplete", { defaultValue: "MCP import complete" }),
+          {
+            description,
+          },
+        );
+      }
+    } catch (error) {
+      toast.error(
+        t("mcp.importFailed", { defaultValue: "MCP import failed" }),
+        {
+          description: String(error),
+        },
+      );
+    } finally {
+      if (isMountedRef.current) setIsImporting(false);
+    }
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -173,10 +219,29 @@ const UnifiedMcpPanel: React.FC<UnifiedMcpPanelProps> = ({
           <DialogHeader>
             <div className="flex items-center justify-between pr-8">
               <DialogTitle>{t("mcp.unifiedPanel.title")}</DialogTitle>
-              <Button type="button" variant="mcp" onClick={handleAdd}>
-                <Plus size={16} />
-                {t("mcp.unifiedPanel.addServer")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleImportFromApps()}
+                  disabled={isImporting}
+                  title={t("mcp.importFromHostApps", {
+                    defaultValue:
+                      "Import from server-host client configurations",
+                  })}
+                >
+                  {isImporting ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  {t("mcp.import", { defaultValue: "Import" })}
+                </Button>
+                <Button type="button" variant="mcp" onClick={handleAdd}>
+                  <Plus size={16} />
+                  {t("mcp.unifiedPanel.addServer")}
+                </Button>
+              </div>
             </div>
             <DialogDescription>
               {t("mcp.unifiedPanel.description", {

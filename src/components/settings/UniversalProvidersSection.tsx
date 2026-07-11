@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Eye,
+  Loader2,
+  Plus,
+  RotateCcw,
+  Save,
+  SaveAll,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { providersApi } from "@/lib/api";
 import type { ProxyAppId, UniversalProvider } from "@/types";
+import {
+  createUniversalProviderFromPreset,
+  universalProviderPresets,
+} from "@/config/universalProviderPresets";
 
 const UNIVERSAL_APPS: Exclude<ProxyAppId, "opencode">[] = [
   "claude",
@@ -44,8 +58,10 @@ export function UniversalProvidersSection({
   const [draft, setDraft] = useState<UniversalProvider>(() => emptyProvider());
   const [loading, setLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<
-    "save" | "sync" | "delete" | null
+    "save" | "save-sync" | "sync" | "copy" | "preview" | "delete" | null
   >(null);
+  const [confirmSync, setConfirmSync] = useState(false);
+  const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
 
   const providerRows = useMemo(
     () =>
@@ -60,15 +76,12 @@ export function UniversalProvidersSection({
     try {
       const rows = await providersApi.getUniversalAll();
       setProviders(rows);
-      if (selectedId && rows[selectedId]) {
-        setDraft(rows[selectedId]);
-      }
     } catch (error) {
       console.warn("Failed to load universal providers", error);
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     void loadProviders();
@@ -86,12 +99,14 @@ export function UniversalProvidersSection({
 
   const updateDraft = (updates: Partial<UniversalProvider>) => {
     setDraft((current) => ({ ...current, ...updates }));
+    setPreview(null);
   };
 
   const updateApp = (
     app: Exclude<ProxyAppId, "opencode">,
     checked: boolean,
   ) => {
+    setPreview(null);
     setDraft((current) => ({
       ...current,
       apps: {
@@ -106,6 +121,7 @@ export function UniversalProvidersSection({
     field: string,
     value: string,
   ) => {
+    setPreview(null);
     setDraft((current) => ({
       ...current,
       models: {
@@ -154,27 +170,37 @@ export function UniversalProvidersSection({
     return true;
   };
 
-  const handleSave = async () => {
+  const normalizedDraft = (): UniversalProvider => ({
+    ...draft,
+    id: draft.id.trim(),
+    name: draft.name.trim(),
+    providerType: draft.providerType.trim() || "openai-compatible",
+    baseUrl: draft.baseUrl.trim(),
+    apiKey: draft.apiKey.trim(),
+    websiteUrl: draft.websiteUrl?.trim() || undefined,
+    notes: draft.notes?.trim() || undefined,
+  });
+
+  const handleSave = async (saveAndSync = false) => {
     if (!validateDraft()) return;
-    setBusyAction("save");
-    const provider: UniversalProvider = {
-      ...draft,
-      id: draft.id.trim(),
-      name: draft.name.trim(),
-      providerType: draft.providerType.trim() || "openai-compatible",
-      baseUrl: draft.baseUrl.trim(),
-      apiKey: draft.apiKey.trim(),
-      websiteUrl: draft.websiteUrl?.trim() || undefined,
-      notes: draft.notes?.trim() || undefined,
-    };
+    const isNew = !selectedId;
+    setBusyAction(saveAndSync ? "save-sync" : "save");
+    const provider = normalizedDraft();
     try {
       await providersApi.upsertUniversal(provider);
+      if (isNew || saveAndSync) {
+        await providersApi.syncUniversal(provider.id);
+        await onProvidersChanged?.();
+      }
       setSelectedId(provider.id);
       setDraft(provider);
       await loadProviders();
       toast.success(
         t("settings.universal.saved", {
-          defaultValue: "Universal Provider 已保存",
+          defaultValue:
+            isNew || saveAndSync
+              ? "Universal Provider 已保存并同步"
+              : "Universal Provider 已保存",
         }),
       );
     } catch (error) {
@@ -185,6 +211,54 @@ export function UniversalProvidersSection({
         }),
         { description: message },
       );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDuplicate = async () => {
+    if (!draft.id) return;
+    setBusyAction("copy");
+    try {
+      const suffix = crypto.randomUUID().slice(0, 8);
+      const duplicated: UniversalProvider = {
+        ...structuredClone(normalizedDraft()),
+        id: `${draft.id}-copy-${suffix}`,
+        name: `${draft.name} Copy`,
+        createdAt: Date.now(),
+      };
+      await providersApi.upsertUniversal(duplicated);
+      await providersApi.syncUniversal(duplicated.id);
+      await loadProviders();
+      await onProvidersChanged?.();
+      selectProvider(duplicated);
+      toast.success("Universal Provider 已复制并同步");
+    } catch (error) {
+      toast.error("复制 Universal Provider 失败", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handlePreview = async () => {
+    if (!validateDraft()) return;
+    setBusyAction("preview");
+    try {
+      const result = await providersApi.previewUniversal(normalizedDraft());
+      const masked = JSON.parse(
+        JSON.stringify(result, (key, value) =>
+          /api.?key|token|authorization/i.test(key) && typeof value === "string"
+            ? "********"
+            : value,
+        ),
+      ) as Record<string, unknown>;
+      setPreview(masked);
+    } catch (error) {
+      toast.error("生成配置预览失败", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setBusyAction(null);
     }
@@ -269,6 +343,25 @@ export function UniversalProvidersSection({
           <Plus className="h-3.5 w-3.5" />
           {t("common.add", { defaultValue: "新增" })}
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {universalProviderPresets.map((preset) => (
+          <Button
+            key={preset.providerType}
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isBusy}
+            onClick={() => {
+              setSelectedId("");
+              setDraft(createUniversalProviderFromPreset(preset));
+              setPreview(null);
+            }}
+          >
+            {preset.name}
+          </Button>
+        ))}
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[220px_1fr]">
@@ -498,7 +591,7 @@ export function UniversalProvidersSection({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              onClick={() => void handleSave()}
+              onClick={() => void handleSave(false)}
               disabled={isBusy}
               className="gap-2"
             >
@@ -512,7 +605,23 @@ export function UniversalProvidersSection({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void handleSync()}
+              onClick={() => void handleSave(true)}
+              disabled={isBusy}
+              className="gap-2"
+            >
+              {busyAction === "save-sync" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <SaveAll className="h-4 w-4" />
+              )}
+              {t("settings.universal.saveAndSync", {
+                defaultValue: "保存并同步",
+              })}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmSync(true)}
               disabled={isBusy || !selectedId}
               className="gap-2"
             >
@@ -524,6 +633,37 @@ export function UniversalProvidersSection({
               {t("settings.universal.sync", {
                 defaultValue: "同步到应用",
               })}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleDuplicate()}
+              disabled={isBusy || !selectedId}
+              className="gap-2"
+              title={t("settings.universal.copy", {
+                defaultValue: "复制 Provider",
+              })}
+            >
+              {busyAction === "copy" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {t("settings.universal.copy", { defaultValue: "复制" })}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handlePreview()}
+              disabled={isBusy}
+              className="gap-2"
+            >
+              {busyAction === "preview" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+              {t("settings.universal.preview", { defaultValue: "配置预览" })}
             </Button>
             <Button
               type="button"
@@ -540,8 +680,32 @@ export function UniversalProvidersSection({
               {t("common.delete", { defaultValue: "删除" })}
             </Button>
           </div>
+
+          {preview ? (
+            <pre className="max-h-72 overflow-auto rounded-md border bg-muted/40 p-3 text-xs">
+              {JSON.stringify(preview, null, 2)}
+            </pre>
+          ) : null}
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={confirmSync}
+        title={t("settings.universal.syncConfirmTitle", {
+          defaultValue: "同步 Universal Provider",
+        })}
+        message={t("settings.universal.syncConfirmMessage", {
+          defaultValue:
+            "将按当前保存配置更新 Claude、Codex 和 Gemini 中对应的 Provider。",
+        })}
+        confirmText={t("settings.universal.sync", {
+          defaultValue: "同步到应用",
+        })}
+        onConfirm={() => {
+          setConfirmSync(false);
+          void handleSync();
+        }}
+        onCancel={() => setConfirmSync(false)}
+      />
     </section>
   );
 }

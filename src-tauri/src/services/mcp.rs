@@ -5,6 +5,28 @@ use crate::error::AppError;
 use crate::mcp;
 use crate::store::AppState;
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportSourceResult {
+    pub source: String,
+    pub discovered: usize,
+    pub imported: usize,
+    pub merged: usize,
+    pub conflicts: usize,
+    pub unchanged: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportResult {
+    pub imported: usize,
+    pub merged: usize,
+    pub conflicts: usize,
+    pub sources: Vec<McpImportSourceResult>,
+}
+
 /// MCP 相关业务逻辑（v3.7.0 统一结构）
 pub struct McpService;
 
@@ -13,17 +35,6 @@ impl McpService {
     pub fn get_all_servers(state: &AppState) -> Result<HashMap<String, McpServer>, AppError> {
         let mut cfg = state.load_config()?;
         let mut need_save = cfg.mcp.servers.is_none();
-        let imported_from_claude = mcp::import_from_claude(&mut cfg)?;
-        let imported_from_codex = mcp::import_from_codex(&mut cfg)?;
-        let imported_from_gemini = mcp::import_from_gemini(&mut cfg)?;
-        let imported_from_opencode = mcp::import_from_opencode(&mut cfg)?;
-        if imported_from_claude > 0
-            || imported_from_codex > 0
-            || imported_from_gemini > 0
-            || imported_from_opencode > 0
-        {
-            need_save = true;
-        }
 
         // 新结构：空表示尚未配置任何 MCP 服务器，返回空 Map 而不是报错，避免初始加载失败。
         let mut servers = cfg.mcp.servers.clone().unwrap_or_default();
@@ -382,5 +393,152 @@ impl McpService {
 
     pub fn import_from_opencode(state: &AppState) -> Result<usize, AppError> {
         state.update_config(mcp::import_from_opencode)
+    }
+
+    pub fn import_from_all_apps(state: &AppState) -> Result<McpImportResult, AppError> {
+        let mut sources = Vec::new();
+        for (name, app, importer) in [
+            (
+                "claude",
+                AppType::Claude,
+                mcp::import_from_claude as fn(&mut MultiAppConfig) -> Result<usize, AppError>,
+            ),
+            ("codex", AppType::Codex, mcp::import_from_codex),
+            ("gemini", AppType::Gemini, mcp::import_from_gemini),
+            ("opencode", AppType::Opencode, mcp::import_from_opencode),
+        ] {
+            sources.push(Self::import_source(state, name, app, importer));
+        }
+        Ok(McpImportResult {
+            imported: sources.iter().map(|source| source.imported).sum(),
+            merged: sources.iter().map(|source| source.merged).sum(),
+            conflicts: sources.iter().map(|source| source.conflicts).sum(),
+            sources,
+        })
+    }
+
+    fn import_source(
+        state: &AppState,
+        source: &str,
+        app: AppType,
+        importer: fn(&mut MultiAppConfig) -> Result<usize, AppError>,
+    ) -> McpImportSourceResult {
+        let mut temporary = MultiAppConfig::default();
+        if let Err(error) = importer(&mut temporary) {
+            return McpImportSourceResult {
+                source: source.to_string(),
+                discovered: 0,
+                imported: 0,
+                merged: 0,
+                conflicts: 0,
+                unchanged: 0,
+                error: Some(error.to_string()),
+            };
+        }
+        let discovered = temporary.mcp.servers.unwrap_or_default();
+        let mut result = McpImportSourceResult {
+            source: source.to_string(),
+            discovered: discovered.len(),
+            imported: 0,
+            merged: 0,
+            conflicts: 0,
+            unchanged: 0,
+            error: None,
+        };
+        let update = state.update_config(|config| {
+            let existing = config.mcp.servers.get_or_insert_with(HashMap::new);
+            merge_imported_servers(existing, discovered, &app, &mut result);
+            Ok(())
+        });
+        if let Err(error) = update {
+            result.error = Some(error.to_string());
+            result.imported = 0;
+            result.merged = 0;
+        }
+        result
+    }
+}
+
+fn merge_imported_servers(
+    existing: &mut HashMap<String, McpServer>,
+    discovered: HashMap<String, McpServer>,
+    app: &AppType,
+    result: &mut McpImportSourceResult,
+) {
+    for (id, imported) in discovered {
+        if let Some(current) = existing.get_mut(&id) {
+            if current.server != imported.server {
+                result.conflicts += 1;
+            }
+            if current.apps.is_enabled_for(app) {
+                result.unchanged += 1;
+            } else {
+                current.apps.set_enabled_for(app, true);
+                result.merged += 1;
+            }
+        } else {
+            existing.insert(id, imported);
+            result.imported += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn server(id: &str, command: &str, apps: McpApps) -> McpServer {
+        McpServer {
+            id: id.to_string(),
+            name: id.to_string(),
+            server: json!({"type": "stdio", "command": command}),
+            apps,
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn import_preserves_local_conflict_and_only_enables_source_app() {
+        let mut existing = HashMap::from([(
+            "same".to_string(),
+            server("same", "local", McpApps::default()),
+        )]);
+        let discovered = HashMap::from([
+            (
+                "same".to_string(),
+                server("same", "remote", McpApps::default()),
+            ),
+            (
+                "new".to_string(),
+                server(
+                    "new",
+                    "new-command",
+                    McpApps {
+                        claude: true,
+                        ..McpApps::default()
+                    },
+                ),
+            ),
+        ]);
+        let mut result = McpImportSourceResult {
+            source: "claude".to_string(),
+            discovered: 2,
+            imported: 0,
+            merged: 0,
+            conflicts: 0,
+            unchanged: 0,
+            error: None,
+        };
+        merge_imported_servers(&mut existing, discovered, &AppType::Claude, &mut result);
+
+        assert_eq!(result.imported, 1);
+        assert_eq!(result.merged, 1);
+        assert_eq!(result.conflicts, 1);
+        assert_eq!(existing["same"].server["command"], "local");
+        assert!(existing["same"].apps.claude);
     }
 }

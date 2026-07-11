@@ -155,6 +155,12 @@ export const providersApi = {
     return await invoke("sync_universal_provider_to_apps", { id });
   },
 
+  async previewUniversal(
+    provider: UniversalProvider,
+  ): Promise<Record<string, Provider>> {
+    return await invoke("preview_universal_provider", { provider });
+  },
+
   async onSwitched(
     handler: (event: ProviderSwitchEvent) => void,
   ): Promise<UnlistenFn> {

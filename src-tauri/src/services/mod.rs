@@ -1,4 +1,6 @@
 pub mod auth;
+pub mod balance;
+pub mod coding_plan;
 pub mod config;
 pub mod env_checker;
 pub mod env_manager;
@@ -23,5 +25,6 @@ pub use provider::ProviderService;
 pub use provider::ProviderSortUpdate;
 pub use skill::{
     MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
+    SkillUpdateInfo, SkillsShSearchResult,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};

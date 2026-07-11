@@ -29,14 +29,15 @@ mod provider;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 pub mod proxy;
 mod services;
+pub mod session_manager;
 mod settings;
 pub mod store;
 mod usage_script;
 #[cfg(feature = "web-server")]
 pub mod web_api;
+mod webdav_auto_sync;
 mod webdav_sync;
 
-#[cfg(feature = "web-server")]
 pub use webdav_sync::start_auto_sync_worker as start_webdav_auto_sync_worker;
 
 pub use app_config::{AppType, McpApps, McpServer, MultiAppConfig};
@@ -69,6 +70,21 @@ pub use services::{
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
+
+pub async fn run_periodic_backup_worker(db: std::sync::Arc<database::Database>) {
+    if let Err(error) = db.periodic_backup_if_needed() {
+        log::warn!("Initial periodic database backup failed: {error}");
+    }
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        if let Err(error) = db.periodic_backup_if_needed() {
+            log::warn!("Periodic database backup failed: {error}");
+        }
+    }
+}
 
 // ============================================================
 // Desktop-only code (Tauri GUI, tray menu, window management)
@@ -608,6 +624,9 @@ pub fn run() {
                 }
             };
 
+            tauri::async_runtime::spawn(run_periodic_backup_worker(app_state.db.clone()));
+            start_webdav_auto_sync_worker(app_state.db_state());
+
             // 迁移旧的 app_config_dir 配置到 Store
             if let Err(e) = app_store::migrate_app_config_dir_from_settings(app.handle()) {
                 log::warn!("迁移 app_config_dir 失败: {e}");
@@ -707,6 +726,7 @@ pub fn run() {
             commands::upsert_universal_provider,
             commands::delete_universal_provider,
             commands::sync_universal_provider_to_apps,
+            commands::preview_universal_provider,
             commands::get_current_provider,
             commands::get_backup_provider,
             commands::set_backup_provider,
@@ -798,6 +818,7 @@ pub fn run() {
             commands::upsert_mcp_server,
             commands::delete_mcp_server,
             commands::toggle_mcp_app,
+            commands::import_mcp_from_apps,
             // Prompt management
             commands::get_prompts,
             commands::upsert_prompt,
@@ -834,6 +855,11 @@ pub fn run() {
             // theirs: config import/export and dialogs
             commands::export_config_to_file,
             commands::import_config_from_file,
+            commands::create_db_backup,
+            commands::list_db_backups,
+            commands::restore_db_backup,
+            commands::rename_db_backup,
+            commands::delete_db_backup,
             commands::save_file_dialog,
             commands::open_file_dialog,
             commands::sync_current_providers_live,
@@ -864,10 +890,19 @@ pub fn run() {
             commands::delete_skill_backup,
             commands::restore_skill_backup,
             commands::migrate_skill_storage,
+            commands::check_skill_updates,
+            commands::update_skill,
+            commands::search_skills_sh,
+            commands::install_catalog_skill,
             commands::install_skills_from_zip,
             commands::get_skill_repos,
             commands::add_skill_repo,
             commands::remove_skill_repo,
+            // Session manager (Web copies resume commands; desktop terminal launch is intentionally absent)
+            commands::list_sessions,
+            commands::get_session_messages,
+            commands::delete_session,
+            commands::delete_sessions,
         ]);
 
     let app = builder

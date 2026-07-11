@@ -74,7 +74,7 @@ export function useImportExport(
     if (isWeb()) {
       const input = document.createElement("input");
       input.type = "file";
-      input.accept = "application/json";
+      input.accept = ".sql,.json,application/sql,application/json,text/plain";
       input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
@@ -204,12 +204,12 @@ export function useImportExport(
   const exportConfig = useCallback(async () => {
     if (isWeb()) {
       try {
-        const defaultName = `cc-switch-config-${
+        const defaultName = `cc-switch-backup-${
           new Date().toISOString().split("T")[0]
-        }.json`;
+        }.sql`;
         const exportUrl = buildWebApiUrl("/config/export");
         const headers: Record<string, string> = {
-          Accept: "application/json",
+          Accept: "application/sql,text/plain",
           ...buildWebAuthHeadersForUrl(exportUrl),
         };
         const response = await fetch(exportUrl, {
@@ -219,9 +219,9 @@ export function useImportExport(
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        const data = await response.json();
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
+        const data = await response.text();
+        const blob = new Blob([data], {
+          type: "application/sql;charset=utf-8",
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -248,9 +248,9 @@ export function useImportExport(
     }
 
     try {
-      const defaultName = `cc-switch-config-${
+      const defaultName = `cc-switch-backup-${
         new Date().toISOString().split("T")[0]
-      }.json`;
+      }.sql`;
       const destination = await settingsApi.saveFileDialog(defaultName);
       if (!destination) {
         toast.error(

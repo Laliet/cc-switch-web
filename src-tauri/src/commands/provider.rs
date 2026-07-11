@@ -58,6 +58,11 @@ pub fn sync_universal_provider_to_apps(
     ProviderService::sync_universal_to_apps(state.inner(), &id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn preview_universal_provider(provider: UniversalProvider) -> HashMap<String, Provider> {
+    ProviderService::preview_universal(&provider)
+}
+
 /// 获取当前供应商ID
 #[tauri::command]
 pub fn get_current_provider(state: State<'_, AppState>, app: String) -> Result<String, String> {
@@ -197,6 +202,7 @@ pub async fn testUsageScript(
     #[allow(non_snake_case)] baseUrl: Option<String>,
     #[allow(non_snake_case)] accessToken: Option<String>,
     #[allow(non_snake_case)] userId: Option<String>,
+    #[allow(non_snake_case)] templateType: Option<String>,
 ) -> Result<crate::provider::UsageResult, String> {
     let app_type = parse_provider_app_type(&app)?;
     ProviderService::test_usage_script(
@@ -209,6 +215,7 @@ pub async fn testUsageScript(
         baseUrl.as_deref(),
         accessToken.as_deref(),
         userId.as_deref(),
+        templateType.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())

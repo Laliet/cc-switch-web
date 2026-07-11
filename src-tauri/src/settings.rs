@@ -187,7 +187,7 @@ pub struct ProxySettings {
     pub apps: ProxyAppsSettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyAppSettings {
     #[serde(default)]
@@ -196,6 +196,22 @@ pub struct ProxyAppSettings {
     pub auto_failover_enabled: bool,
     #[serde(default = "default_proxy_max_retries")]
     pub max_retries: u8,
+    #[serde(default = "default_streaming_first_byte_timeout")]
+    pub streaming_first_byte_timeout: u64,
+    #[serde(default = "default_streaming_idle_timeout")]
+    pub streaming_idle_timeout: u64,
+    #[serde(default = "default_non_streaming_timeout")]
+    pub non_streaming_timeout: u64,
+    #[serde(default = "default_proxy_circuit_failure_threshold")]
+    pub circuit_failure_threshold: u64,
+    #[serde(default = "default_proxy_circuit_recovery_threshold")]
+    pub circuit_recovery_threshold: u64,
+    #[serde(default = "default_proxy_circuit_recovery_wait")]
+    pub circuit_recovery_wait_seconds: u64,
+    #[serde(default = "default_proxy_circuit_error_rate_threshold")]
+    pub circuit_error_rate_threshold: f64,
+    #[serde(default = "default_proxy_circuit_min_requests")]
+    pub circuit_min_requests: u64,
     #[serde(default = "default_cost_multiplier")]
     pub default_cost_multiplier: String,
     #[serde(default = "default_pricing_model_source")]
@@ -208,6 +224,14 @@ impl Default for ProxyAppSettings {
             enabled: false,
             auto_failover_enabled: false,
             max_retries: default_proxy_max_retries(),
+            streaming_first_byte_timeout: default_streaming_first_byte_timeout(),
+            streaming_idle_timeout: default_streaming_idle_timeout(),
+            non_streaming_timeout: default_non_streaming_timeout(),
+            circuit_failure_threshold: default_proxy_circuit_failure_threshold(),
+            circuit_recovery_threshold: default_proxy_circuit_recovery_threshold(),
+            circuit_recovery_wait_seconds: default_proxy_circuit_recovery_wait(),
+            circuit_error_rate_threshold: default_proxy_circuit_error_rate_threshold(),
+            circuit_min_requests: default_proxy_circuit_min_requests(),
             default_cost_multiplier: default_cost_multiplier(),
             pricing_model_source: default_pricing_model_source(),
         }
@@ -250,6 +274,10 @@ pub struct WebDavSettings {
     pub last_sync_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sync_remote_snapshot_id: Option<String>,
+    #[serde(default = "default_webdav_sync_status")]
+    pub last_sync_status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -272,6 +300,8 @@ impl Default for WebDavSettings {
             last_sync_config_hash: None,
             last_sync_at: None,
             last_sync_remote_snapshot_id: None,
+            last_sync_status: default_webdav_sync_status(),
+            last_sync_error: None,
         }
     }
 }
@@ -316,6 +346,10 @@ fn default_proxy_circuit_error_rate_threshold() -> f64 {
     80.0
 }
 
+fn default_proxy_circuit_min_requests() -> u64 {
+    10
+}
+
 fn default_rectifier_enabled() -> bool {
     true
 }
@@ -346,6 +380,10 @@ fn default_webdav_remote_dir() -> String {
 
 fn default_webdav_profile() -> String {
     "default".to_string()
+}
+
+fn default_webdav_sync_status() -> String {
+    "idle".to_string()
 }
 
 impl Default for ProxySettings {
@@ -412,6 +450,12 @@ pub struct AppSettings {
     /// Skill 存储位置：cc_switch（默认）或 unified（~/.agents/skills/）
     #[serde(default)]
     pub skill_storage_location: SkillStorageLocation,
+    /// 自动数据库备份间隔（小时）；0 表示禁用，默认 24。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_interval_hours: Option<u32>,
+    /// 最多保留的数据库备份数量，默认 10。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_retain_count: Option<u32>,
     /// Claude 自定义端点列表
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints_claude: HashMap<String, CustomEndpoint>,
@@ -445,10 +489,23 @@ impl Default for AppSettings {
             network: NetworkSettings::default(),
             skill_sync_method: SyncMethod::default(),
             skill_storage_location: SkillStorageLocation::default(),
+            backup_interval_hours: None,
+            backup_retain_count: None,
             custom_endpoints_claude: HashMap::new(),
             custom_endpoints_codex: HashMap::new(),
         }
     }
+}
+
+pub fn effective_backup_interval_hours() -> u32 {
+    get_settings().backup_interval_hours.unwrap_or(24)
+}
+
+pub fn effective_backup_retain_count() -> usize {
+    get_settings()
+        .backup_retain_count
+        .map(|value| value.max(1) as usize)
+        .unwrap_or(10)
 }
 
 impl AppSettings {

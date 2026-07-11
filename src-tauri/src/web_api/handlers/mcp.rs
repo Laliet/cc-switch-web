@@ -25,6 +25,13 @@ pub async fn list_servers(
     Ok(Json(servers))
 }
 
+pub async fn import_from_apps(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<crate::services::mcp::McpImportResult> {
+    let result = McpService::import_from_all_apps(&state).map_err(ApiError::from)?;
+    Ok(Json(result))
+}
+
 pub async fn upsert_server(
     State(state): State<Arc<AppState>>,
     Json(server): Json<McpServer>,

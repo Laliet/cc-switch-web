@@ -60,6 +60,7 @@ const settings: WebDavSettings = {
   password: "secret",
   remoteDir: "cc-switch-web",
   profile: "default",
+  lastSyncStatus: "idle",
 };
 
 describe("WebDavSettingsSection", () => {

@@ -1,3 +1,5 @@
+import type { TemplateType } from "@/config/constants";
+
 export type ProxyAppId = "claude" | "codex" | "gemini" | "opencode";
 export type ProxyRouteAppId = ProxyAppId | "claude-desktop";
 
@@ -53,10 +55,12 @@ export interface UsageScript {
   language: "javascript"; // 脚本语言
   code: string; // 脚本代码（JSON 格式配置）
   timeout?: number; // 超时时间（秒，默认 10）
+  templateType?: TemplateType;
   apiKey?: string; // 用量查询专用的 API Key（通用模板使用）
   baseUrl?: string; // 用量查询专用的 Base URL（通用和 NewAPI 模板使用）
   accessToken?: string; // 访问令牌（NewAPI 模板使用）
   userId?: string; // 用户ID（NewAPI 模板使用）
+  codingPlanProvider?: "kimi" | "zhipu" | "minimax";
   autoQueryInterval?: number; // 自动查询间隔（单位：分钟，0 表示禁用）
 }
 
@@ -231,6 +235,8 @@ export interface Settings {
   network?: NetworkSettings;
   skillSyncMethod?: SkillSyncMethod;
   skillStorageLocation?: SkillStorageLocation;
+  backupIntervalHours?: number;
+  backupRetainCount?: number;
 }
 
 export type SkillSyncMethod = "auto" | "symlink" | "copy";
@@ -252,6 +258,8 @@ export interface WebDavSettings {
   lastSyncConfigHash?: string;
   lastSyncAt?: string;
   lastSyncRemoteSnapshotId?: string;
+  lastSyncStatus?: "idle" | "syncing" | "success" | "error";
+  lastSyncError?: string;
 }
 
 export interface WebDavCompatibilityCheck {
@@ -333,6 +341,14 @@ export interface ProxyAppSettings {
   enabled: boolean;
   autoFailoverEnabled: boolean;
   maxRetries: number;
+  streamingFirstByteTimeout?: number;
+  streamingIdleTimeout?: number;
+  nonStreamingTimeout?: number;
+  circuitFailureThreshold?: number;
+  circuitRecoveryThreshold?: number;
+  circuitRecoveryWaitSeconds?: number;
+  circuitErrorRateThreshold?: number;
+  circuitMinRequests?: number;
   defaultCostMultiplier?: string;
   pricingModelSource?: string;
 }
@@ -459,6 +475,24 @@ export interface McpServerSpec {
   headers?: Record<string, string>;
   // 通用字段
   [key: string]: any;
+}
+
+export interface SessionMeta {
+  providerId: string;
+  sessionId: string;
+  title?: string;
+  summary?: string;
+  projectDir?: string | null;
+  createdAt?: number;
+  lastActiveAt?: number;
+  sourcePath?: string;
+  resumeCommand?: string;
+}
+
+export interface SessionMessage {
+  role: string;
+  content: string;
+  ts?: number;
 }
 
 // v3.7.0: MCP 服务器应用启用状态

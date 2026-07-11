@@ -4,7 +4,7 @@
 
 <sub>🙏 This project is a fork of [farion1231/cc-switch](https://github.com/farion1231/cc-switch) by Jason Young. Thanks to the original author for the excellent work. This fork adds Web Server mode for cloud/headless deployment.</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.18.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.19.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -346,8 +346,17 @@ pnpm test:unit
 
 ## What's New
 
-> Current release: [v0.15.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)<br>
-> `v0.15.0` ships Local Routing, Claude Desktop alignment, Usage Dashboard visibility fixes, Web-mode JSON 404 handling, and clearer API error feedback.
+> Current release: [v0.19.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.0)<br>
+> `v0.19.0` focuses on native SQLite safety, WebDAV v2, relay-provider workflows, and upstream-aligned server session management.
+
+### v0.19.0 - Data Safety + Relay Workflow Completion
+
+- Adds native SQLite SQL backup/restore, integrity validation, rollback, backup management, and scheduled retention
+- Introduces WebDAV v2 with `manifest.json`, `db.sql`, `skills.zip`, checksums, compatibility validation, rollback, and change-triggered synchronization
+- Adds native quota/balance queries for common relay providers without requiring user-authored JavaScript
+- Completes Universal Provider, MCP import, Skills update/catalog, and per-app proxy settings workflows
+- Adds a server-host Session Manager for Claude, Codex, Gemini, and OpenCode with search, messages, outline, deletion, and copied resume commands
+- Release notes: [v0.19.0](docs/release-note-v0.19.0-zh.md)
 
 ### v0.15.0 - Local Routing + Claude Desktop Alignment
 
@@ -381,7 +390,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) and [v0.15.0 release notes](docs/release-note-v0.15.0-zh.md) — Current release: **v0.15.0**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.19.0 release notes](docs/release-note-v0.19.0-zh.md) - Current release: **v0.19.0**
 
 ---
 

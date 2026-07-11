@@ -296,18 +296,10 @@ fn is_default_proxy_config(config: &ProxySettings) -> bool {
         && config.circuit_error_rate_threshold == default.circuit_error_rate_threshold
         && config.rectify_thinking_signature == default.rectify_thinking_signature
         && config.rectify_thinking_budget == default.rectify_thinking_budget
-        && !config.apps.claude.enabled
-        && !config.apps.claude.auto_failover_enabled
-        && config.apps.claude.max_retries == default.apps.claude.max_retries
-        && !config.apps.codex.enabled
-        && !config.apps.codex.auto_failover_enabled
-        && config.apps.codex.max_retries == default.apps.codex.max_retries
-        && !config.apps.gemini.enabled
-        && !config.apps.gemini.auto_failover_enabled
-        && config.apps.gemini.max_retries == default.apps.gemini.max_retries
-        && !config.apps.opencode.enabled
-        && !config.apps.opencode.auto_failover_enabled
-        && config.apps.opencode.max_retries == default.apps.opencode.max_retries
+        && config.apps.claude == default.apps.claude
+        && config.apps.codex == default.apps.codex
+        && config.apps.gemini == default.apps.gemini
+        && config.apps.opencode == default.apps.opencode
 }
 
 fn ensure_takeover_config_supported(

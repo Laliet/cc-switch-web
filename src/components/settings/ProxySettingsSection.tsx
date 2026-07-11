@@ -48,6 +48,37 @@ const PROXY_TAKEOVER_APPS: ProxyAppId[] = [
   "opencode",
 ];
 const PROXY_TOAST_DURATION = 1800;
+const PROXY_APP_NUMERIC_FIELDS = [
+  [
+    "streamingFirstByteTimeout",
+    "firstByteTimeout",
+    "首字超时（秒）",
+    1,
+    120,
+    90,
+  ],
+  ["streamingIdleTimeout", "idleTimeout", "流式 idle 超时（秒）", 0, 600, 120],
+  [
+    "nonStreamingTimeout",
+    "nonStreamingTimeout",
+    "非流式总超时（秒）",
+    60,
+    1200,
+    600,
+  ],
+  ["circuitFailureThreshold", "failureThreshold", "失败阈值", 1, 20, 3],
+  ["circuitRecoveryThreshold", "recoveryThreshold", "恢复阈值", 1, 10, 2],
+  ["circuitRecoveryWaitSeconds", "recoveryWait", "恢复等待（秒）", 1, 300, 60],
+  [
+    "circuitErrorRateThreshold",
+    "errorRateThreshold",
+    "错误率阈值（%）",
+    1,
+    100,
+    80,
+  ],
+  ["circuitMinRequests", "minRequests", "最小请求数", 5, 100, 10],
+] as const;
 
 function providerHealthLabel(state?: string) {
   switch (state) {
@@ -686,61 +717,6 @@ export function ProxySettingsSection({
         </span>
       </label>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-2">
-          <Label htmlFor="cc-switch-proxy-first-byte">
-            {t("settings.proxy.firstByteTimeout", {
-              defaultValue: "首字超时（秒）",
-            })}
-          </Label>
-          <Input
-            id="cc-switch-proxy-first-byte"
-            type="number"
-            min={1}
-            value={value.streamingFirstByteTimeout}
-            onChange={(event) =>
-              update({
-                streamingFirstByteTimeout: Number(event.target.value) || 90,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="cc-switch-proxy-idle">
-            {t("settings.proxy.idleTimeout", {
-              defaultValue: "流式 idle 超时（秒）",
-            })}
-          </Label>
-          <Input
-            id="cc-switch-proxy-idle"
-            type="number"
-            min={1}
-            value={value.streamingIdleTimeout}
-            onChange={(event) =>
-              update({
-                streamingIdleTimeout: Number(event.target.value) || 120,
-              })
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="cc-switch-proxy-total">
-            {t("settings.proxy.nonStreamingTimeout", {
-              defaultValue: "非流式总超时（秒）",
-            })}
-          </Label>
-          <Input
-            id="cc-switch-proxy-total"
-            type="number"
-            min={1}
-            value={value.nonStreamingTimeout}
-            onChange={(event) =>
-              update({ nonStreamingTimeout: Number(event.target.value) || 600 })
-            }
-          />
-        </div>
-      </div>
-
       <div className="space-y-2">
         <div>
           <h4 className="text-sm font-medium">
@@ -935,6 +911,45 @@ export function ProxySettingsSection({
                         </SelectContent>
                       </Select>
                     </div>
+                    <details className="col-span-full rounded-md border border-border-default/70 p-2">
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                        {t("settings.proxy.appRuntimeSettings", {
+                          defaultValue: "超时与熔断参数",
+                        })}
+                      </summary>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {PROXY_APP_NUMERIC_FIELDS.map(
+                          ([field, labelKey, label, min, max, fallback]) => (
+                            <div key={field} className="space-y-1">
+                              <Label
+                                htmlFor={`proxy-${configApp}-${field}`}
+                                className="text-xs"
+                              >
+                                {t(`settings.proxy.${labelKey}`, {
+                                  defaultValue: label,
+                                })}
+                              </Label>
+                              <Input
+                                id={`proxy-${configApp}-${field}`}
+                                type="number"
+                                min={min}
+                                max={max}
+                                value={
+                                  value.apps[configApp]?.[field] ?? fallback
+                                }
+                                onChange={(event) =>
+                                  updateApp(app, {
+                                    [field]:
+                                      Number(event.target.value) || fallback,
+                                  })
+                                }
+                                className="h-8"
+                              />
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </details>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1169,90 +1184,6 @@ export function ProxySettingsSection({
                   "当代理无法根据请求路径判断目标客户端时，默认按这个客户端的当前 provider 转发。普通用户一般不用改；如果你只测试某一个客户端，可以选成对应客户端。",
               })}
             </p>
-          </div>
-          <div className="space-y-2 rounded-md border p-3">
-            <h5 className="text-sm font-medium">
-              {t("settings.proxy.circuitBreaker", {
-                defaultValue: "熔断器",
-              })}
-            </h5>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="cc-switch-proxy-circuit-failure">
-                  {t("settings.proxy.failureThreshold", {
-                    defaultValue: "失败阈值",
-                  })}
-                </Label>
-                <Input
-                  id="cc-switch-proxy-circuit-failure"
-                  type="number"
-                  min={1}
-                  value={value.circuitFailureThreshold}
-                  onChange={(event) =>
-                    update({
-                      circuitFailureThreshold: Number(event.target.value) || 3,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="cc-switch-proxy-circuit-recovery">
-                  {t("settings.proxy.recoveryThreshold", {
-                    defaultValue: "恢复阈值",
-                  })}
-                </Label>
-                <Input
-                  id="cc-switch-proxy-circuit-recovery"
-                  type="number"
-                  min={1}
-                  value={value.circuitRecoveryThreshold}
-                  onChange={(event) =>
-                    update({
-                      circuitRecoveryThreshold: Number(event.target.value) || 2,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="cc-switch-proxy-circuit-wait">
-                  {t("settings.proxy.recoveryWait", {
-                    defaultValue: "恢复等待（秒）",
-                  })}
-                </Label>
-                <Input
-                  id="cc-switch-proxy-circuit-wait"
-                  type="number"
-                  min={1}
-                  value={value.circuitRecoveryWaitSeconds}
-                  onChange={(event) =>
-                    update({
-                      circuitRecoveryWaitSeconds:
-                        Number(event.target.value) || 60,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="cc-switch-proxy-circuit-error-rate">
-                  {t("settings.proxy.errorRateThreshold", {
-                    defaultValue: "错误率阈值（%）",
-                  })}
-                </Label>
-                <Input
-                  id="cc-switch-proxy-circuit-error-rate"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={value.circuitErrorRateThreshold}
-                  onChange={(event) =>
-                    update({
-                      circuitErrorRateThreshold:
-                        Number(event.target.value) || 80,
-                    })
-                  }
-                />
-              </div>
-            </div>
           </div>
           <div className="space-y-2 rounded-md border p-3">
             <h5 className="text-sm font-medium">

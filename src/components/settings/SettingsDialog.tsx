@@ -25,6 +25,7 @@ import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
+import { BackupListSection } from "@/components/settings/BackupListSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxySettingsSection } from "@/components/settings/ProxySettingsSection";
 import { WebDavSettingsSection } from "@/components/settings/WebDavSettingsSection";
@@ -364,6 +365,11 @@ export function SettingsDialog({
                       onImport={importConfig}
                       onExport={exportConfig}
                       onClear={clearSelection}
+                    />
+                    <BackupListSection
+                      intervalHours={settings.backupIntervalHours}
+                      retainCount={settings.backupRetainCount}
+                      onSettingsChange={updateSettings}
                     />
                     <WebDavSettingsSection
                       value={settings.webDav}

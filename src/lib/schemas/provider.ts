@@ -45,7 +45,7 @@ function parseJsonError(error: unknown): string {
 }
 
 export const providerSchema = z.object({
-  name: z.string().min(1, "请填写供应商名称"),
+  name: z.string(),
   websiteUrl: z
     .union([
       z.literal(""),

@@ -13,6 +13,7 @@ mod prompt;
 mod provider;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 mod proxy;
+mod session_manager;
 mod settings;
 pub mod skill;
 mod stream_check;
@@ -32,6 +33,7 @@ pub use prompt::*;
 pub use provider::*;
 #[cfg(any(feature = "web-server", feature = "desktop"))]
 pub use proxy::*;
+pub use session_manager::*;
 pub use settings::*;
 pub use skill::*;
 pub use stream_check::*;
