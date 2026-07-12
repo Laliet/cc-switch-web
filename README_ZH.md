@@ -86,10 +86,10 @@
 
 | 架构                      | 下载链接                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.15.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)
+发布页：[v0.19.1 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -204,11 +204,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                           | 说明                                |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.15.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows.msi)                   | 安装版                              |
-|             | [CC-Switch-v0.15.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.15.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.15.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.AppImage)             | AppImage                            |
-|             | [CC-Switch-v0.15.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.19.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows.msi)                   | 安装版                              |
+|             | [CC-Switch-v0.19.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.19.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.19.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.AppImage)             | AppImage                            |
+|             | [CC-Switch-v0.19.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -232,7 +232,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装指定版本
-VERSION=v0.15.0 curl -fsSL https://...install.sh | bash
+VERSION=v0.19.1 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash

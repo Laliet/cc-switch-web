@@ -90,10 +90,10 @@ Download precompiled server binary—no compilation required:
 
 | Architecture              | Download                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-aarch64) |
 
-Release page: [v0.15.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.15.0)
+Release page: [v0.19.1 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
@@ -208,11 +208,11 @@ Full-featured desktop app with graphical interface, built with Tauri.
 
 | Platform    | Download                                                                                                                                           | Description                              |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Windows** | [CC-Switch-v0.15.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows.msi)                   | Installer                                |
-|             | [CC-Switch-v0.15.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Windows-Portable.zip) | Portable (no install)                    |
-| **macOS**   | [CC-Switch-v0.15.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
-| **Linux**   | [CC-Switch-v0.15.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.AppImage)             | AppImage                                 |
-|             | [CC-Switch-v0.15.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.15.0/CC-Switch-v0.15.0-Linux.deb)                       | Debian/Ubuntu package                    |
+| **Windows** | [CC-Switch-v0.19.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows.msi)                   | Installer                                |
+|             | [CC-Switch-v0.19.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.19.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.19.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.AppImage)             | AppImage                                 |
+|             | [CC-Switch-v0.19.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -236,7 +236,7 @@ This script will:
 
 ```bash
 # Install a specific release version
-VERSION=v0.15.0 curl -fsSL https://...install.sh | bash
+VERSION=v0.19.1 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
