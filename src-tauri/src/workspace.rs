@@ -174,7 +174,7 @@ pub fn list_backups(name: &str) -> Result<Vec<WorkspaceBackupInfo>, WorkspaceErr
             })
         })
         .collect::<Vec<_>>();
-    backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    backups.sort_by_key(|backup| std::cmp::Reverse(backup.created_at));
     Ok(backups)
 }
 
