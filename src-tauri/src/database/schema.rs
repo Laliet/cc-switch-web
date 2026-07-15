@@ -137,6 +137,26 @@ impl Database {
                 PRIMARY KEY (provider_id, app_type)
             );
 
+            CREATE TABLE IF NOT EXISTS stream_check_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id TEXT NOT NULL,
+                provider_name TEXT NOT NULL,
+                app_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                response_time_ms INTEGER,
+                http_status INTEGER,
+                model_used TEXT NOT NULL,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                error_category TEXT,
+                tested_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_stream_check_logs_provider
+                ON stream_check_logs(app_type, provider_id, tested_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_stream_check_logs_tested_at
+                ON stream_check_logs(tested_at DESC);
+
             CREATE TABLE IF NOT EXISTS proxy_request_logs (
                 request_id TEXT PRIMARY KEY,
                 provider_id TEXT NOT NULL,
@@ -275,6 +295,9 @@ impl Database {
         }
         if version < 6 {
             Self::migrate_v5_to_v6(conn)?;
+        }
+        if version < 7 {
+            Self::migrate_v6_to_v7(conn)?;
         }
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(|e| AppError::Database(e.to_string()))?;
@@ -473,6 +496,41 @@ impl Database {
                  circuit_min_requests = 10
              WHERE app_type IN ('claude', 'codex', 'gemini', 'opencode')
                AND EXISTS (SELECT 1 FROM proxy_config WHERE app_type = 'global')",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS stream_check_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id TEXT NOT NULL,
+                provider_name TEXT NOT NULL,
+                app_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                response_time_ms INTEGER,
+                http_status INTEGER,
+                model_used TEXT NOT NULL,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                error_category TEXT,
+                tested_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stream_check_logs_provider
+             ON stream_check_logs(app_type, provider_id, tested_at DESC)",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stream_check_logs_tested_at
+             ON stream_check_logs(tested_at DESC)",
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
@@ -1165,6 +1223,55 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrates_v6_stream_check_history_idempotently() {
+        let conn = Connection::open_in_memory().expect("memory database");
+        conn.execute_batch("PRAGMA user_version = 6;")
+            .expect("set v6 schema");
+
+        Database::apply_schema_migrations_on_conn(&conn).expect("migrate v6 to v7");
+        conn.execute(
+            "INSERT INTO stream_check_logs (
+                provider_id, provider_name, app_type, status, success, message,
+                model_used, tested_at
+             ) VALUES ('provider-1', 'Provider 1', 'claude', 'success', 1,
+                       'preserved', 'test-model', 1)",
+            [],
+        )
+        .expect("insert migrated stream check row");
+        Database::apply_schema_migrations_on_conn(&conn).expect("repeat migration");
+
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read schema version");
+        assert_eq!(version, SCHEMA_VERSION);
+        let table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'stream_check_logs'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read stream check table");
+        assert_eq!(table_count, 1);
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index'
+                   AND name IN ('idx_stream_check_logs_provider', 'idx_stream_check_logs_tested_at')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read stream check indexes");
+        assert_eq!(index_count, 2);
+        let row_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM stream_check_logs", [], |row| {
+                row.get(0)
+            })
+            .expect("read preserved stream check rows");
+        assert_eq!(row_count, 1);
+    }
 
     #[test]
     fn migrates_v4_skill_states_with_source_columns() {

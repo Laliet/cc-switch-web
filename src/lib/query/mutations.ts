@@ -1,7 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { providersApi, settingsApi, type AppId } from "@/lib/api";
+import {
+  providersApi,
+  settingsApi,
+  type AppId,
+  type RuntimeCapabilities,
+} from "@/lib/api";
 import type { Provider, Settings } from "@/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import generateUUID from "@/utils/uuid";
@@ -30,6 +35,8 @@ const getLiveConfigPath = (appId: AppId, dir: string): string => {
       return joinDisplayPath(dir, ".env");
     case "opencode":
       return joinDisplayPath(dir, "opencode.json");
+    case "openclaw":
+      return joinDisplayPath(dir, "openclaw.json");
     case "omo":
       return joinDisplayPath(dir, "oh-my-openagent.jsonc");
     case "omo-slim":
@@ -39,15 +46,23 @@ const getLiveConfigPath = (appId: AppId, dir: string): string => {
   }
 };
 
+const traySupported = (
+  queryClient: ReturnType<typeof useQueryClient>,
+): boolean =>
+  queryClient.getQueryData<RuntimeCapabilities>(["capabilities"])?.features
+    .tray === true;
+
 export const useAddProviderMutation = (appId: AppId) => {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
 
   return useMutation({
-    mutationFn: async (providerInput: Omit<Provider, "id">) => {
+    mutationFn: async (
+      providerInput: Omit<Provider, "id"> & { id?: string },
+    ) => {
       const newProvider: Provider = {
         ...providerInput,
-        id: generateUUID(),
+        id: providerInput.id?.trim() || generateUUID(),
         createdAt: Date.now(),
       };
       await providersApi.add(newProvider, appId);
@@ -55,15 +70,22 @@ export const useAddProviderMutation = (appId: AppId) => {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
+      if (appId === "openclaw") {
+        await queryClient.invalidateQueries({
+          queryKey: ["openclaw", "status"],
+        });
+      }
 
       // 更新托盘菜单（失败不影响主操作）
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (trayError) {
-        console.error(
-          "Failed to update tray menu after adding provider",
-          trayError,
-        );
+      if (traySupported(queryClient)) {
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (trayError) {
+          console.error(
+            "Failed to update tray menu after adding provider",
+            trayError,
+          );
+        }
       }
 
       toast.success(
@@ -94,6 +116,11 @@ export const useUpdateProviderMutation = (appId: AppId) => {
     },
     onSuccess: async (provider) => {
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
+      if (appId === "openclaw") {
+        await queryClient.invalidateQueries({
+          queryKey: ["openclaw", "status"],
+        });
+      }
 
       try {
         const currentProviderId = await providersApi.getCurrent(appId);
@@ -152,15 +179,22 @@ export const useDeleteProviderMutation = (appId: AppId) => {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
+      if (appId === "openclaw") {
+        await queryClient.invalidateQueries({
+          queryKey: ["openclaw", "status"],
+        });
+      }
 
       // 更新托盘菜单（失败不影响主操作）
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (trayError) {
-        console.error(
-          "Failed to update tray menu after deleting provider",
-          trayError,
-        );
+      if (traySupported(queryClient)) {
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (trayError) {
+          console.error(
+            "Failed to update tray menu after deleting provider",
+            trayError,
+          );
+        }
       }
 
       toast.success(
@@ -190,15 +224,22 @@ export const useSwitchProviderMutation = (appId: AppId) => {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
+      if (appId === "openclaw") {
+        await queryClient.invalidateQueries({
+          queryKey: ["openclaw", "status"],
+        });
+      }
 
       // 更新托盘菜单（失败不影响主操作）
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (trayError) {
-        console.error(
-          "Failed to update tray menu after switching provider",
-          trayError,
-        );
+      if (traySupported(queryClient)) {
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (trayError) {
+          console.error(
+            "Failed to update tray menu after switching provider",
+            trayError,
+          );
+        }
       }
 
       let description: string | undefined;

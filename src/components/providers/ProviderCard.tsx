@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { MoveVertical, Copy } from "lucide-react";
+import { Activity, MoveVertical, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   DraggableAttributes,
@@ -7,12 +7,14 @@ import type {
 } from "@dnd-kit/core";
 import type { Provider } from "@/types";
 import type { AppId, ProviderHealth } from "@/lib/api";
+import type { StreamCheckLog } from "@/lib/api/model-test";
 import { isUsageApp } from "@/config/apps";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ProviderActions } from "@/components/providers/ProviderActions";
 import UsageFooter from "@/components/UsageFooter";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { SubscriptionQuotaSummary } from "@/components/providers/SubscriptionQuotaSummary";
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
@@ -37,6 +39,8 @@ interface ProviderCardProps {
   onAutoFailover?: (targetId?: string | null) => void;
   dragHandleProps?: DragHandleProps;
   healthStatus?: ProviderHealth;
+  streamCheckLog?: StreamCheckLog;
+  isLiveConfigured?: boolean;
 }
 
 const extractApiUrl = (provider: Provider, fallbackText: string) => {
@@ -64,6 +68,11 @@ const extractApiUrl = (provider: Provider, fallbackText: string) => {
     const opencodeBase = (config as Record<string, any>)?.options?.baseURL;
     if (typeof opencodeBase === "string" && opencodeBase.trim()) {
       return opencodeBase;
+    }
+
+    const openclawBase = (config as Record<string, any>)?.baseUrl;
+    if (typeof openclawBase === "string" && openclawBase.trim()) {
+      return openclawBase;
     }
 
     const baseUrl = (config as Record<string, any>)?.config;
@@ -119,6 +128,8 @@ export function ProviderCard({
   onAutoFailover,
   dragHandleProps,
   healthStatus,
+  streamCheckLog,
+  isLiveConfigured,
 }: ProviderCardProps) {
   const { t } = useTranslation();
 
@@ -147,6 +158,9 @@ export function ProviderCard({
   const usageEnabled = provider.meta?.usage_script?.enabled ?? false;
   const usageSupported = isUsageApp(appId);
   const routingSupported = supportsLocalRouting(appId, provider);
+  const showSubscriptionQuota =
+    provider.category === "official" ||
+    provider.meta?.providerType === "codex_oauth";
 
   const handleOpenWebsite = () => {
     if (!isClickableUrl) {
@@ -200,6 +214,50 @@ export function ProviderCard({
 
     return { indicatorColor, tooltip, availabilityText, availabilityDisplay };
   }, [healthStatus, t]);
+
+  const streamCheckIndicator = useMemo(() => {
+    if (!streamCheckLog) return undefined;
+
+    const statusLabel = {
+      operational: t("streamCheck.statusOperational", {
+        defaultValue: "Operational",
+      }),
+      degraded: t("streamCheck.statusDegraded", {
+        defaultValue: "Degraded",
+      }),
+      failed: t("streamCheck.statusFailed", { defaultValue: "Failed" }),
+    }[streamCheckLog.status];
+    const detail = [
+      streamCheckLog.responseTimeMs != null
+        ? `${streamCheckLog.responseTimeMs}ms`
+        : undefined,
+      !streamCheckLog.success
+        ? (streamCheckLog.errorCategory ??
+          (streamCheckLog.httpStatus != null
+            ? `HTTP ${streamCheckLog.httpStatus}`
+            : undefined))
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const tooltip = [
+      `${t("streamCheck.latestStatus", { defaultValue: "Latest check" })}: ${statusLabel}`,
+      streamCheckLog.responseTimeMs != null
+        ? `${streamCheckLog.responseTimeMs}ms`
+        : undefined,
+      streamCheckLog.errorCategory,
+      new Date(streamCheckLog.testedAt * 1000).toLocaleString(),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const color = {
+      operational: "text-green-600 dark:text-green-300",
+      degraded: "text-amber-700 dark:text-amber-300",
+      failed: "text-red-600 dark:text-red-300",
+    }[streamCheckLog.status];
+
+    return { color, detail, statusLabel, tooltip };
+  }, [streamCheckLog, t]);
 
   return (
     <div
@@ -282,6 +340,27 @@ export function ProviderCard({
                   </span>
                 </span>
               )}
+              {streamCheckIndicator ? (
+                <span
+                  className={cn(
+                    "inline-flex min-w-0 max-w-full items-center gap-1 text-xs",
+                    streamCheckIndicator.color,
+                  )}
+                  title={streamCheckIndicator.tooltip}
+                  aria-label={streamCheckIndicator.tooltip}
+                >
+                  <Activity
+                    className="h-3.5 w-3.5 flex-none"
+                    aria-hidden="true"
+                  />
+                  <span>{streamCheckIndicator.statusLabel}</span>
+                  {streamCheckIndicator.detail ? (
+                    <span className="max-w-40 truncate">
+                      · {streamCheckIndicator.detail}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
               {provider.category === "third_party" &&
                 provider.meta?.isPartner && (
                   <span
@@ -305,13 +384,32 @@ export function ProviderCard({
                   })}
                 </span>
               ) : null}
+              {appId === "openclaw" && typeof isLiveConfigured === "boolean" ? (
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-xs font-medium",
+                    isLiveConfigured
+                      ? "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-300"
+                      : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                  )}
+                >
+                  {isLiveConfigured
+                    ? t("openclaw.liveConfigured", { defaultValue: "已写入" })
+                    : t("openclaw.storedOnly", { defaultValue: "仅配置库" })}
+                </span>
+              ) : null}
+              {showSubscriptionQuota ? (
+                <SubscriptionQuotaSummary appId={appId} />
+              ) : null}
               <span
                 className={cn(
                   "rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500 dark:text-green-400 transition-opacity duration-200",
                   isCurrent ? "opacity-100" : "opacity-0 pointer-events-none",
                 )}
               >
-                {t("provider.currentlyUsing")}
+                {appId === "openclaw"
+                  ? t("openclaw.defaultModel", { defaultValue: "默认模型" })
+                  : t("provider.currentlyUsing")}
               </span>
             </div>
 
@@ -350,6 +448,8 @@ export function ProviderCard({
 
           <ProviderActions
             isCurrent={isCurrent}
+            canDeleteCurrent={appId === "openclaw"}
+            switchMode={appId === "openclaw" ? "default-model" : "provider"}
             onSwitch={() => onSwitch(provider)}
             onEdit={() => onEdit(provider)}
             onConfigureUsage={() => onConfigureUsage(provider)}

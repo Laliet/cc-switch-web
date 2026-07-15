@@ -43,6 +43,14 @@ const useDeleteProviderMutationMock = vi.fn(() => deleteProviderMutation);
 const useSwitchProviderMutationMock = vi.fn(() => switchProviderMutation);
 
 vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: {
+      features: {
+        claudePluginIntegration: true,
+        tray: true,
+      },
+    },
+  }),
   useAddProviderMutation: () => useAddProviderMutationMock(),
   useUpdateProviderMutation: () => useUpdateProviderMutationMock(),
   useDeleteProviderMutation: () => useDeleteProviderMutationMock(),

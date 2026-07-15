@@ -339,11 +339,9 @@ async fn send_http_request(config: &RequestConfig, timeout_secs: u64) -> Result<
             ("请求失败", "Request failed")
         };
 
-        AppError::localized(
-            "usage_script.request_failed",
-            format!("{msg_zh}: {err_str}"),
-            format!("{msg_en}: {err_str}"),
-        )
+        // reqwest errors may include the complete request URL (including query
+        // credentials) or proxy details. Keep the public error category only.
+        AppError::localized("usage_script.request_failed", msg_zh, msg_en)
     })?;
 
     let status = resp.status();
@@ -354,11 +352,13 @@ async fn send_http_request(config: &RequestConfig, timeout_secs: u64) -> Result<
         let include_body = env_flag("USAGE_SCRIPT_INCLUDE_BODY");
 
         let preview = if include_body {
-            if text.len() > 200 {
-                format!("{}...", &text[..200])
+            let preview = text.chars().take(200).collect::<String>();
+            let suffix = if text.chars().count() > 200 {
+                "..."
             } else {
-                text.clone()
-            }
+                ""
+            };
+            format!("{}{suffix}", redact_response_preview(&preview))
         } else {
             "<response body omitted>".to_string()
         };
@@ -373,16 +373,57 @@ async fn send_http_request(config: &RequestConfig, timeout_secs: u64) -> Result<
     Ok(text)
 }
 
+fn redact_response_preview(value: &str) -> String {
+    let mut json = match serde_json::from_str::<Value>(value) {
+        Ok(json) => json,
+        Err(_) => return "<response body redacted>".to_string(),
+    };
+    redact_json_credentials(&mut json);
+    serde_json::to_string(&json).unwrap_or_else(|_| "<response body redacted>".to_string())
+}
+
+fn redact_json_credentials(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                let normalized = key
+                    .chars()
+                    .filter(|character| character.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                if normalized.contains("authorization")
+                    || normalized.contains("apikey")
+                    || normalized.contains("accesstoken")
+                    || normalized.contains("refreshtoken")
+                    || normalized.contains("secret")
+                    || normalized == "token"
+                    || normalized == "password"
+                {
+                    *child = Value::String("[redacted]".to_string());
+                } else {
+                    redact_json_credentials(child);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_json_credentials(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn read_response_body(resp: reqwest::Response, max_bytes: usize) -> Result<String, AppError> {
     let mut stream = resp.bytes_stream();
     let mut buf = Vec::new();
     let mut total = 0usize;
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
+        let chunk = chunk.map_err(|_| {
             AppError::localized(
                 "usage_script.read_response_failed",
-                format!("读取响应失败: {e}"),
-                format!("Failed to read response: {e}"),
+                "读取响应失败",
+                "Failed to read response",
             )
         })?;
         total = total.saturating_add(chunk.len());
@@ -522,11 +563,11 @@ fn parse_allowed_hosts() -> Option<Vec<String>> {
 }
 
 async fn resolve_host_ips(host: &str, port: u16) -> Result<Vec<IpAddr>, AppError> {
-    let resolved = lookup_host((host, port)).await.map_err(|e| {
+    let resolved = lookup_host((host, port)).await.map_err(|_| {
         AppError::localized(
             "usage_script.dns_lookup_failed",
-            format!("DNS 解析失败: {e}"),
-            format!("DNS lookup failed: {e}"),
+            "DNS 解析失败",
+            "DNS lookup failed",
         )
     })?;
 
@@ -753,4 +794,27 @@ fn validate_single_usage(result: &Value) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_response_preview;
+
+    #[test]
+    fn response_preview_redacts_nested_credentials() {
+        let preview = redact_response_preview(
+            r#"{"message":"bad","authorization":"Bearer secret","nested":{"api_key":"key-secret","token":"token-secret"}}"#,
+        );
+        assert!(!preview.contains("secret"));
+        assert!(!preview.contains("key-secret"));
+        assert!(preview.contains("[redacted]"));
+    }
+
+    #[test]
+    fn non_json_response_preview_is_omitted() {
+        assert_eq!(
+            redact_response_preview("Bearer secret-token upstream failure"),
+            "<response body redacted>"
+        );
+    }
 }

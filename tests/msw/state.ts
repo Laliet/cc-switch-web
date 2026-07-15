@@ -21,6 +21,56 @@ type McpServersState = Record<string, McpServer>;
 type SkillsState = Skill[];
 type SkillReposState = SkillRepo[];
 
+type MockWorkspaceFile = {
+  content: string;
+  etag: string;
+  modifiedAt: number;
+};
+type MockWorkspaceBackup = {
+  id: string;
+  content: string;
+  createdAt: number;
+};
+
+const workspaceFileNames = [
+  "AGENTS.md",
+  "SOUL.md",
+  "USER.md",
+  "IDENTITY.md",
+  "TOOLS.md",
+  "MEMORY.md",
+  "HEARTBEAT.md",
+  "BOOTSTRAP.md",
+  "BOOT.md",
+] as const;
+
+const workspaceEtag = (content: string) => {
+  let hash = 2166136261;
+  for (const char of content) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `mock-${(hash >>> 0).toString(16)}`;
+};
+
+let workspaceFiles: Record<string, MockWorkspaceFile> = {};
+let workspaceBackups: Record<string, MockWorkspaceBackup[]> = {};
+let dailyMemory: Record<string, MockWorkspaceFile> = {};
+let openclawDefaultModel: { primary: string; fallbacks: string[] } | undefined;
+let streamCheckLogs: Array<Record<string, unknown>> = [];
+
+const mockSessions = [
+  {
+    providerId: "codex",
+    sessionId: "mock-codex-1",
+    title: "Mock Codex session",
+    summary: "A session from the server host",
+    projectDir: "/home/mock/project",
+    sourcePath: "/home/mock/.codex/sessions/mock-codex-1.jsonl",
+    lastActiveAt: 1_700_000_000_000,
+  },
+];
+
 const createDefaultProviders = (): ProvidersByApp => ({
   claude: {
     "claude-1": {
@@ -103,6 +153,21 @@ const createDefaultProviders = (): ProvidersByApp => ({
       createdAt: Date.now(),
     },
   },
+  openclaw: {
+    "openclaw-1": {
+      id: "openclaw-1",
+      name: "OpenClaw Default",
+      settingsConfig: {
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "test-key",
+        api: "openai-completions",
+        models: [{ id: "default-model" }],
+      },
+      category: "custom",
+      sortIndex: 0,
+      createdAt: Date.now(),
+    },
+  },
   omo: {
     "omo-1": {
       id: "omo-1",
@@ -136,6 +201,7 @@ const createDefaultCurrent = (): CurrentProviderState => ({
   codex: "codex-1",
   gemini: "gemini-1",
   opencode: "opencode-1",
+  openclaw: "openclaw-1",
   omo: "omo-1",
   "omo-slim": "omo-slim-1",
 });
@@ -146,6 +212,7 @@ const createDefaultBackup = (): BackupProviderState => ({
   codex: null,
   gemini: null,
   opencode: null,
+  openclaw: null,
   omo: null,
   "omo-slim": null,
 });
@@ -412,6 +479,291 @@ export const resetProviderState = () => {
     "omo-slim": {},
   };
   mcpServers = buildUnifiedMcpServers(mcpConfigs);
+  workspaceFiles = {};
+  workspaceBackups = {};
+  dailyMemory = {};
+  openclawDefaultModel = undefined;
+  streamCheckLogs = [];
+};
+
+export const getCapabilitiesState = () => ({
+  runtime: "desktop" as const,
+  host: "local" as const,
+  apps: [
+    "claude",
+    "claude-desktop",
+    "codex",
+    "gemini",
+    "opencode",
+    "openclaw",
+    "omo",
+    "omo-slim",
+  ] as AppId[],
+  features: {
+    directoryPicker: true,
+    openExternal: true,
+    endpointTest: true,
+    workspace: true,
+    subscriptionQuota: true,
+    tray: true,
+    terminalLaunch: false,
+    configDirOverride: true,
+    fileDialogs: true,
+    sessionManager: true,
+    usageDashboard: true,
+    environmentManagement: true,
+    appUpdate: true,
+    portableMode: true,
+    claudePluginIntegration: true,
+  },
+  appFeatures: {
+    claude: {
+      providers: true,
+      prompts: true,
+      mcp: true,
+      skills: true,
+      usage: true,
+      sessions: true,
+      localRouting: true,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+    "claude-desktop": {
+      providers: true,
+      prompts: false,
+      mcp: false,
+      skills: false,
+      usage: false,
+      sessions: false,
+      localRouting: true,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+    codex: {
+      providers: true,
+      prompts: true,
+      mcp: true,
+      skills: true,
+      usage: true,
+      sessions: true,
+      localRouting: true,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+    gemini: {
+      providers: true,
+      prompts: true,
+      mcp: true,
+      skills: true,
+      usage: true,
+      sessions: true,
+      localRouting: true,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+    opencode: {
+      providers: true,
+      prompts: true,
+      mcp: true,
+      skills: true,
+      usage: true,
+      sessions: true,
+      localRouting: true,
+      additiveProviderMode: true,
+      hostManaged: false,
+    },
+    openclaw: {
+      providers: true,
+      prompts: false,
+      mcp: false,
+      skills: false,
+      usage: false,
+      sessions: true,
+      localRouting: false,
+      additiveProviderMode: true,
+      hostManaged: false,
+    },
+    omo: {
+      providers: true,
+      prompts: false,
+      mcp: true,
+      skills: true,
+      usage: false,
+      sessions: false,
+      localRouting: false,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+    "omo-slim": {
+      providers: true,
+      prompts: false,
+      mcp: true,
+      skills: true,
+      usage: false,
+      sessions: false,
+      localRouting: false,
+      additiveProviderMode: false,
+      hostManaged: false,
+    },
+  },
+});
+
+export const getOpenClawStatusState = () => {
+  const openclawProviders = Object.values(providers.openclaw ?? {}).map(
+    (provider) => {
+      const settings = provider.settingsConfig as Record<string, unknown>;
+      const models = Array.isArray(settings.models) ? settings.models : [];
+      return {
+        id: provider.id,
+        baseUrl:
+          typeof settings.baseUrl === "string" ? settings.baseUrl : undefined,
+        api: typeof settings.api === "string" ? settings.api : undefined,
+        models: models
+          .filter((model): model is Record<string, unknown> =>
+            Boolean(model && typeof model === "object"),
+          )
+          .map((model) => ({
+            id: String(model.id ?? ""),
+            name: typeof model.name === "string" ? model.name : undefined,
+          })),
+        hasApiKey:
+          typeof settings.apiKey === "string" && settings.apiKey.length > 0,
+      };
+    },
+  );
+  return {
+    defaultModel: openclawDefaultModel,
+    providers: openclawProviders,
+    warnings: [],
+  };
+};
+
+export const setOpenClawDefaultModelState = (model: {
+  primary: string;
+  fallbacks?: string[];
+}) => {
+  openclawDefaultModel = {
+    primary: model.primary,
+    fallbacks: model.fallbacks ?? [],
+  };
+  return { warnings: [] };
+};
+
+export const getWorkspaceFilesState = () =>
+  workspaceFileNames.map((name) => {
+    const file = workspaceFiles[name];
+    return {
+      name,
+      exists: Boolean(file),
+      sizeBytes: file?.content.length ?? 0,
+      modifiedAt: file?.modifiedAt,
+      etag: file?.etag,
+    };
+  });
+
+export const getWorkspaceFileState = (name: string) => workspaceFiles[name];
+
+export const writeWorkspaceFileState = (
+  name: string,
+  content: string,
+  expectedEtag?: string | null,
+) => {
+  const current = workspaceFiles[name];
+  if (current && expectedEtag !== current.etag) {
+    throw new Error("workspace_etag_conflict");
+  }
+  const now = Date.now();
+  const backupId = current ? `mock-${now}` : undefined;
+  if (current) {
+    workspaceBackups[name] = [
+      ...(workspaceBackups[name] ?? []),
+      { id: backupId!, content: current.content, createdAt: now },
+    ];
+  }
+  const next = { content, etag: workspaceEtag(content), modifiedAt: now };
+  workspaceFiles[name] = next;
+  return { name, ...next, backupId };
+};
+
+export const getWorkspaceBackupsState = (name: string) =>
+  (workspaceBackups[name] ?? []).map(({ id, content, createdAt }) => ({
+    id,
+    sizeBytes: content.length,
+    createdAt,
+  }));
+
+export const restoreWorkspaceBackupState = (
+  name: string,
+  backupId: string,
+  expectedEtag?: string | null,
+) => {
+  const backup = (workspaceBackups[name] ?? []).find(
+    (item) => item.id === backupId,
+  );
+  if (!backup) throw new Error("workspace_not_found");
+  return writeWorkspaceFileState(name, backup.content, expectedEtag);
+};
+
+export const getDailyMemoryState = () =>
+  Object.entries(dailyMemory)
+    .map(([date, file]) => ({
+      date,
+      sizeBytes: file.content.length,
+      modifiedAt: file.modifiedAt,
+      etag: file.etag,
+      preview: file.content.slice(0, 200),
+    }))
+    .sort((left, right) => right.date.localeCompare(left.date));
+
+export const getDailyMemoryFileState = (date: string) => dailyMemory[date];
+
+export const writeDailyMemoryState = (
+  date: string,
+  content: string,
+  expectedEtag?: string | null,
+) => {
+  const current = dailyMemory[date];
+  if (current && expectedEtag !== current.etag)
+    throw new Error("workspace_etag_conflict");
+  const now = Date.now();
+  const next = { content, etag: workspaceEtag(content), modifiedAt: now };
+  dailyMemory[date] = next;
+  return { name: `${date}.md`, ...next };
+};
+
+export const getSessionsPageState = (
+  cursor = "0",
+  limit = 100,
+  providerId?: string,
+) => {
+  const offset = Number.parseInt(cursor, 10) || 0;
+  const filtered = providerId
+    ? mockSessions.filter((session) => session.providerId === providerId)
+    : mockSessions;
+  const sessions = filtered.slice(offset, offset + limit);
+  return {
+    sessions,
+    nextCursor:
+      offset + sessions.length < filtered.length
+        ? String(offset + sessions.length)
+        : undefined,
+    total: filtered.length,
+    scannedAt: Date.now(),
+  };
+};
+
+export const getStreamCheckLogsState = (
+  appType?: string,
+  providerId?: string,
+) =>
+  streamCheckLogs.filter(
+    (log) =>
+      (!appType || log.appType === appType) &&
+      (!providerId || log.providerId === providerId),
+  );
+
+export const addStreamCheckLogState = (log: Record<string, unknown>) => {
+  streamCheckLogs = [log, ...streamCheckLogs];
 };
 
 export const getProviders = (appType: AppId) =>

@@ -909,6 +909,135 @@ fn provider_service_delete_current_provider_returns_error() {
 }
 
 #[test]
+fn provider_service_delete_current_openclaw_selects_replacement_default() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::OpenClaw)
+            .expect("openclaw manager");
+        manager.current = "alpha".to_string();
+        manager.providers.insert(
+            "alpha".to_string(),
+            Provider::with_id(
+                "alpha".to_string(),
+                "Alpha".to_string(),
+                json!({"baseUrl": "https://alpha.example", "models": [{"id": "alpha-1"}]}),
+                None,
+            ),
+        );
+        manager.providers.insert(
+            "beta".to_string(),
+            Provider::with_id(
+                "beta".to_string(),
+                "Beta".to_string(),
+                json!({"baseUrl": "https://beta.example", "models": [{"id": "beta-1"}]}),
+                None,
+            ),
+        );
+    }
+
+    let openclaw_dir = home.join(".openclaw");
+    std::fs::create_dir_all(&openclaw_dir).expect("create openclaw dir");
+    std::fs::write(
+        openclaw_dir.join("openclaw.json"),
+        r#"{
+  // unmanaged section must survive cc-switch writes
+  channels: { telegram: { enabled: true } },
+  models: {
+    mode: 'merge',
+    providers: {
+      alpha: { baseUrl: 'https://alpha.example', models: [{ id: 'alpha-1' }] },
+      beta: { baseUrl: 'https://beta.example', models: [{ id: 'beta-1' }] },
+    },
+  },
+  agents: { defaults: { model: { primary: 'alpha/alpha-1', fallbacks: [] } } },
+}
+"#,
+    )
+    .expect("seed openclaw config");
+
+    let state = AppState::new_for_tests(config).expect("test app state");
+    ProviderService::delete(&state, AppType::OpenClaw, "alpha")
+        .expect("delete current openclaw provider");
+
+    let stored = state.load_config().expect("load config after delete");
+    let manager = stored
+        .get_manager(&AppType::OpenClaw)
+        .expect("openclaw manager after delete");
+    assert!(!manager.providers.contains_key("alpha"));
+    assert_eq!(manager.current, "beta");
+
+    let source = std::fs::read_to_string(openclaw_dir.join("openclaw.json"))
+        .expect("read openclaw config after delete");
+    assert!(source.contains("unmanaged section must survive"));
+    let live: serde_json::Value = json5::from_str(&source).expect("parse openclaw config");
+    assert!(live.pointer("/models/providers/alpha").is_none());
+    assert!(live.pointer("/models/providers/beta").is_some());
+    assert_eq!(
+        live.pointer("/agents/defaults/model/primary")
+            .and_then(serde_json::Value::as_str),
+        Some("beta/beta-1")
+    );
+}
+
+#[test]
+fn provider_service_delete_last_openclaw_clears_default_model() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::OpenClaw)
+            .expect("openclaw manager");
+        manager.current = "only".to_string();
+        manager.providers.insert(
+            "only".to_string(),
+            Provider::with_id(
+                "only".to_string(),
+                "Only".to_string(),
+                json!({"models": [{"id": "only-1"}]}),
+                None,
+            ),
+        );
+    }
+
+    let openclaw_dir = home.join(".openclaw");
+    std::fs::create_dir_all(&openclaw_dir).expect("create openclaw dir");
+    std::fs::write(
+        openclaw_dir.join("openclaw.json"),
+        r#"{
+  models: { mode: 'merge', providers: { only: { models: [{ id: 'only-1' }] } } },
+  agents: { defaults: { model: 'only/only-1' } },
+}
+"#,
+    )
+    .expect("seed openclaw config");
+
+    let state = AppState::new_for_tests(config).expect("test app state");
+    ProviderService::delete(&state, AppType::OpenClaw, "only")
+        .expect("delete final openclaw provider");
+
+    let stored = state.load_config().expect("load config after delete");
+    let manager = stored
+        .get_manager(&AppType::OpenClaw)
+        .expect("openclaw manager after delete");
+    assert!(manager.providers.is_empty());
+    assert!(manager.current.is_empty());
+
+    let source = std::fs::read_to_string(openclaw_dir.join("openclaw.json"))
+        .expect("read openclaw config after delete");
+    let live: serde_json::Value = json5::from_str(&source).expect("parse openclaw config");
+    assert!(live.pointer("/models/providers/only").is_none());
+    assert!(live.pointer("/agents/defaults/model").is_none());
+}
+
+#[test]
 fn provider_service_update_current_codex_preserves_mcp_in_live_and_snapshot() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

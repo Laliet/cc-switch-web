@@ -20,7 +20,33 @@ describe("sessionsApi", () => {
   it("lists server-host sessions", async () => {
     invokeMock.mockResolvedValueOnce([session]);
     await expect(sessionsApi.list()).resolves.toEqual([session]);
-    expect(invokeMock).toHaveBeenCalledWith("list_sessions");
+    expect(invokeMock).toHaveBeenCalledWith("list_sessions", {
+      refresh: false,
+    });
+  });
+
+  it("lists a paged server-host session result", async () => {
+    const page = {
+      sessions: [session],
+      nextCursor: "100",
+      total: 101,
+      scannedAt: 123,
+    };
+    invokeMock.mockResolvedValueOnce(page);
+    await expect(
+      sessionsApi.listPage({
+        cursor: "0",
+        limit: 100,
+        providerId: "codex",
+        refresh: true,
+      }),
+    ).resolves.toEqual(page);
+    expect(invokeMock).toHaveBeenCalledWith("list_sessions_page", {
+      cursor: "0",
+      limit: 100,
+      providerId: "codex",
+      refresh: true,
+    });
   });
 
   it("loads messages with provider and source path", async () => {

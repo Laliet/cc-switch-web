@@ -36,6 +36,9 @@ enum LiveSnapshot {
     Opencode {
         config: Option<Value>,
     },
+    OpenClaw {
+        config: Option<String>,
+    },
     Omo {
         config: Option<Value>,
         opencode_config: Option<Value>,
@@ -50,6 +53,7 @@ struct PostCommitAction {
     backup: LiveSnapshot,
     sync_mcp: bool,
     refresh_snapshot: bool,
+    set_additive_default: bool,
 }
 
 impl LiveSnapshot {
@@ -108,6 +112,14 @@ impl LiveSnapshot {
                 let path = crate::opencode_config::get_opencode_config_path();
                 if let Some(value) = config {
                     write_json_file(&path, value)?;
+                } else if path.exists() {
+                    delete_file(&path)?;
+                }
+            }
+            LiveSnapshot::OpenClaw { config } => {
+                let path = crate::openclaw_config::get_openclaw_config_path();
+                if let Some(source) = config {
+                    crate::config::atomic_write(&path, source.as_bytes())?;
                 } else if path.exists() {
                     delete_file(&path)?;
                 }
@@ -685,6 +697,9 @@ impl ProviderService {
         let proxy_takeover_active = Self::proxy_takeover_enabled(&action.app_type);
         if !proxy_takeover_active {
             Self::write_live_snapshot(state, &action.app_type, &action.provider)?;
+            if action.set_additive_default && matches!(action.app_type, AppType::OpenClaw) {
+                Self::set_openclaw_default(&action.provider)?;
+            }
         }
         if action.sync_mcp {
             // 使用 v3.7.0 统一的 MCP 同步机制，支持所有应用
@@ -706,7 +721,9 @@ impl ProviderService {
                 AppType::Codex => proxy.apps.codex.enabled,
                 AppType::Gemini => proxy.apps.gemini.enabled,
                 AppType::Opencode => proxy.apps.opencode.enabled,
-                AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
+                AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
+                    false
+                }
             }
         }
 
@@ -832,6 +849,24 @@ impl ProviderService {
                     Ok(())
                 })?;
             }
+            AppType::OpenClaw => {
+                let fragment =
+                    crate::openclaw_config::get_provider(provider_id)?.ok_or_else(|| {
+                        AppError::localized(
+                            "openclaw.live.missing",
+                            format!("OpenClaw live 配置中缺少供应商 {provider_id}"),
+                            format!("OpenClaw live config is missing provider {provider_id}"),
+                        )
+                    })?;
+                state.update_config(|cfg| {
+                    if let Some(manager) = cfg.get_manager_mut(app_type) {
+                        if let Some(target) = manager.providers.get_mut(provider_id) {
+                            target.settings_config = fragment;
+                        }
+                    }
+                    Ok(())
+                })?;
+            }
             AppType::ClaudeDesktop => {}
             AppType::Omo | AppType::OmoSlim => {
                 let slim = matches!(app_type, AppType::OmoSlim);
@@ -922,6 +957,15 @@ impl ProviderService {
                     None
                 };
                 Ok(LiveSnapshot::Opencode { config })
+            }
+            AppType::OpenClaw => {
+                let path = crate::openclaw_config::get_openclaw_config_path();
+                let config = if path.exists() {
+                    Some(std::fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?)
+                } else {
+                    None
+                };
+                Ok(LiveSnapshot::OpenClaw { config })
             }
             AppType::ClaudeDesktop => Ok(LiveSnapshot::Noop),
             AppType::Omo | AppType::OmoSlim => {
@@ -1030,12 +1074,25 @@ impl ProviderService {
                 .get_manager_mut(&app_type_clone)
                 .ok_or_else(|| Self::app_not_found(&app_type_clone))?;
 
+            if matches!(app_type_clone, AppType::OpenClaw)
+                && manager.providers.contains_key(&provider_clone.id)
+            {
+                return Err(AppError::localized(
+                    "provider.duplicate_id",
+                    format!("OpenClaw Provider Key 已存在: {}", provider_clone.id),
+                    format!(
+                        "OpenClaw Provider Key already exists: {}",
+                        provider_clone.id
+                    ),
+                ));
+            }
+
             let is_current = manager.current == provider_clone.id;
             manager
                 .providers
                 .insert(provider_clone.id.clone(), provider_clone.clone());
 
-            let action = if is_current {
+            let action = if is_current || matches!(app_type_clone, AppType::OpenClaw) {
                 let backup = Self::capture_live_snapshot(&app_type_clone)?;
                 Some(PostCommitAction {
                     app_type: app_type_clone.clone(),
@@ -1043,6 +1100,7 @@ impl ProviderService {
                     backup,
                     sync_mcp: false,
                     refresh_snapshot: false,
+                    set_additive_default: is_current,
                 })
             } else {
                 None
@@ -1103,7 +1161,7 @@ impl ProviderService {
             let live_provider = merged.clone();
             manager.providers.insert(provider_id.clone(), merged);
 
-            let action = if is_current {
+            let action = if is_current || matches!(app_type_clone, AppType::OpenClaw) {
                 let backup = Self::capture_live_snapshot(&app_type_clone)?;
                 Some(PostCommitAction {
                     app_type: app_type_clone.clone(),
@@ -1111,6 +1169,7 @@ impl ProviderService {
                     backup,
                     sync_mcp: true,
                     refresh_snapshot: true,
+                    set_additive_default: is_current,
                 })
             } else {
                 None
@@ -1226,6 +1285,51 @@ impl ProviderService {
                 })?;
                 return Ok(());
             }
+            AppType::OpenClaw => {
+                let mut provider_entries = crate::openclaw_config::get_providers()?
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                if provider_entries.is_empty() {
+                    return Err(AppError::localized(
+                        "openclaw.live.missing",
+                        "OpenClaw 配置文件不存在或不包含 provider",
+                        "OpenClaw config is missing or contains no providers",
+                    ));
+                }
+                provider_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+                let default_provider = crate::openclaw_config::get_default_model()?
+                    .and_then(|model| model.primary.split('/').next().map(ToString::to_string));
+
+                state.update_config(|cfg| {
+                    let manager = cfg
+                        .get_manager_mut(&app_type)
+                        .ok_or_else(|| Self::app_not_found(&app_type))?;
+                    for (provider_id, settings_config) in provider_entries {
+                        let display_name = settings_config
+                            .get("models")
+                            .and_then(Value::as_array)
+                            .and_then(|models| models.first())
+                            .and_then(|model| model.get("name").or_else(|| model.get("id")))
+                            .and_then(Value::as_str)
+                            .unwrap_or(&provider_id)
+                            .to_string();
+                        let mut provider = Provider::with_id(
+                            provider_id.clone(),
+                            display_name,
+                            settings_config,
+                            None,
+                        );
+                        provider.category = Some("custom".to_string());
+                        manager.providers.insert(provider_id, provider);
+                    }
+                    manager.current = default_provider
+                        .filter(|id| manager.providers.contains_key(id))
+                        .or_else(|| manager.providers.keys().min().cloned())
+                        .unwrap_or_default();
+                    Ok(())
+                })?;
+                return Ok(());
+            }
             AppType::ClaudeDesktop => {
                 return Err(Self::app_not_supported(&app_type));
             }
@@ -1285,6 +1389,33 @@ impl ProviderService {
         match app_type {
             AppType::Opencode => {
                 return Self::sync_current_opencode_provider_from_live(state, live_settings);
+            }
+            AppType::OpenClaw => {
+                let providers = live_settings
+                    .pointer("/models/providers")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                return state.update_config(|config| {
+                    let manager = config
+                        .get_manager_mut(&app_type)
+                        .ok_or_else(|| Self::app_not_found(&app_type))?;
+                    for (provider_id, fragment) in providers {
+                        if let Some(existing) = manager.providers.get_mut(&provider_id) {
+                            existing.settings_config = fragment;
+                        } else {
+                            let mut provider = Provider::with_id(
+                                provider_id.clone(),
+                                provider_id.clone(),
+                                fragment,
+                                None,
+                            );
+                            provider.category = Some("custom".to_string());
+                            manager.providers.insert(provider_id, provider);
+                        }
+                    }
+                    Ok(())
+                });
             }
             AppType::Omo | AppType::OmoSlim => {
                 return Self::sync_current_provider_from_live(state, app_type, live_settings);
@@ -1440,6 +1571,17 @@ impl ProviderService {
                     }));
                 }
                 crate::opencode_config::read_opencode_config()
+            }
+            AppType::OpenClaw => {
+                let path = crate::openclaw_config::get_openclaw_config_path();
+                if !path.exists() {
+                    return Err(AppError::localized(
+                        "openclaw.live.missing",
+                        "OpenClaw 配置文件不存在",
+                        "OpenClaw configuration file is missing",
+                    ));
+                }
+                crate::openclaw_config::read_openclaw_config()
             }
             AppType::ClaudeDesktop => Err(Self::app_not_supported(&app_type)),
             AppType::Omo | AppType::OmoSlim => {
@@ -1864,6 +2006,7 @@ impl ProviderService {
                     Self::prepare_switch_claude_desktop(config, &provider_id_owned)?
                 }
                 AppType::Opencode => Self::prepare_switch_opencode(config, &provider_id_owned)?,
+                AppType::OpenClaw => Self::prepare_switch_openclaw(config, &provider_id_owned)?,
                 AppType::Omo | AppType::OmoSlim => {
                     Self::prepare_switch_omo(config, &app_type_clone, &provider_id_owned)?
                 }
@@ -1873,8 +2016,9 @@ impl ProviderService {
                 app_type: app_type_clone.clone(),
                 provider,
                 backup,
-                sync_mcp: !matches!(app_type_clone, AppType::ClaudeDesktop),
+                sync_mcp: !matches!(app_type_clone, AppType::ClaudeDesktop | AppType::OpenClaw),
                 refresh_snapshot: !matches!(app_type_clone, AppType::ClaudeDesktop),
+                set_additive_default: matches!(app_type_clone, AppType::OpenClaw),
             };
 
             Ok(((), Some(action)))
@@ -2083,6 +2227,30 @@ impl ProviderService {
             manager.current = provider_id.to_string();
         }
 
+        Ok(provider)
+    }
+
+    fn prepare_switch_openclaw(
+        config: &mut MultiAppConfig,
+        provider_id: &str,
+    ) -> Result<Provider, AppError> {
+        let provider = config
+            .get_manager(&AppType::OpenClaw)
+            .ok_or_else(|| Self::app_not_found(&AppType::OpenClaw))?
+            .providers
+            .get(provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::localized(
+                    "provider.not_found",
+                    format!("供应商不存在: {provider_id}"),
+                    format!("Provider not found: {provider_id}"),
+                )
+            })?;
+
+        if let Some(manager) = config.get_manager_mut(&AppType::OpenClaw) {
+            manager.current = provider_id.to_string();
+        }
         Ok(provider)
     }
 
@@ -2422,6 +2590,62 @@ impl ProviderService {
         Ok(())
     }
 
+    fn openclaw_fragment(provider: &Provider) -> Result<Value, AppError> {
+        let settings = provider.settings_config.as_object().ok_or_else(|| {
+            AppError::localized(
+                "provider.openclaw.settings.not_object",
+                "OpenClaw 配置必须是 JSON 对象",
+                "OpenClaw configuration must be a JSON object",
+            )
+        })?;
+        if let Some(providers) = settings.get("providers").and_then(Value::as_object) {
+            if let Some(fragment) = providers.get(&provider.id) {
+                return Ok(fragment.clone());
+            }
+        }
+        if let Some(models) = settings.get("models").and_then(Value::as_object) {
+            if let Some(fragment) = models
+                .get("providers")
+                .and_then(Value::as_object)
+                .and_then(|providers| providers.get(&provider.id))
+            {
+                return Ok(fragment.clone());
+            }
+        }
+        Ok(provider.settings_config.clone())
+    }
+
+    fn write_openclaw_live(provider: &Provider) -> Result<(), AppError> {
+        let fragment = Self::openclaw_fragment(provider)?;
+        if !fragment.is_object() {
+            return Err(AppError::localized(
+                "provider.openclaw.fragment.not_object",
+                format!("OpenClaw provider {} 必须是 JSON 对象", provider.id),
+                format!("OpenClaw provider {} must be a JSON object", provider.id),
+            ));
+        }
+        crate::openclaw_config::set_provider(&provider.id, fragment)?;
+        Ok(())
+    }
+
+    fn set_openclaw_default(provider: &Provider) -> Result<(), AppError> {
+        let primary = Self::openclaw_primary_model(provider);
+        if let Some(primary) = primary {
+            crate::openclaw_config::set_default_model(
+                &crate::openclaw_config::OpenClawDefaultModel {
+                    primary,
+                    fallbacks: Vec::new(),
+                },
+            )?;
+            return Ok(());
+        }
+        Err(AppError::localized(
+            "provider.openclaw.default_model.missing",
+            format!("OpenClaw 供应商 {} 没有可用的默认模型", provider.id),
+            format!("OpenClaw provider {} has no model to select", provider.id),
+        ))
+    }
+
     pub(crate) fn write_omo_live(provider: &Provider) -> Result<(), AppError> {
         if !provider.settings_config.is_object() {
             return Err(AppError::localized(
@@ -2492,6 +2716,7 @@ impl ProviderService {
                 crate::claude_desktop_config::apply_provider(&state.db, provider)
             }
             AppType::Opencode => Self::write_opencode_live(provider),
+            AppType::OpenClaw => Self::write_openclaw_live(provider),
             AppType::Omo => Self::write_omo_live(provider),
             AppType::OmoSlim => Self::write_omo_slim_live(provider),
         }
@@ -2563,6 +2788,51 @@ impl ProviderService {
                         "OpenCode 配置必须是 JSON 对象",
                         "OpenCode configuration must be a JSON object",
                     ));
+                }
+            }
+            AppType::OpenClaw => {
+                let settings = provider.settings_config.as_object().ok_or_else(|| {
+                    AppError::localized(
+                        "provider.openclaw.settings.not_object",
+                        "OpenClaw 配置必须是 JSON 对象",
+                        "OpenClaw configuration must be a JSON object",
+                    )
+                })?;
+                let models = settings
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        AppError::localized(
+                            "provider.openclaw.models.missing",
+                            "OpenClaw 配置必须包含 models 数组",
+                            "OpenClaw configuration must contain a models array",
+                        )
+                    })?;
+                if models.is_empty()
+                    || models.iter().any(|model| {
+                        model
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map_or(true, |id| id.trim().is_empty())
+                    })
+                {
+                    return Err(AppError::localized(
+                        "provider.openclaw.models.invalid",
+                        "OpenClaw models 必须至少包含一个有效的 id",
+                        "OpenClaw models must contain at least one valid id",
+                    ));
+                }
+                if let Some(base_url) = settings.get("baseUrl").and_then(Value::as_str) {
+                    if !(base_url.is_empty()
+                        || base_url.starts_with("http://")
+                        || base_url.starts_with("https://"))
+                    {
+                        return Err(AppError::localized(
+                            "provider.openclaw.base_url.invalid",
+                            "OpenClaw baseUrl 必须是 HTTP(S) 地址",
+                            "OpenClaw baseUrl must be an HTTP(S) URL",
+                        ));
+                    }
                 }
             }
             AppType::Omo | AppType::OmoSlim => {
@@ -2778,6 +3048,23 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
+            AppType::OpenClaw => {
+                let settings = provider
+                    .settings_config
+                    .as_object()
+                    .ok_or_else(|| Self::app_not_supported(app_type))?;
+                let api_key = settings
+                    .get("apiKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let base_url = settings
+                    .get("baseUrl")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                Ok((api_key, base_url))
+            }
             AppType::Omo | AppType::OmoSlim => Err(Self::app_not_supported(app_type)),
         }
     }
@@ -2805,7 +3092,120 @@ impl ProviderService {
             .as_millis() as i64
     }
 
+    fn openclaw_primary_model(provider: &Provider) -> Option<String> {
+        Self::openclaw_fragment(provider)
+            .ok()?
+            .get("models")?
+            .as_array()?
+            .first()?
+            .get("id")?
+            .as_str()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(|model| format!("{}/{}", provider.id, model))
+    }
+
+    fn select_openclaw_default(providers: &HashMap<String, Provider>) -> Option<Provider> {
+        let mut candidates = providers
+            .values()
+            .filter(|provider| Self::openclaw_primary_model(provider).is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            left.sort_index
+                .unwrap_or(usize::MAX)
+                .cmp(&right.sort_index.unwrap_or(usize::MAX))
+                .then_with(|| {
+                    left.created_at
+                        .unwrap_or(i64::MAX)
+                        .cmp(&right.created_at.unwrap_or(i64::MAX))
+                })
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        candidates.into_iter().next()
+    }
+
+    fn delete_openclaw(state: &AppState, provider_id: &str) -> Result<(), AppError> {
+        let original = state.load_config()?;
+        let live_default = crate::openclaw_config::get_default_model()?;
+        let live_default_provider = live_default
+            .as_ref()
+            .and_then(|model| model.primary.split_once('/').map(|(provider, _)| provider));
+        let mut next = original.clone();
+        let manager = next
+            .get_manager_mut(&AppType::OpenClaw)
+            .ok_or_else(|| Self::app_not_found(&AppType::OpenClaw))?;
+
+        if !manager.providers.contains_key(provider_id) {
+            return Err(AppError::localized(
+                "provider.not_found",
+                format!("供应商不存在: {provider_id}"),
+                format!("Provider not found: {provider_id}"),
+            ));
+        }
+
+        let deleting_tracked_default = manager.current == provider_id;
+        manager.providers.remove(provider_id);
+        let valid_live_default = live_default_provider
+            .filter(|provider| manager.providers.contains_key(*provider))
+            .map(ToString::to_string);
+        let should_update_live_default = live_default_provider == Some(provider_id)
+            || (deleting_tracked_default && valid_live_default.is_none());
+        let replacement = should_update_live_default
+            .then(|| Self::select_openclaw_default(&manager.providers))
+            .flatten();
+
+        manager.current = if should_update_live_default {
+            replacement
+                .as_ref()
+                .map(|provider| provider.id.clone())
+                .unwrap_or_default()
+        } else {
+            valid_live_default
+                .or_else(|| {
+                    manager
+                        .providers
+                        .contains_key(&manager.current)
+                        .then(|| manager.current.clone())
+                })
+                .unwrap_or_default()
+        };
+
+        let backup = Self::capture_live_snapshot(&AppType::OpenClaw)?;
+        state.replace_config(&next)?;
+        let live_result = (|| {
+            crate::openclaw_config::remove_provider(provider_id)?;
+            if should_update_live_default {
+                if let Some(provider) = replacement.as_ref() {
+                    Self::set_openclaw_default(provider)?;
+                } else {
+                    crate::openclaw_config::clear_default_model()?;
+                }
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = live_result {
+            if let Err(rollback_error) = Self::rollback_after_failure(state, original, backup) {
+                return Err(AppError::localized(
+                    "provider.delete.rollback_failed",
+                    format!("删除 OpenClaw 供应商失败: {error}；回滚失败: {rollback_error}"),
+                    format!(
+                        "Failed to delete OpenClaw provider: {error}; rollback failed: {rollback_error}"
+                    ),
+                ));
+            }
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
     pub fn delete(state: &AppState, app_type: AppType, provider_id: &str) -> Result<(), AppError> {
+        if matches!(app_type, AppType::OpenClaw) {
+            return Self::delete_openclaw(state, provider_id);
+        }
+
         let provider_snapshot = {
             let config = state.load_config()?;
             let manager = config
@@ -2851,6 +3251,7 @@ impl ProviderService {
             AppType::Opencode => {
                 crate::opencode_config::remove_provider(provider_id)?;
             }
+            AppType::OpenClaw => unreachable!("OpenClaw deletion is handled transactionally"),
             AppType::Omo | AppType::OmoSlim => {}
         }
 
@@ -3008,6 +3409,7 @@ impl ProviderService {
                         AppType::Codex => format!("universal-codex-{id}"),
                         AppType::Gemini => format!("universal-gemini-{id}"),
                         AppType::ClaudeDesktop
+                        | AppType::OpenClaw
                         | AppType::Opencode
                         | AppType::Omo
                         | AppType::OmoSlim => continue,

@@ -461,7 +461,7 @@ impl SkillService {
             AppType::Opencode => {
                 return Ok(home.join(".config").join("opencode").join("skills"));
             }
-            AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
+            AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
                 return Err(anyhow!(format_skill_error(
                     "APP_NOT_SUPPORTED",
                     &[("app", app.as_str())],

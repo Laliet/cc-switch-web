@@ -107,7 +107,7 @@ impl ProxyBackupStore {
             AppType::Codex => self.codex.is_some(),
             AppType::Gemini => self.gemini.is_some(),
             AppType::Opencode => self.opencode.is_some(),
-            AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
+            AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => false,
         }
     }
 }
@@ -143,7 +143,7 @@ pub fn apply_takeover(
             }
             write_opencode_takeover(listen_url)?;
         }
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
             return Err(AppError::localized(
                 "proxy.app.unsupported",
                 format!("代理暂不支持 {}。", app.as_str()),
@@ -159,7 +159,11 @@ pub fn sync_current_provider_from_live(state: &AppState, app: &AppType) -> Resul
         AppType::Claude => sync_claude_provider_from_live(state),
         AppType::Codex => sync_codex_provider_from_live(state),
         AppType::Gemini => sync_gemini_provider_from_live(state),
-        AppType::Opencode | AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => Ok(()),
+        AppType::Opencode
+        | AppType::ClaudeDesktop
+        | AppType::OpenClaw
+        | AppType::Omo
+        | AppType::OmoSlim => Ok(()),
     }
 }
 
@@ -188,7 +192,7 @@ pub fn restore_takeover(app: &AppType) -> Result<(), AppError> {
                 restore_json_file(&backup.config_path, backup.config)?;
             }
         }
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {}
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {}
     }
     save_backups(&backups)
 }

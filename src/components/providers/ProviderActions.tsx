@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 
 interface ProviderActionsProps {
   isCurrent: boolean;
+  canDeleteCurrent?: boolean;
+  switchMode?: "provider" | "default-model";
   onSwitch: () => void;
   onEdit: () => void;
   onConfigureUsage: () => void;
@@ -16,6 +18,8 @@ interface ProviderActionsProps {
 
 export function ProviderActions({
   isCurrent,
+  canDeleteCurrent = false,
+  switchMode = "provider",
   onSwitch,
   onEdit,
   onConfigureUsage,
@@ -25,6 +29,15 @@ export function ProviderActions({
   showUsageActions = true,
 }: ProviderActionsProps) {
   const { t } = useTranslation();
+  const deleteDisabled = isCurrent && !canDeleteCurrent;
+  const currentLabel =
+    switchMode === "default-model"
+      ? t("openclaw.default", { defaultValue: "默认" })
+      : t("provider.inUse");
+  const switchLabel =
+    switchMode === "default-model"
+      ? t("openclaw.setDefault", { defaultValue: "设为默认" })
+      : t("provider.enable");
 
   return (
     <div className="flex items-center gap-2">
@@ -34,7 +47,7 @@ export function ProviderActions({
         onClick={onSwitch}
         disabled={isCurrent}
         className={cn(
-          "w-20",
+          switchMode === "default-model" ? "min-w-24" : "w-20",
           isCurrent &&
             "bg-gray-200 text-muted-foreground hover:bg-gray-200 hover:text-muted-foreground dark:bg-gray-700 dark:hover:bg-gray-700",
         )}
@@ -42,12 +55,12 @@ export function ProviderActions({
         {isCurrent ? (
           <>
             <Check className="h-4 w-4" />
-            {t("provider.inUse")}
+            {currentLabel}
           </>
         ) : (
           <>
             <Play className="h-4 w-4" />
-            {t("provider.enable")}
+            {switchLabel}
           </>
         )}
       </Button>
@@ -95,11 +108,13 @@ export function ProviderActions({
         <Button
           size="icon"
           variant="ghost"
-          onClick={isCurrent ? undefined : onDelete}
+          onClick={deleteDisabled ? undefined : onDelete}
+          disabled={deleteDisabled}
           title={t("common.delete")}
           className={cn(
-            !isCurrent && "hover:text-red-500 dark:hover:text-red-400",
-            isCurrent && "opacity-40 cursor-not-allowed text-muted-foreground",
+            !deleteDisabled && "hover:text-red-500 dark:hover:text-red-400",
+            deleteDisabled &&
+              "opacity-40 cursor-not-allowed text-muted-foreground",
           )}
         >
           <Trash2 className="h-4 w-4" />

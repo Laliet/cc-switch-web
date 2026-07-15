@@ -92,7 +92,7 @@ fn expected_prompt_path(app: &AppType, home: &Path) -> PathBuf {
             .join("AGENTS.md"),
         AppType::Gemini => home.join(".gemini").join("GEMINI.md"),
         AppType::Opencode => home.join(".config").join("opencode").join("AGENTS.md"),
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
             panic!("{app:?} should not be used in prompt service tests")
         }
     }

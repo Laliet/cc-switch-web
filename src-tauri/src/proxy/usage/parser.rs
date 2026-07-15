@@ -57,6 +57,7 @@ impl TokenUsage {
 
     fn from_claude_stream_events(events: &[Value]) -> Option<Self> {
         let mut usage = Self::default();
+        let mut saw_usage_fields = false;
         for event in events {
             match event.get("type").and_then(|v| v.as_str()) {
                 Some("message_start") => {
@@ -74,6 +75,15 @@ impl TokenUsage {
                                 .map(ToString::to_string);
                         }
                         if let Some(msg_usage) = message.get("usage") {
+                            saw_usage_fields |= has_any_usage_field(
+                                msg_usage,
+                                &[
+                                    "input_tokens",
+                                    "output_tokens",
+                                    "cache_read_input_tokens",
+                                    "cache_creation_input_tokens",
+                                ],
+                            );
                             usage.input_tokens = msg_usage
                                 .get("input_tokens")
                                 .and_then(|v| v.as_u64())
@@ -94,6 +104,15 @@ impl TokenUsage {
                 }
                 Some("message_delta") => {
                     if let Some(delta_usage) = event.get("usage") {
+                        saw_usage_fields |= has_any_usage_field(
+                            delta_usage,
+                            &[
+                                "input_tokens",
+                                "output_tokens",
+                                "cache_read_input_tokens",
+                                "cache_creation_input_tokens",
+                            ],
+                        );
                         if let Some(output) =
                             delta_usage.get("output_tokens").and_then(|v| v.as_u64())
                         {
@@ -125,7 +144,7 @@ impl TokenUsage {
                 _ => {}
             }
         }
-        usage.has_tokens().then_some(usage)
+        (saw_usage_fields || usage.has_tokens()).then_some(usage)
     }
 
     fn from_codex_response_auto(body: &Value) -> Option<Self> {
@@ -162,7 +181,7 @@ impl TokenUsage {
                     .map(ToString::to_string),
                 message_id: None,
             };
-            parsed.has_tokens().then_some(parsed)
+            Some(parsed)
         } else {
             None
         }
@@ -222,7 +241,7 @@ impl TokenUsage {
                 .map(ToString::to_string),
             message_id: None,
         };
-        parsed.has_tokens().then_some(parsed)
+        Some(parsed)
     }
 
     fn from_openai_stream_events(events: &[Value]) -> Option<Self> {
@@ -257,8 +276,17 @@ impl TokenUsage {
     fn from_gemini_stream_chunks(events: &[Value]) -> Option<Self> {
         let mut usage = Self::default();
         let mut total_tokens = 0u32;
+        let mut saw_usage_fields = false;
         for event in events {
             if let Some(metadata) = event.get("usageMetadata") {
+                saw_usage_fields |= has_any_usage_field(
+                    metadata,
+                    &[
+                        "promptTokenCount",
+                        "totalTokenCount",
+                        "cachedContentTokenCount",
+                    ],
+                );
                 usage.input_tokens = metadata
                     .get("promptTokenCount")
                     .and_then(|v| v.as_u64())
@@ -280,7 +308,7 @@ impl TokenUsage {
             }
         }
         usage.output_tokens = total_tokens.saturating_sub(usage.input_tokens);
-        usage.has_tokens().then_some(usage)
+        (saw_usage_fields || usage.has_tokens()).then_some(usage)
     }
 
     fn has_tokens(&self) -> bool {
@@ -289,6 +317,10 @@ impl TokenUsage {
             || self.cache_read_tokens > 0
             || self.cache_creation_tokens > 0
     }
+}
+
+fn has_any_usage_field(usage: &Value, fields: &[&str]) -> bool {
+    fields.iter().any(|field| usage.get(*field).is_some())
 }
 
 #[cfg(test)]
@@ -332,6 +364,63 @@ mod tests {
         });
 
         assert!(TokenUsage::from_response("codex", &body).is_none());
+    }
+
+    #[test]
+    fn distinguishes_missing_usage_from_valid_all_zero_usage() {
+        assert!(TokenUsage::from_response("codex", &json!({ "model": "gpt-5.1" })).is_none());
+
+        let codex = TokenUsage::from_response(
+            "codex",
+            &json!({
+                "model": "gpt-5.1",
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            }),
+        )
+        .expect("zero Codex usage remains observable");
+        assert_eq!(codex.input_tokens, 0);
+        assert_eq!(codex.output_tokens, 0);
+        assert_eq!(codex.model.as_deref(), Some("gpt-5.1"));
+
+        let claude = TokenUsage::from_response(
+            "claude",
+            &json!({
+                "model": "claude-sonnet-4-6",
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            }),
+        )
+        .expect("zero Claude usage remains observable");
+        assert_eq!(claude.input_tokens, 0);
+        assert_eq!(claude.output_tokens, 0);
+
+        let gemini = TokenUsage::from_response(
+            "gemini",
+            &json!({
+                "modelVersion": "gemini-2.5-pro",
+                "usageMetadata": { "promptTokenCount": 0, "totalTokenCount": 0 }
+            }),
+        )
+        .expect("zero Gemini usage remains observable");
+        assert_eq!(gemini.input_tokens, 0);
+        assert_eq!(gemini.output_tokens, 0);
+    }
+
+    #[test]
+    fn stream_usage_keeps_explicit_zero_fields_but_ignores_empty_objects() {
+        let zero = TokenUsage::from_stream_events(
+            "claude",
+            &[json!({
+                "type": "message_delta",
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            })],
+        )
+        .expect("explicit zero stream usage");
+        assert_eq!(zero.input_tokens, 0);
+        assert_eq!(zero.output_tokens, 0);
+
+        assert!(
+            TokenUsage::from_stream_events("gemini", &[json!({ "usageMetadata": {} })]).is_none()
+        );
     }
 
     #[test]

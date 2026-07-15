@@ -1,23 +1,23 @@
 # cc-switch-web
 
-> 面向 Claude Code、Codex、Gemini CLI、OpenCode 与 OMO 的 Web 版 CC Switch。
+> 面向 Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw 与 OMO 的 Web 版 CC Switch。
 
 <sub>🙏 本项目是 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)（Jason Young）的 fork 版本。感谢原作者的出色工作。本 fork 添加了 Web 服务器模式，支持云端/无头部署。</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.19.1-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.20.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/Laliet/cc-switch-web/pkgs/container/cc-switch-web)
 
-**面向 Claude Code / Codex / Gemini CLI / OpenCode / OMO 的跨平台 Web 版一站式助手**
+**面向 Claude Code / Codex / Gemini CLI / OpenCode / OpenClaw / OMO 的跨平台 Web 版一站式助手**
 
 [English](README.md) | 中文 | [法律声明](LEGAL_NOTICE.md) | [更新日志](CHANGELOG.md)
 
 ## 项目简介
 
-**cc-switch-web** 是一个面向 **Claude Code**、**Codex**、**Gemini CLI**、**OpenCode** 和 **oh-my-opencode（OMO）** 的跨平台 Web 版 **CC Switch**。它支持供应商切换、MCP 管理、技能安装、系统提示词编辑，并可同时运行在桌面环境与无头云端环境中。
+**cc-switch-web** 是一个面向 **Claude Code**、**Codex**、**Gemini CLI**、**OpenCode**、**OpenClaw** 和 **oh-my-opencode（OMO）** 的跨平台 Web 版 **CC Switch**。它支持通过桌面应用或带认证的无头 Web 控制台管理供应商和主机侧配置。
 
 无论你是在本地开发还是在无图形界面的云端环境，cc-switch-web 都能提供流畅的体验：
 
@@ -27,7 +27,8 @@
 - **提示词编辑器** — 内置语法高亮
 - **配置备份/恢复** — 支持版本历史
 - **OpenCode 与 OMO 配置 UI** — 支持供应商预设、模型元数据和 OMO Slim
-- **流式健康检查** — 验证供应商的流式响应可用性
+- **OpenClaw 第一阶段管理** — 支持增量供应商、默认模型、Workspace、每日记忆和会话
+- **流式健康检查与历史** — 验证供应商的流式响应并保留诊断记录
 - **Web 服务器模式** — 支持 Basic Auth，适用于云端/无头部署
 
 ---
@@ -62,11 +63,13 @@
 - **提示词管理**：内置 CodeMirror 编辑器创建和管理系统提示词
 - **OpenCode 供应商预设**：选择 AI SDK package、导入推荐模型、拉取模型列表、编辑模型变体和选项
 - **OMO / OMO Slim UI**：用结构化字段管理 oh-my-opencode 与 oh-my-opencode-slim 配置
+- **OpenClaw 管理**：管理增量供应商与默认模型，并通过 ETag 冲突保护和备份编辑白名单 Workspace/每日记忆文件
 
 ### 扩展功能
 
 - **备用供应商自动切换**：主供应商失败时自动切换到备用
 - **流式健康检查**：测试流式响应并识别常见供应商错误
+- **会话管理**：分页浏览服务器主机上的 Claude、Codex、Gemini、OpenCode 与 OpenClaw 会话，并安全读取或删除
 - **导入/导出**：备份和恢复所有配置，支持版本历史
 - **跨平台**：支持 Windows、macOS、Linux（桌面版）和 Web/Docker（服务器版）
 
@@ -86,10 +89,10 @@
 
 | 架构                      | 下载链接                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.19.1 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)
+发布页：[v0.20.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -153,7 +156,7 @@ pnpm build:web
 
 # 3. 构建并运行服务器
 cd src-tauri
-cargo build --release --features web-server --example server
+cargo build --release --no-default-features --features web-server --example server
 HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 ```
 
@@ -163,6 +166,20 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 - **密码**：首次运行自动生成，保存在 `~/.cc-switch/web_password`
 - **跨域设置**：默认同源；需跨域请设置 `CORS_ALLOW_ORIGINS=https://your-domain.com`（`CORS_ALLOW_ORIGINS="*"` 会被忽略）；局域网/私有来源可通过 `ALLOW_LAN_CORS=1`（或 `CC_SWITCH_LAN_CORS=1`）自动放行
 - **注意**：Web 模式不支持原生文件选择器，请手动输入路径
+
+### Web 运行边界
+
+Web 模式管理的是 **cc-switch-server 所在主机** 的文件与进程，不是浏览器所在设备。运行时能力接口 `GET /api/capabilities` 会驱动前端隐藏或降级原生专属操作。
+
+| 应用 | Web/headless 支持范围 |
+| --- | --- |
+| Claude、Codex、Gemini | 服务器主机上的供应商、MCP、提示词、Skills、用量、会话与 Local Routing |
+| OpenCode | 增量供应商，以及 MCP、提示词、Skills、用量、会话与 Local Routing |
+| OpenClaw | 增量供应商、默认模型/状态、白名单 Workspace/每日记忆编辑与会话 |
+| OMO / OMO Slim | Provider profile，并复用 OpenCode MCP/Skills 存储；不支持代理接管 |
+| Claude Desktop | 仅在受支持的 macOS/Windows 服务器主机管理 Provider/Local Routing profile；不支持 MCP、提示词、Skills、用量与会话 |
+
+原生文件对话框、系统托盘、应用更新、便携模式设置、环境管理和原生端点测试仍仅限桌面端。OpenClaw Local Routing、MCP、提示词、Skills 与用量不在 v0.20.0 第一阶段范围内。
 
 ### 安全
 
@@ -204,11 +221,11 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 
 | 平台        | 下载链接                                                                                                                                           | 说明                                |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.19.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows.msi)                   | 安装版                              |
-|             | [CC-Switch-v0.19.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.19.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.19.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.AppImage)             | AppImage                            |
-|             | [CC-Switch-v0.19.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.20.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows.msi)                   | 安装版                              |
+|             | [CC-Switch-v0.20.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.20.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.20.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.AppImage)             | AppImage                            |
+|             | [CC-Switch-v0.20.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -232,7 +249,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装指定版本
-VERSION=v0.19.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.20.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -296,6 +313,7 @@ CC-Switch 管理以下配置文件：
 | **Codex**       | `~/.codex/auth.json`、`~/.codex/config.toml`、`~/.codex/AGENTS.md`        |
 | **Gemini**      | `~/.gemini/.env`、`~/.gemini/settings.json`、`~/.gemini/GEMINI.md`        |
 | **OpenCode**    | `~/.config/opencode/opencode.json`                                        |
+| **OpenClaw**    | `~/.openclaw/openclaw.json`、`~/.openclaw/workspace/`、`~/.openclaw/agents/` |
 | **OMO**         | OpenCode 共享配置目录下的 OMO / OMO Slim profile 与插件配置               |
 
 CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
@@ -304,6 +322,8 @@ CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
 已存在旧快照，会先导入数据库；此后 providers、MCP servers、prompts、skills、
 proxy settings、provider health、request logs、failover queue，以及导入/导出
 兼容快照均以 SQLite 为权威存储。
+
+v0.20.0 使用 SQLite **Schema v7**，新增 Stream Check 历史记录。WebDAV v2 的新快照写入 `v2/db-v7/<profile>/`，仍可读取和恢复 v0.19.1 的 `db-v6` 主快照与历史备份，并继续把 v0.18 旧 JSON 快照作为只读迁移来源。运行时日志、用量、健康状态、会话同步状态和 Stream Check 历史不会上传；恢复时会保留服务器本地已有的诊断历史。
 
 ---
 
@@ -341,8 +361,19 @@ pnpm test:unit
 
 ## 更新内容
 
-> 当前版本：[v0.19.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)<br>
-> `v0.19.1` 是 v0.19 功能线的发布质量修复版本。
+> 当前版本：[v0.20.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)<br>
+> `v0.20.0` 完成 Web/headless 能力闭环、OpenClaw 第一阶段和代理诊断可靠性建设。
+
+### v0.20.0 - Web/Headless 与 OpenClaw 第一阶段
+
+- 新增桌面/Web 运行时能力契约和明确的服务器主机边界
+- 新增 OpenClaw 第一阶段：供应商/默认模型、Workspace/每日记忆和 Session Manager
+- Schema 升级到 v7，持久化 Stream Check 配置与历史，并新增 Provider 额度摘要
+- 增加真实 HTTP 代理 conformance、精确 usage 解析、稳定 Failover 顺序和 Claude Desktop 重启状态判断
+- 加固 Session 分页/路径、Web 错误脱敏、WebDAV db-v6 回退与 manifest identity 校验
+- OMO/OMO Slim 的 MCP 与 Skills 继续复用 OpenCode 存储，同时继续禁止 OMO 代理接管
+- 上游 v3.15.0 对标基线已锁定在 [`docs/upstream-v3.15.0.lock`](docs/upstream-v3.15.0.lock)
+- 发布说明：[v0.20.0](docs/release-note-v0.20.0-zh.md)
 
 ### v0.19.1 - 发布质量修复版
 
@@ -391,7 +422,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.19.1 发布说明](docs/release-note-v0.19.1-zh.md) - 当前版本：**v0.19.1**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.20.0 发布说明](docs/release-note-v0.20.0-zh.md) - 当前版本：**v0.20.0**
 
 ---
 

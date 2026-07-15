@@ -3,7 +3,14 @@ import {
   type UseQueryResult,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { providersApi, settingsApi, usageApi, type AppId } from "@/lib/api";
+import {
+  capabilitiesApi,
+  openclawApi,
+  providersApi,
+  settingsApi,
+  usageApi,
+  type AppId,
+} from "@/lib/api";
 import type { Provider, Settings, UsageResult } from "@/types";
 
 const sortProviders = (
@@ -91,6 +98,24 @@ export const useSettingsQuery = (): UseQueryResult<Settings> => {
   return useQuery({
     queryKey: ["settings"],
     queryFn: async () => settingsApi.get(),
+  });
+};
+
+export const useCapabilitiesQuery = () => {
+  return useQuery({
+    queryKey: ["capabilities"],
+    queryFn: () => capabilitiesApi.get(),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: 1,
+  });
+};
+
+export const useOpenClawStatusQuery = (enabled = true) => {
+  return useQuery({
+    queryKey: ["openclaw", "status"],
+    queryFn: () => openclawApi.getStatus(),
+    enabled,
+    retry: 1,
   });
 };
 

@@ -1,6 +1,6 @@
 [package]
 name = "cc-switch"
-version = "0.19.1"
+version = "0.20.0"
 description = "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI"
 authors = ["Jason Young"]
 license = "MIT"
@@ -55,6 +55,7 @@ tauri-build = { version = "2.4.0", features = [], optional = true }
 [dependencies]
 serde_json = "1.0"
 json5 = "0.4"
+json-five = "0.3.1"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 env_logger = { version = "0.11", optional = true }
@@ -99,6 +100,9 @@ base64 = "0.22"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", optional = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+sysinfo = { version = "0.30.13", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = { version = "0.52", optional = true }

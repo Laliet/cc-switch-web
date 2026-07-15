@@ -10,6 +10,9 @@ const applyClaudePluginConfigMock = vi.fn();
 const syncCurrentProvidersLiveMock = vi.fn();
 const toastErrorMock = vi.fn();
 const toastSuccessMock = vi.fn();
+const adapterMocks = vi.hoisted(() => ({
+  isWeb: vi.fn(() => false),
+}));
 
 let settingsFormMock: any;
 let directorySettingsMock: any;
@@ -35,7 +38,20 @@ vi.mock("@/hooks/useSettingsMetadata", () => ({
   useSettingsMetadata: () => metadataMock,
 }));
 
+vi.mock("@/lib/api/adapter", () => ({
+  isWeb: () => adapterMocks.isWeb(),
+}));
+
 vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: {
+      features: {
+        claudePluginIntegration: true,
+        tray: true,
+        configDirOverride: true,
+      },
+    },
+  }),
   useSettingsQuery: (...args: unknown[]) => useSettingsQueryMock(...args),
   useSaveSettingsMutation: () => ({
     mutateAsync: mutateAsyncMock,
@@ -120,6 +136,8 @@ describe("useSettings hook", () => {
     syncCurrentProvidersLiveMock.mockReset();
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
+    adapterMocks.isWeb.mockReset();
+    adapterMocks.isWeb.mockReturnValue(false);
     window.localStorage.clear();
 
     serverSettings = {
@@ -237,6 +255,23 @@ describe("useSettings hook", () => {
     expect(metadataMock.setRequiresRestart).toHaveBeenCalledWith(false);
     // 目录未变化，不应触发同步
     expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call the desktop config override API in web mode", async () => {
+    adapterMocks.isWeb.mockReturnValue(true);
+    directorySettingsMock = createDirectorySettingsMock({
+      appConfigDir: "/server/ignored-override",
+      initialAppConfigDir: undefined,
+    });
+
+    const { result } = renderHook(() => useSettings());
+
+    await act(async () => {
+      await result.current.saveSettings();
+    });
+
+    expect(mutateAsyncMock).toHaveBeenCalledTimes(1);
+    expect(setAppConfigDirOverrideMock).not.toHaveBeenCalled();
   });
 
   it("shows toast when Claude plugin sync fails but continues flow", async () => {

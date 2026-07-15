@@ -9,6 +9,7 @@ import {
   useUpdateProviderMutation,
   useDeleteProviderMutation,
   useSwitchProviderMutation,
+  useCapabilitiesQuery,
 } from "@/lib/query";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { injectNativeUsageScript } from "@/config/codingPlanProviders";
@@ -20,6 +21,7 @@ import { injectNativeUsageScript } from "@/config/codingPlanProviders";
 export function useProviderActions(activeApp: AppId) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { data: capabilities } = useCapabilitiesQuery();
 
   const addProviderMutation = useAddProviderMutation(activeApp);
   const updateProviderMutation = useUpdateProviderMutation(activeApp);
@@ -29,7 +31,12 @@ export function useProviderActions(activeApp: AppId) {
   // Claude 插件同步逻辑
   const syncClaudePlugin = useCallback(
     async (provider: Provider) => {
-      if (activeApp !== "claude") return;
+      if (
+        activeApp !== "claude" ||
+        capabilities?.features.claudePluginIntegration !== true
+      ) {
+        return;
+      }
 
       try {
         const settings = await settingsApi.get();
@@ -50,12 +57,12 @@ export function useProviderActions(activeApp: AppId) {
         toast.error(detail, { duration: 4200 });
       }
     },
-    [activeApp, t],
+    [activeApp, capabilities?.features.claudePluginIntegration, t],
   );
 
   // 添加供应商
   const addProvider = useCallback(
-    async (provider: Omit<Provider, "id">) => {
+    async (provider: Omit<Provider, "id"> & { id?: string }) => {
       await addProviderMutation.mutateAsync(injectNativeUsageScript(provider));
     },
     [addProviderMutation],
@@ -67,16 +74,18 @@ export function useProviderActions(activeApp: AppId) {
       await updateProviderMutation.mutateAsync(provider);
 
       // 更新托盘菜单（失败不影响主操作）
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (trayError) {
-        console.error(
-          "Failed to update tray menu after updating provider",
-          trayError,
-        );
+      if (capabilities?.features.tray === true) {
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (trayError) {
+          console.error(
+            "Failed to update tray menu after updating provider",
+            trayError,
+          );
+        }
       }
     },
-    [updateProviderMutation],
+    [capabilities?.features.tray, updateProviderMutation],
   );
 
   // 切换供应商

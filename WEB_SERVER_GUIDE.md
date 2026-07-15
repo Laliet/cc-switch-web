@@ -1,485 +1,276 @@
 # CC-Switch Web Server 使用指南
 
-## 概述
+## 运行模型
 
-CC-Switch 现在支持两种运行模式：
+cc-switch-web 提供两种运行形态：
 
-1. **Tauri GUI 模式** - 原有的桌面应用（Windows/macOS/Linux）
-2. **Web Server 模式** - 新增的无头服务器模式（适用于云服务器）
+1. Tauri 桌面应用，管理本机配置并提供系统托盘、原生对话框和应用更新等能力。
+2. Axum Web Server，通过浏览器管理 cc-switch-server 所在主机，适用于 Linux 服务器、Docker 和无头环境。
 
-Web Server 模式完整保留了所有原有功能，通过浏览器访问可视化界面。
+Web 模式不是浏览器设备的远程桌面。Provider、Session、Workspace、CLI 配置和进程状态都属于服务器主机。前端通过 `GET /api/capabilities` 获取运行时能力，不可用操作应隐藏或返回带错误码的 501。
 
----
+## v0.20.0 能力范围
+
+| 应用 | Provider | MCP / Prompt / Skills | Usage | Session | Local Routing |
+| --- | --- | --- | --- | --- | --- |
+| Claude | 支持 | 支持 | 支持 | 支持 | 支持 |
+| Codex | 支持 | 支持 | 支持 | 支持 | 支持 |
+| Gemini | 支持 | 支持 | 支持 | 支持 | 支持 |
+| OpenCode | 增量模式 | 支持 | 支持 | 支持 | 支持 |
+| OpenClaw | 增量模式 | 第一阶段不支持 | 第一阶段不支持 | 支持 | 第一阶段不支持 |
+| OMO / OMO Slim | 支持 profile | MCP/Skills 复用 OpenCode；Prompt 不支持 | 不支持 | 不支持 | 不支持 |
+| Claude Desktop | 支持 profile | 不支持 | 不支持 | 不支持 | 仅受支持的 macOS/Windows 主机 |
+
+Web 模式不提供原生文件/目录选择器、系统托盘、应用更新、便携模式设置、环境管理、终端拉起或原生端点测试。服务器 Session 的恢复操作只复制命令，不会启动服务器终端。
+
+请求中的 App 名称未知或参数格式错误时返回 HTTP 400。App 名称已知、但对应功能在上表中不可用时返回 HTTP 501，并带 `<feature>_<app>_unavailable` 格式的稳定 `code`；前端应以 `/api/capabilities` 为准，不依赖试错调用。
 
 ## 快速开始
 
-### 1. 构建 Web 前端
+### 预编译服务器
+
+当前稳定版为 v0.20.0。可从 Release 页面下载对应架构的 `cc-switch-server-linux-*`，或运行：
 
 ```bash
-cd /root/cc-switch
+curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
+```
+
+预编译 GNU 版本以 Ubuntu 22.04 为基线。遇到 glibc 不兼容时优先使用 Docker、musl 变体或源码构建。
+
+### Docker
+
+```bash
+docker run --name cc-switch-web \
+  -p 127.0.0.1:3000:3000 \
+  -v cc-switch-data:/root/.cc-switch \
+  ghcr.io/laliet/cc-switch-web:latest
+```
+
+需要管理服务器主机上的 Claude/Codex/Gemini/OpenCode/OpenClaw 配置时，还应把相应配置目录挂载到容器中。挂载路径决定 Web UI 实际管理的数据；不要把宿主机根目录整体暴露给容器。
+
+### 源码构建
+
+依赖：Rust、Node.js、pnpm、`pkg-config` 和 OpenSSL 开发包。纯 Web 构建不需要 Tauri 的 WebKit/GTK 桌面依赖。
+
+```bash
+git clone https://github.com/Laliet/cc-switch-web.git
+cd cc-switch-web
 pnpm install
 pnpm build:web
-```
 
-这会在 `dist-web/` 目录生成静态文件。
-
-### 2. 编译服务器
-
-```bash
 cd src-tauri
-cargo build --release --features web-server --bin cc-switch-server
+cargo build --release --no-default-features --features web-server --example server
+HOST=127.0.0.1 PORT=3000 ./target/release/examples/server
 ```
 
-生成的可执行文件位于：`target/release/cc-switch-server`
+`HOST` 默认是 `127.0.0.1`，`PORT` 默认是 `3000`。绑定非回环地址时，服务默认拒绝通过裸 HTTP 暴露 Basic Auth；生产环境应使用 TLS 反向代理。
 
-### 3. 运行服务器
+## systemd 与反向代理
 
-```bash
-# 默认监听 0.0.0.0:3000（可用 HOST/PORT 覆盖）
-./target/release/cc-switch-server
-
-# 自定义地址与端口
-HOST=0.0.0.0 PORT=8080 ./target/release/cc-switch-server
-```
-
-如需跨域访问，可按需设置：
-
-```bash
-# 允许的 Origin 列表（逗号分隔），不设置则仅同源可用
-CORS_ALLOW_ORIGINS=https://example.com,https://admin.example.com \
-CORS_ALLOW_CREDENTIALS=true \
-./target/release/cc-switch-server
-```
-
-### Web 模式限制
-
-- 系统文件/目录选择器在 Web 模式不可用（相关 API 返回 501），需要手动输入路径。
-- 默认仅同源可访问；开启跨域需设置 `CORS_ALLOW_ORIGINS`（可选 `CORS_ALLOW_CREDENTIALS=true`）。
-
-### 4. 访问 Web 界面
-
-浏览器访问：`http://your-server-ip:3000`
-
----
-
-## 安全与认证（生产必读）
-
-- **账号密码**：所有 API 请求都需要 Basic Auth，用户名固定为 `admin`，密码首次运行自动生成并写入 `~/.cc-switch/web_password`。
-- **CSRF**：非 GET/HEAD 请求需携带 `X-CSRF-Token`；前端会自动处理。可通过 `WEB_CSRF_TOKEN` 固定 Token，手动调用时可先用 Basic Auth 访问 `/api/system/csrf-token` 获取。
-- **HTTPS 反代**：建议用 Nginx/Caddy/Cloudflare 等做 TLS 终止，把 cc-switch-server 放在反代后面。
-- **HSTS**：默认开启 `Strict-Transport-Security`，如需关闭可设 `ENABLE_HSTS=false`。
-- **裸 HTTP 风险**：若必须在无 TLS 的公网监听，需显式设置 `ALLOW_HTTP_BASIC_OVER_HTTP=1` 表示接受风险；否则请保持在内网/回环地址。
-- **跨域**：默认同源，若确需跨域，使用 `CORS_ALLOW_ORIGINS=https://foo.com,https://bar.com`（不要使用 `*`）。
-
-### 局域网 CORS 自动放行
-
-- 若绑定到内网 IP 且未设置 `CORS_ALLOW_ORIGINS`，服务会自动启用私有来源白名单，并写入 `CC_SWITCH_LAN_CORS=1`。
-- 也可显式设置 `ALLOW_LAN_CORS=1`（或 `CC_SWITCH_LAN_CORS=1`）强制开启自动放行。
-- 仅对私有 IP/localhost 生效，类似 `*.local` 的主机名不会自动放行，需要用 `CORS_ALLOW_ORIGINS` 明确列出。
-
-运行示例（反代模式，显式设置 CSRF Token）：
-
-```bash
-WEB_CSRF_TOKEN="$(openssl rand -hex 16)" \
-HOST=127.0.0.1 PORT=3000 ./target/release/cc-switch-server
-```
-
-前端在非 GET/HEAD 请求中需要附带（密码见 `~/.cc-switch/web_password`）：
-
-```
-Authorization: Basic <base64(admin:password)>
-X-CSRF-Token: <WEB_CSRF_TOKEN>
-```
-
----
-
-## 架构说明
-
-```
-┌─────────────────────────────────────────────────┐
-│         cc-switch-server (单个可执行文件)        │
-│  ┌─────────────────────────────────────────┐   │
-│  │  HTTP Server (axum)                     │   │
-│  │  - 静态文件 (React UI)                  │   │
-│  │  - REST API (/api/*)                    │   │
-│  └─────────────────┬───────────────────────┘   │
-│                    │                            │
-│  ┌─────────────────▼───────────────────────┐   │
-│  │  Services Layer (复用桌面版代码)        │   │
-│  │  ProviderService | McpService | ...     │   │
-│  └─────────────────┬───────────────────────┘   │
-│                    │                            │
-│  ┌─────────────────▼───────────────────────┐   │
-│  │  Config Files (~/.cc-switch/...)        │   │
-│  └─────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────┘
-```
-
----
-
-## API 端点
-
-### Provider 管理
-
-```
-GET    /api/providers/:app             # 获取所有供应商
-GET    /api/providers/:app/current     # 获取当前供应商
-POST   /api/providers/:app             # 添加供应商
-PUT    /api/providers/:app/:id         # 更新供应商
-DELETE /api/providers/:app/:id         # 删除供应商
-POST   /api/providers/:app/:id/switch  # 切换供应商
-```
-
-`:app` 可选值：`claude`, `codex`, `gemini`
-
-### MCP 管理
-
-```
-GET    /api/mcp/servers      # 获取 MCP 服务器列表
-POST   /api/mcp/servers      # 添加 MCP 服务器
-PUT    /api/mcp/servers/:id  # 更新 MCP 服务器
-DELETE /api/mcp/servers/:id  # 删除 MCP 服务器
-```
-
-### Settings 管理
-
-```
-GET    /api/settings   # 获取设置
-PUT    /api/settings   # 保存设置
-```
-
-### Config 导入/导出
-
-```
-POST   /api/config/export  # 导出配置
-POST   /api/config/import  # 导入配置
-```
-
----
-
-## 部署到云服务器
-
-### 方案一：直接运行
-
-```bash
-# 1. 上传编译好的二进制文件
-scp target/release/cc-switch-server user@server:/usr/local/bin/
-
-# 2. SSH 到服务器运行
-ssh user@server
-/usr/local/bin/cc-switch-server
-
-# 3. 后台运行（使用 nohup）
-nohup /usr/local/bin/cc-switch-server > /var/log/cc-switch.log 2>&1 &
-```
-
-### 方案二：Systemd 服务
-
-创建 `/etc/systemd/system/cc-switch.service`:
+将构建产物安装为 `/usr/local/bin/cc-switch-server` 后，可创建：
 
 ```ini
 [Unit]
 Description=CC-Switch Web Server
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=your-user
-WorkingDirectory=/home/your-user
-ExecStart=/usr/local/bin/cc-switch-server
+User=cc-switch
+WorkingDirectory=/var/lib/cc-switch
+Environment=HOST=127.0.0.1
 Environment=PORT=3000
+ExecStart=/usr/local/bin/cc-switch-server
 Restart=on-failure
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-启用服务：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable cc-switch
-sudo systemctl start cc-switch
-sudo systemctl status cc-switch
-```
-
-### 方案三：使用 screen/tmux
-
-```bash
-screen -S cc-switch
-/usr/local/bin/cc-switch-server
-# Ctrl+A D 分离会话
-
-# 重新连接
-screen -r cc-switch
-```
-
----
-
-## 配置文件位置
-
-所有配置文件与桌面版完全相同：
-
-- **主配置**: `~/.cc-switch/config.json`
-- **Settings**: `~/.cc-switch/settings.json`
-- **Backups**: `~/.cc-switch/backups/`
-- **Claude**: `~/.claude/settings.json`, `~/.claude.json`
-- **Codex**: `~/.codex/auth.json`, `~/.codex/config.toml`
-- **Gemini**: `~/.gemini/.env`, `~/.gemini/settings.json`
-
----
-
-## WSL 配置共享（Windows + WSL）
-
-如果 CLI 在 WSL 中运行，而你在 Windows 上访问 Web 界面，需要把配置目录覆盖指向 WSL 文件系统，以保证供应商配置一致。
-
-示例路径（Windows 端填写）：
-
-- Claude: `\\wsl$\Ubuntu\home\<你的用户名>\.claude`
-- Codex: `\\wsl$\Ubuntu\home\<你的用户名>\.codex`
-- Gemini: `\\wsl$\Ubuntu\home\<你的用户名>\.gemini`
-
-也可以在设置页点击 **“填充 WSL 模板路径”**，先自动填充后再改发行版与用户名。
-
-注意：
-
-- 将 `Ubuntu` 替换为你的发行版名称。
-- 确保 WSL 发行版已启动，否则路径无法解析。
-- 如果 `\\wsl$` 不可用，可尝试 `\\wsl.localhost\\发行版\\home\\user\\.claude`。
-
----
-
-## 特性说明
-
-### 完整功能映射
-
-Web 端完全复制了桌面端的所有功能：
-
-1. ✅ Provider 管理（添加/编辑/删除/切换）
-2. ✅ MCP 服务器管理
-3. ✅ Settings 配置
-4. ✅ Config 导入/导出
-5. ✅ 端点速度测试
-6. ✅ Claude/Codex/Gemini 三者支持
-
-### 自动环境检测
-
-前端代码会自动检测运行环境：
-
-- **Tauri 环境**: 使用 IPC 通信
-- **Web 环境**: 使用 HTTP API
-
-### CORS 支持
-
-开发模式下启用了 `CorsLayer::very_permissive()`，生产环境建议配置反向代理限制来源。
-
----
-
-## 安全建议
-
-### 1. 反向代理（推荐）
-
-使用 Nginx/Caddy 添加 HTTPS：
+建议由 Nginx/Caddy 在 HTTPS 上公开服务：
 
 ```nginx
 server {
     listen 443 ssl;
     server_name cc-switch.example.com;
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+    ssl_certificate /etc/letsencrypt/live/cc-switch.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cc-switch.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
 
-### 2. 防火墙
+若明确接受风险并直接监听内网 HTTP，需设置 `ALLOW_HTTP_BASIC_OVER_HTTP=1`。不要在公网裸 HTTP 上传 API Key、OAuth token 或 Workspace 内容。
 
-仅允许特定 IP 访问：
+## 认证与安全
 
-```bash
-# UFW 示例
-sudo ufw allow from 192.168.1.0/24 to any port 3000
+- 首次启动使用用户名 `admin`，随机密码保存在 `~/.cc-switch/web_password`，文件权限应为 0600。
+- 可在设置中轮换用户名和密码；服务不会把密码内容打印到控制台。
+- 所有 API 需要 Basic Auth；非 GET/HEAD 请求还需要 `X-CSRF-Token`。
+- 前端自动获取并注入 CSRF token。手工调用可先访问 `GET /api/system/csrf-token`。
+- 默认同源。跨域仅允许 `CORS_ALLOW_ORIGINS` 中的精确 Origin；`*` 不被接受。
+- 绑定局域网 IP 时可用 `ALLOW_LAN_CORS=1` 启用私有来源规则。
+- 外网监听且未显式设置时，Usage Script 出口策略会调整为 `strict`。
+- HSTS、`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff` 和 `Referrer-Policy: no-referrer` 默认启用。
+- 内部 5xx、认证上游正文、服务器绝对路径和敏感凭据字段不会写入 Web 错误响应；公开的 501 能力边界仍保留说明。
+
+常用环境变量：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | 监听 IP |
+| `PORT` | `3000` | 监听端口 |
+| `WEB_CSRF_TOKEN` | 自动生成 | 固定 CSRF token |
+| `ENABLE_HSTS` | `true` | HSTS 响应头 |
+| `CORS_ALLOW_ORIGINS` | 同源 | 逗号分隔的精确 Origin |
+| `CORS_ALLOW_CREDENTIALS` | `false` | 跨域携带凭据 |
+| `ALLOW_LAN_CORS` | `false` | 私有局域网来源规则 |
+| `ALLOW_HTTP_BASIC_OVER_HTTP` | `false` | 明确接受非回环裸 HTTP 风险 |
+| `USAGE_SCRIPT_EGRESS_POLICY` | 按监听地址决定 | Usage Script 网络出口策略 |
+| `WEBDAV_AUTO_SYNC_INTERVAL_SECS` | `300`，最小 60 | WebDAV 自动同步周期 |
+
+## OpenClaw 与 Workspace
+
+OpenClaw 第一阶段管理服务器主机的 `~/.openclaw/openclaw.json`、`workspace/` 和 `agents/`：
+
+- Provider 使用增量写入，不删除未知 Provider。
+- 支持默认模型的读取、设置和清除。
+- Workspace 只允许固定文件名，拒绝符号链接和根目录逃逸。
+- 单文件最大 1 MiB；覆盖必须提供 ETag；写入前创建备份，每文件最多保留 20 个。
+- 每日记忆仅接受有效的 `YYYY-MM-DD`，对应 `memory/YYYY-MM-DD.md`。
+- Session 扫描不跟随 agent、sessions 目录或 JSONL 文件符号链接。
+
+这些都是服务器主机文件。若 cc-switch-server 运行在 Docker 中，必须显式挂载希望管理的 OpenClaw 目录。
+
+## Session Manager
+
+- 支持 Claude、Codex、Gemini、OpenCode 和 OpenClaw。
+- `GET /api/sessions/page` 使用不透明的 `scannedAt:offset` 游标，单页最多 200 条。
+- 游标绑定扫描快照；后台刷新后旧游标返回过期错误，客户端应从第一页重新加载。
+- 每个 Provider 独立缓存；文件树变化后只重扫对应 Provider。
+- 所有消息读取和删除都限制在已知会话根目录，并拒绝符号链接逃逸。
+
+## 数据库与 WebDAV
+
+运行时权威存储是 `~/.cc-switch/cc-switch.db`，`config.json` 仅用于旧版导入/兼容导出。
+
+v0.20.0 使用 SQLite Schema v7：
+
+- v6 首次启动自动迁移到 v7。
+- v7 新增 Stream Check 历史与索引。
+- v0.19.1 无法打开已升级的 v7 数据库；降级前必须恢复 v6 备份。
+
+WebDAV v2：
+
+- 新上传位置：`<remoteDir>/v2/db-v7/<profile>/`。
+- 快照由 `manifest.json`、`db.sql` 和 `skills.zip` 组成，校验协议、Schema、大小、SHA256 和 snapshot identity。
+- v0.20.0 可回退读取/恢复 `db-v6` 主快照与历史备份，并继续读取 v0.18 JSON 快照。
+- 用量、请求日志、健康状态、会话同步和 Stream Check 历史属于本机数据，不上传；恢复时保留本地诊断历史。
+- `managed_auth_accounts` 表及其中的 Claude/Codex/Gemini OAuth access/refresh token 不进入 WebDAV 快照；恢复快照不会覆盖本机托管账号。
+
+升级前建议在设置中创建 SQLite 备份，并避免桌面端和 Web Server 同时写同一个数据库。
+
+## 主要 API
+
+```text
+GET    /api/capabilities
+
+GET    /api/providers/:app
+POST   /api/providers/:app
+PUT    /api/providers/:app/:id
+DELETE /api/providers/:app/:id
+POST   /api/providers/:app/:id/switch
+
+GET    /api/openclaw/status
+GET    /api/openclaw/providers
+GET    /api/openclaw/default-model
+PUT    /api/openclaw/default-model
+DELETE /api/openclaw/default-model
+
+GET    /api/workspace/files
+GET    /api/workspace/files/:name
+PUT    /api/workspace/files/:name
+GET    /api/workspace/files/:name/backups
+POST   /api/workspace/files/:name/restore
+GET    /api/workspace/memory
+GET    /api/workspace/memory/:date
+PUT    /api/workspace/memory/:date
+
+GET    /api/sessions/page
+POST   /api/sessions/messages
+POST   /api/sessions/delete-batch
+
+GET    /api/stream-check/config
+PUT    /api/stream-check/config
+POST   /api/stream-check/providers/:id       body: { "appType": "claude" }
+POST   /api/stream-check/all                 body: { "appType": "claude", "proxyTargetsOnly": false }
+GET    /api/stream-check/logs
+GET    /api/stream-check/logs/latest?appType=claude
+
+GET    /api/subscriptions/quota?provider=claude&accountId=<id>&force=false
+
+GET    /api/proxy/status
+GET    /api/proxy/failover/:app
+PUT    /api/proxy/failover/:app
+PUT    /api/proxy/takeover/:app
+
+POST   /api/webdav/snapshot/upload
+POST   /api/webdav/snapshot/download
+GET    /api/webdav/snapshot/preview
+GET    /api/webdav/backups
+POST   /api/webdav/backups/restore
 ```
 
-### 3. SSH 隧道
+`:app` 包括 `claude`、`claude-desktop`、`codex`、`gemini`、`opencode`、`openclaw`、`omo` 和 `omo-slim`，但每个 API 仍受能力矩阵限制。OMO/OMO Slim 不可用于代理 `bindApp` 或 takeover。
 
-本地开发时使用 SSH 隧道：
-
-```bash
-ssh -L 3000:localhost:3000 user@server
-# 访问 http://localhost:3000
-```
-
----
+Stream Check 的标准单 Provider 路由是 `/providers/:id`，应用类型放在 JSON body；旧版 `/providers/:app/:id` 保留为兼容路由。OpenClaw、OMO 和 OMO Slim 的代理配置、takeover、failover、熔断重置及 Stream Check 会返回带 `*_unavailable` code 的 HTTP 501，不会静默执行桌面逻辑。Provider 卡片读取 `/stream-check/logs/latest`，展示最近状态、响应时间和错误分类。
 
 ## 故障排查
 
-### 编译错误
+### 只能本机访问
+
+默认绑定 `127.0.0.1`。推荐保持该设置并使用反向代理或 SSH 隧道：
 
 ```bash
-# 确保安装了所有依赖
-apt-get install libglib2.0-dev libgtk-3-dev
-
-# 清理并重新构建
-cargo clean
-cargo build --release --features web-server --bin cc-switch-server
+ssh -L 3000:127.0.0.1:3000 user@server
 ```
 
-### 前端构建失败
+### 公开监听启动失败
+
+这是 Basic Auth 裸 HTTP 保护。配置 TLS 反代，或在可信内网显式设置：
 
 ```bash
-# 清理缓存
-rm -rf node_modules dist-web
-pnpm install
-pnpm build:web
+ALLOW_HTTP_BASIC_OVER_HTTP=1 HOST=0.0.0.0 PORT=3000 ./cc-switch-server
 ```
 
-### 服务器启动失败
+### GLIBC 版本不兼容
+
+使用 Docker、musl 预编译或在目标系统源码构建。可用 `ldd --version` 检查 glibc。
+
+### Web 管理不到 CLI/OpenClaw 配置
+
+确认服务用户的 HOME、目录覆盖配置和 Docker volume。浏览器本地的 `~/.claude` 不会自动映射到远端服务器。
+
+### Session 翻页返回 cursor expired
+
+会话目录在翻页期间发生变化或用户主动刷新。重新请求第一页即可。
+
+## 开发验证
 
 ```bash
-# 检查端口占用
-lsof -i:3000
+pnpm typecheck
+pnpm test:unit
 
-# 查看日志
-RUST_LOG=debug ./cc-switch-server
+cd src-tauri
+cargo test --no-default-features --features web-server,test-hooks
 ```
 
-### 预编译二进制提示 GLIBC_2.xx not found
-
-GNU 版在 **Ubuntu 20.04 (glibc 2.31+)** 构建。  
-如果系统 glibc 版本过低，请改用 **musl** 版、Docker 或源码构建。  
-`deploy-web.sh --prebuilt` 在 `LIBC_VARIANT=auto` 下会优先尝试更兼容的预编译变体（musl/gnu 自动回退）。
-
-```bash
-# 查看 glibc 版本
-ldd --version
-
-# 强制使用 musl 预编译（旧 glibc / Alpine）
-LIBC_VARIANT=musl curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/deploy-web.sh | bash -s -- --prebuilt
-
-# Docker 兜底
-docker run -p 3000:3000 ghcr.io/laliet/cc-switch-web:latest
-```
-
-### 浏览器无法访问
-
-1. 检查防火墙设置
-2. 确认服务器监听 `0.0.0.0` 而非 `127.0.0.1`
-3. 检查云服务器安全组规则
-
----
-
-## 性能优化
-
-### 1. Release 模式编译
-
-```bash
-cargo build --release --features web-server --bin cc-switch-server
-```
-
-### 2. 静态文件压缩
-
-前端构建已启用 Vite 的压缩优化。
-
-### 3. 资源限制
-
-```bash
-# 限制内存使用（systemd）
-[Service]
-MemoryLimit=512M
-```
-
----
-
-## 开发模式
-
-### 前端开发
-
-```bash
-# 启动 Vite 开发服务器（自动代理到后端）
-pnpm dev:web
-```
-
-- 开发端口已调整为 **4173**，并默认将 `/api` 代理到 `http://localhost:3000`，避免与 cc-switch-server 默认端口冲突。
-
-### 后端开发
-
-```bash
-# 监听文件变化自动重新编译
-cargo watch -x 'run --features web-server --bin cc-switch-server'
-```
-
----
-
-## 迁移指南
-
-### 从桌面版迁移
-
-1. 配置文件完全兼容，无需修改
-2. 直接在服务器上运行 `cc-switch-server`
-3. 访问 Web 界面继续使用
-
-### 复制到其他服务器
-
-```bash
-# 1. 打包二进制文件
-tar -czf cc-switch-server.tar.gz target/release/cc-switch-server
-
-# 2. 上传到新服务器
-scp cc-switch-server.tar.gz user@new-server:/tmp/
-
-# 3. 解压并运行
-ssh user@new-server
-cd /tmp
-tar -xzf cc-switch-server.tar.gz
-mv target/release/cc-switch-server /usr/local/bin/
-cc-switch-server
-```
-
----
-
-## 常见问题
-
-**Q: 是否可以同时运行桌面版和 Web 版？**
-A: 可以，它们共享同一份配置文件。但不建议同时操作，可能导致配置冲突。
-
-**Q: Web 版性能如何？**
-A: 由于复用了相同的 Rust 后端代码，性能与桌面版几乎一致。
-
-**Q: 需要安装 Node.js 吗？**
-A: 服务器运行不需要。只有构建前端时需要 Node.js + pnpm。
-
-**Q: 如何更新？**
-A: 重新编译并替换二进制文件，重启服务即可。
-
----
-
-## 技术栈
-
-- **前端**: React 18 + TypeScript + TailwindCSS + TanStack Query
-- **后端**: Axum (Rust) + Tokio + Rust-Embed
-- **通信**: REST API (HTTP) / Tauri IPC（桌面版）
-
----
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-Web Server 模式的代码位于：
-
-- `/src-tauri/src/web_api/` - HTTP API 实现
-- `/src-tauri/src/bin/server.rs` - 服务器入口
-- `/src/lib/api/adapter.ts` - 前端适配器
-- `/vite.config.web.mts` - Web 构建配置
-
----
-
-## License
-
-MIT © Laliet
+完整发布构建会产生较大的 `src-tauri/target`；按项目 `AGENTS.md` 要求，验证结束后应删除构建产物。

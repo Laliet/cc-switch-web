@@ -328,6 +328,17 @@ describe("commandToEndpoint", () => {
       url: "/api/sessions",
     });
     expect(
+      commandToEndpoint("list_sessions_page", {
+        cursor: "100",
+        limit: 100,
+        providerId: "openclaw",
+        refresh: true,
+      }),
+    ).toEqual({
+      method: "GET",
+      url: "/api/sessions/page?cursor=100&limit=100&providerId=openclaw&refresh=true",
+    });
+    expect(
       commandToEndpoint("get_session_messages", {
         providerId: "claude",
         sourcePath: "/server/.claude/projects/session.jsonl",
@@ -928,17 +939,23 @@ describe("commandToEndpoint", () => {
       {
         cmd: "restart_app",
         args: {},
-        expected: { method: "POST", url: "/api/system/restart" },
+        expected: { method: "POST", url: "/api/unsupported/restart_app" },
       },
       {
         cmd: "check_for_updates",
         args: {},
-        expected: { method: "POST", url: "/api/system/check-updates" },
+        expected: {
+          method: "POST",
+          url: "/api/unsupported/check_for_updates",
+        },
       },
       {
         cmd: "is_portable_mode",
         args: {},
-        expected: { method: "GET", url: "/api/system/is-portable" },
+        expected: {
+          method: "GET",
+          url: "/api/unsupported/is_portable_mode",
+        },
       },
       {
         cmd: "get_config_dir",
@@ -1233,11 +1250,20 @@ describe("commandToEndpoint", () => {
         },
       },
       {
+        cmd: "query_subscription_quota",
+        args: { provider: "codex", accountId: "account/1", force: true },
+        expected: {
+          method: "GET",
+          url: "/api/subscriptions/quota?provider=codex&accountId=account%2F1&force=true",
+        },
+      },
+      {
         cmd: "stream_check_provider",
         args: { appType: "opencode", providerId: "provider/1" },
         expected: {
           method: "POST",
-          url: "/api/stream-check/providers/opencode/provider%2F1",
+          url: "/api/stream-check/providers/provider%2F1",
+          body: { appType: "opencode" },
         },
       },
       {
@@ -1245,7 +1271,7 @@ describe("commandToEndpoint", () => {
         args: { appType: "claude", proxyTargetsOnly: true },
         expected: {
           method: "POST",
-          url: "/api/stream-check/providers",
+          url: "/api/stream-check/all",
           body: { appType: "claude", proxyTargetsOnly: true },
         },
       },
@@ -1343,13 +1369,31 @@ describe("commandToEndpoint", () => {
 });
 
 describe("invoke (web mode)", () => {
-  it("returns short-circuit responses for special commands", async () => {
+  it("surfaces coded 501 responses for unsupported host operations", async () => {
     const { invoke } = await importAdapter();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockJsonResponse(
+        {
+          code: "operation_unavailable",
+          error: "Operation is not available in web server mode",
+        },
+        false,
+        501,
+      ),
+    );
 
-    await expect(invoke("check_for_updates")).resolves.toBeNull();
-    await expect(invoke("restart_app")).resolves.toBeUndefined();
-    await expect(invoke("is_portable_mode")).resolves.toBe(false);
-    await expect(invoke("check_env_conflicts")).resolves.toEqual([]);
+    for (const command of [
+      "check_for_updates",
+      "restart_app",
+      "is_portable_mode",
+      "check_env_conflicts",
+    ]) {
+      await expect(invoke(command)).rejects.toMatchObject({
+        message: "Operation is not available in web server mode",
+        status: 501,
+      });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("includes Authorization header when credentials stored", async () => {

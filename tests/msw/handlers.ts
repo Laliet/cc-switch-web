@@ -48,6 +48,20 @@ import {
   startProxyState,
   stopProxyState,
   testProxyState,
+  getCapabilitiesState,
+  getOpenClawStatusState,
+  setOpenClawDefaultModelState,
+  getWorkspaceFilesState,
+  getWorkspaceFileState,
+  writeWorkspaceFileState,
+  getWorkspaceBackupsState,
+  restoreWorkspaceBackupState,
+  getDailyMemoryState,
+  getDailyMemoryFileState,
+  writeDailyMemoryState,
+  getSessionsPageState,
+  getStreamCheckLogsState,
+  addStreamCheckLogState,
 } from "./state";
 
 const TAURI_ENDPOINT = "http://tauri.local";
@@ -73,15 +87,213 @@ const getMockConfigDir = (app: AppId): string => {
     case "gemini":
       return "/default/gemini";
     case "opencode":
+    case "openclaw":
     case "omo":
     case "omo-slim":
       return "/default/opencode";
     case "claude-desktop":
       return "/default/claude-desktop";
+    default:
+      return "/default/unknown";
   }
 };
 
 export const handlers = [
+  http.post(`${TAURI_ENDPOINT}/get_capabilities`, () =>
+    success(getCapabilitiesState()),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_status`, () =>
+    success(getOpenClawStatusState()),
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_live_providers`, () =>
+    success(getOpenClawStatusState().providers),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/get_openclaw_live_provider`,
+    async ({ request }) => {
+      const { providerId } = await withJson<{ providerId: string }>(request);
+      return success(
+        getOpenClawStatusState().providers.find(
+          (provider) => provider.id === providerId,
+        ) ?? null,
+      );
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_default_model`, () =>
+    success(getOpenClawStatusState().defaultModel ?? null),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/set_openclaw_default_model`,
+    async ({ request }) => {
+      const { model } = await withJson<{
+        model: { primary: string; fallbacks?: string[] };
+      }>(request);
+      return success(setOpenClawDefaultModelState(model));
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/clear_openclaw_default_model`, () =>
+    success(setOpenClawDefaultModelState({ primary: "", fallbacks: [] })),
+  ),
+  http.post(`${TAURI_ENDPOINT}/scan_openclaw_config_health`, () => success([])),
+
+  http.post(`${TAURI_ENDPOINT}/list_workspace_files`, () =>
+    success(getWorkspaceFilesState()),
+  ),
+  http.post(`${TAURI_ENDPOINT}/read_workspace_file`, async ({ request }) => {
+    const { filename } = await withJson<{ filename: string }>(request);
+    const file = getWorkspaceFileState(filename);
+    return file
+      ? success({
+          ...file,
+          name: filename,
+          sizeBytes: file.content.length,
+        })
+      : HttpResponse.json({ error: "workspace_not_found" }, { status: 404 });
+  }),
+  http.post(`${TAURI_ENDPOINT}/write_workspace_file`, async ({ request }) => {
+    const { filename, content, expectedEtag } = await withJson<{
+      filename: string;
+      content: string;
+      expectedEtag?: string | null;
+    }>(request);
+    try {
+      return success(writeWorkspaceFileState(filename, content, expectedEtag));
+    } catch {
+      return HttpResponse.json(
+        { error: "workspace_etag_conflict" },
+        { status: 409 },
+      );
+    }
+  }),
+  http.post(`${TAURI_ENDPOINT}/list_workspace_backups`, async ({ request }) => {
+    const { filename } = await withJson<{ filename: string }>(request);
+    return success(getWorkspaceBackupsState(filename));
+  }),
+  http.post(
+    `${TAURI_ENDPOINT}/restore_workspace_backup`,
+    async ({ request }) => {
+      const { filename, backupId, expectedEtag } = await withJson<{
+        filename: string;
+        backupId: string;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(
+          restoreWorkspaceBackupState(filename, backupId, expectedEtag),
+        );
+      } catch {
+        return HttpResponse.json(
+          { error: "workspace_restore_failed" },
+          { status: 409 },
+        );
+      }
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/list_daily_memory_files`, () =>
+    success(getDailyMemoryState()),
+  ),
+  http.post(`${TAURI_ENDPOINT}/read_daily_memory_file`, async ({ request }) => {
+    const { date } = await withJson<{ date: string }>(request);
+    const file = getDailyMemoryFileState(date);
+    return file
+      ? success({
+          ...file,
+          name: `${date}.md`,
+          sizeBytes: file.content.length,
+        })
+      : HttpResponse.json({ error: "workspace_not_found" }, { status: 404 });
+  }),
+  http.post(
+    `${TAURI_ENDPOINT}/write_daily_memory_file`,
+    async ({ request }) => {
+      const { date, content, expectedEtag } = await withJson<{
+        date: string;
+        content: string;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(writeDailyMemoryState(date, content, expectedEtag));
+      } catch {
+        return HttpResponse.json(
+          { error: "workspace_etag_conflict" },
+          { status: 409 },
+        );
+      }
+    },
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/list_sessions_page`, async ({ request }) => {
+    const { cursor, limit, providerId } = await withJson<{
+      cursor?: string;
+      limit?: number;
+      providerId?: string;
+    }>(request);
+    return success(getSessionsPageState(cursor, limit, providerId));
+  }),
+  http.post(`${TAURI_ENDPOINT}/list_sessions`, () =>
+    success(getSessionsPageState().sessions),
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_session_messages`, () =>
+    success([{ role: "user", content: "Mock session message" }]),
+  ),
+  http.post(`${TAURI_ENDPOINT}/delete_session`, () => success(true)),
+  http.post(`${TAURI_ENDPOINT}/delete_sessions`, async ({ request }) => {
+    const { items = [] } = await withJson<{ items?: unknown[] }>(request);
+    return success(items.map(() => ({ success: true })));
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/get_stream_check_logs`, async ({ request }) => {
+    const { query } = await withJson<{
+      query?: { appType?: string; providerId?: string };
+    }>(request);
+    return success(getStreamCheckLogsState(query?.appType, query?.providerId));
+  }),
+  http.post(
+    `${TAURI_ENDPOINT}/get_latest_stream_check_logs`,
+    async ({ request }) => {
+      const { appType } = await withJson<{ appType?: string }>(request);
+      return success(getStreamCheckLogsState(appType));
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/stream_check_provider`, async ({ request }) => {
+    const { appType, providerId } = await withJson<{
+      appType: string;
+      providerId: string;
+    }>(request);
+    const result = {
+      status: "operational",
+      success: true,
+      message: "ok",
+      responseTimeMs: 42,
+      httpStatus: 200,
+      modelUsed: "mock-model",
+      testedAt: Math.floor(Date.now() / 1000),
+      retryCount: 0,
+    };
+    addStreamCheckLogState({
+      id: Date.now(),
+      providerId,
+      providerName: providerId,
+      appType,
+      ...result,
+    });
+    return success(result);
+  }),
+  http.post(`${TAURI_ENDPOINT}/stream_check_all_providers`, () => success([])),
+  http.post(`${TAURI_ENDPOINT}/get_stream_check_config`, () =>
+    success({
+      timeoutSecs: 45,
+      maxRetries: 2,
+      degradedThresholdMs: 6000,
+      claudeModel: "claude-test",
+      codexModel: "gpt-test",
+      geminiModel: "gemini-test",
+      testPrompt: "Who are you?",
+    }),
+  ),
+  http.post(`${TAURI_ENDPOINT}/save_stream_check_config`, () => success(true)),
+
   http.post(`${TAURI_ENDPOINT}/get_providers`, async ({ request }) => {
     const { app } = await withJson<{ app: AppId }>(request);
     return success(getProviders(app));
@@ -161,6 +373,21 @@ export const handlers = [
   }),
 
   http.post(`${TAURI_ENDPOINT}/open_external`, () => success(true)),
+
+  http.post(
+    `${TAURI_ENDPOINT}/query_subscription_quota`,
+    async ({ request }) => {
+      const { provider } = await withJson<{ provider: string }>(request);
+      return success({
+        provider,
+        source: "mock_credentials",
+        status: "unavailable",
+        windows: [],
+        fetchedAt: Date.now(),
+        error: "No mock subscription credentials",
+      });
+    },
+  ),
 
   // Skill APIs
   http.post(`${TAURI_ENDPOINT}/get_skills`, () => success(getSkillsState())),

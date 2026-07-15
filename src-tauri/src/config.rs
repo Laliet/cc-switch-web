@@ -490,6 +490,7 @@ pub fn delete_file(path: &Path) -> Result<(), AppError> {
 }
 
 /// 检查 Claude Code 配置状态
+#[cfg(feature = "desktop")]
 #[derive(Serialize, Deserialize)]
 pub struct ConfigStatus {
     pub exists: bool,
@@ -497,6 +498,7 @@ pub struct ConfigStatus {
 }
 
 /// 获取 Claude Code 配置状态
+#[cfg(feature = "desktop")]
 pub fn get_claude_config_status() -> Result<ConfigStatus, AppError> {
     let path = get_claude_settings_path()?;
     Ok(ConfigStatus {

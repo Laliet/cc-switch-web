@@ -31,6 +31,12 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
+vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: { features: { endpointTest: true } },
+  }),
+}));
+
 vi.mock("@/lib/api", () => ({
   authApi: authApiMock,
 }));
@@ -56,6 +62,9 @@ vi.mock("@/components/providers/forms/ProviderPresetSelector", () => ({
       </button>
       <button type="button" onClick={() => onPresetChange("codex-1")}>
         Select Codex API Key
+      </button>
+      <button type="button" onClick={() => onPresetChange("openclaw-0")}>
+        Select OpenClaw Preset
       </button>
       <span data-testid="selected-preset">{selectedPresetId}</span>
     </div>
@@ -326,6 +335,23 @@ vi.mock("@/config/opencodeProviderPresets", () => ({
   ],
 }));
 
+vi.mock("@/config/openclawProviderPresets", () => ({
+  openclawProviderPresets: [
+    {
+      name: "DeepSeek",
+      providerKey: "deepseek",
+      category: "cn_official",
+      websiteUrl: "https://platform.deepseek.com",
+      settingsConfig: {
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "deepseek-chat" }],
+      },
+    },
+  ],
+}));
+
 vi.mock("@/config/codexTemplates", () => ({
   getCodexCustomTemplate: () => ({ auth: {}, config: "" }),
 }));
@@ -394,6 +420,23 @@ describe("ProviderForm", () => {
 
     expect(screen.getByTestId("preset-selector")).toBeInTheDocument();
     expect(screen.getByTestId("opencode-fields")).toBeInTheDocument();
+  });
+
+  it("applies an OpenClaw preset including its provider key", async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm {...defaultProps} appId="openclaw" />);
+
+    expect(screen.getByTestId("preset-selector")).toBeInTheDocument();
+    await user.click(screen.getByText("Select OpenClaw Preset"));
+
+    expect(screen.getByTestId("name-input")).toHaveValue("DeepSeek");
+    expect(screen.getByTestId("website-input")).toHaveValue(
+      "https://platform.deepseek.com",
+    );
+    expect(screen.getByLabelText("Provider Key")).toHaveValue("deepseek");
+    expect(
+      (screen.getByTestId("config-textarea") as HTMLTextAreaElement).value,
+    ).toContain('"baseUrl": "https://api.deepseek.com/v1"');
   });
 
   it("renders OMO form without preset selector", () => {

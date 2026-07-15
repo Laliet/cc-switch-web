@@ -23,7 +23,7 @@ use crate::{
     store::AppState,
 };
 
-use super::{ApiError, ApiResult};
+use super::{ensure_app_feature, parse_known_app_type, ApiError, ApiResult};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -551,8 +551,14 @@ pub async fn list_skills(
 
 fn parse_skill_app(raw: Option<String>) -> Result<AppType, ApiError> {
     match raw {
-        Some(value) => AppType::parse_skills_app(&value)
-            .map_err(|e: AppError| ApiError::bad_request(e.to_string())),
+        Some(value) => {
+            let app = parse_known_app_type(&value)?;
+            ensure_app_feature(&app, "skills")?;
+            Ok(match app {
+                AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+                other => other,
+            })
+        }
         None => Ok(AppType::Claude),
     }
 }

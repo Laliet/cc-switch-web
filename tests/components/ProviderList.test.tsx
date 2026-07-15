@@ -11,10 +11,16 @@ const getOmoSlimPluginStatusMock = vi.fn();
 const disableCurrentOmoMock = vi.fn();
 const disableCurrentOmoSlimMock = vi.fn();
 const checkProviderMock = vi.fn();
+const checkProvidersMock = vi.fn();
 const isCheckingMock = vi.fn();
+const useLatestStreamCheckHistoryMock = vi.fn();
 
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
+}));
+
+vi.mock("@/lib/query", () => ({
+  useOpenClawStatusQuery: () => ({ data: undefined }),
 }));
 
 vi.mock("@/components/providers/ProviderCard", () => ({
@@ -98,8 +104,24 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/hooks/useStreamCheck", () => ({
   useStreamCheck: () => ({
     checkProvider: (...args: unknown[]) => checkProviderMock(...args),
+    checkProviders: (...args: unknown[]) => checkProvidersMock(...args),
     isChecking: (...args: unknown[]) => isCheckingMock(...args),
+    batchProgress: {
+      running: false,
+      completed: 0,
+      total: 0,
+      failed: 0,
+    },
   }),
+}));
+
+vi.mock("@/hooks/useStreamCheckHistory", () => ({
+  useLatestStreamCheckHistory: (...args: unknown[]) =>
+    useLatestStreamCheckHistoryMock(...args),
+}));
+
+vi.mock("@/components/providers/StreamCheckHistoryPanel", () => ({
+  StreamCheckHistoryPanel: () => <div data-testid="stream-check-history" />,
 }));
 
 vi.mock("@/components/UsageFooter", () => ({
@@ -142,8 +164,12 @@ beforeEach(() => {
   disableCurrentOmoSlimMock.mockResolvedValue(true);
   checkProviderMock.mockReset();
   checkProviderMock.mockResolvedValue(null);
+  checkProvidersMock.mockReset();
+  checkProvidersMock.mockResolvedValue(undefined);
   isCheckingMock.mockReset();
   isCheckingMock.mockReturnValue(false);
+  useLatestStreamCheckHistoryMock.mockReset();
+  useLatestStreamCheckHistoryMock.mockReturnValue({ data: [] });
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -391,6 +417,25 @@ describe("ProviderList Component", () => {
 
   it("passes stream check action for direct provider apps", () => {
     const provider = createProvider({ id: "opencode-1", name: "OpenCode" });
+    useLatestStreamCheckHistoryMock.mockReturnValue({
+      data: [
+        {
+          id: 1,
+          providerId: "opencode-1",
+          providerName: "OpenCode",
+          appType: "opencode",
+          status: "failed",
+          success: false,
+          message: "HTTP 401",
+          responseTimeMs: 84,
+          httpStatus: 401,
+          modelUsed: "test-model",
+          retryCount: 0,
+          errorCategory: "authenticationFailed",
+          testedAt: 1_700_000_000,
+        },
+      ],
+    });
     isCheckingMock.mockImplementation((id: string) => id === "opencode-1");
     useDragSortMock.mockReturnValue({
       sortedProviders: [provider],
@@ -414,6 +459,11 @@ describe("ProviderList Component", () => {
     const button = screen.getByTestId("stream-check-opencode-1");
     expect(button).toHaveAttribute("data-enabled", "true");
     expect(button).toHaveAttribute("data-checking", "true");
+    expect(providerCardRenderSpy.mock.calls[0][0].streamCheckLog).toMatchObject({
+      providerId: "opencode-1",
+      responseTimeMs: 84,
+      errorCategory: "authenticationFailed",
+    });
 
     fireEvent.click(button);
     expect(checkProviderMock).toHaveBeenCalledWith("opencode-1", "OpenCode");
@@ -444,6 +494,33 @@ describe("ProviderList Component", () => {
       await screen.findByText("oh-my-opencode-slim@latest"),
     ).toBeInTheDocument();
     expect(screen.getByTestId("stream-check-omo-slim-1")).toHaveAttribute(
+      "data-enabled",
+      "false",
+    );
+  });
+
+  it("does not expose stream check action for OpenClaw additive providers", () => {
+    const provider = createProvider({ id: "openclaw-1", name: "OpenClaw" });
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+
+    render(
+      <ProviderList
+        providers={{ "openclaw-1": provider }}
+        currentProviderId=""
+        appId="openclaw"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("stream-check-openclaw-1")).toHaveAttribute(
       "data-enabled",
       "false",
     );

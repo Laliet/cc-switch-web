@@ -89,6 +89,21 @@ export function EditProviderDialog({
       return (provider.settingsConfig ?? {}) as Record<string, unknown>;
     }
 
+    if (appId === "openclaw" && liveSettings && provider) {
+      const providerMap = (
+        liveSettings.models as Record<string, unknown> | undefined
+      )?.providers;
+      if (providerMap && typeof providerMap === "object") {
+        const currentSettings = (providerMap as Record<string, unknown>)[
+          provider.id
+        ];
+        if (currentSettings && typeof currentSettings === "object") {
+          return currentSettings as Record<string, unknown>;
+        }
+      }
+      return (provider.settingsConfig ?? {}) as Record<string, unknown>;
+    }
+
     return (liveSettings ?? provider?.settingsConfig ?? {}) as Record<
       string,
       unknown

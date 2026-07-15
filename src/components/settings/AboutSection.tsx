@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { settingsApi } from "@/lib/api";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { getCurrentVersion, relaunchApp } from "@/lib/updater";
+import { useCapabilitiesQuery } from "@/lib/query";
 
 interface AboutSectionProps {
   isPortable: boolean;
@@ -16,6 +17,8 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [version, setVersion] = useState<string | null>(null);
   const [isLoadingVersion, setIsLoadingVersion] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const { data: capabilities } = useCapabilitiesQuery();
+  const appUpdateSupported = capabilities?.features.appUpdate === true;
 
   const {
     hasUpdate,
@@ -161,34 +164,36 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               <ExternalLink className="mr-2 h-4 w-4" />
               {t("settings.releaseNotes")}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCheckUpdate}
-              disabled={isChecking || isDownloading}
-              className="min-w-[140px]"
-            >
-              {isDownloading ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("settings.updating")}
-                </span>
-              ) : hasUpdate ? (
-                <span className="inline-flex items-center gap-2">
-                  <Download className="h-4 w-4" />
-                  {t("settings.updateTo", {
-                    version: updateInfo?.availableVersion ?? "",
-                  })}
-                </span>
-              ) : isChecking ? (
-                <span className="inline-flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  {t("settings.checking")}
-                </span>
-              ) : (
-                t("settings.checkForUpdates")
-              )}
-            </Button>
+            {appUpdateSupported ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCheckUpdate}
+                disabled={isChecking || isDownloading}
+                className="min-w-[140px]"
+              >
+                {isDownloading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t("settings.updating")}
+                  </span>
+                ) : hasUpdate ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    {t("settings.updateTo", {
+                      version: updateInfo?.availableVersion ?? "",
+                    })}
+                  </span>
+                ) : isChecking ? (
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    {t("settings.checking")}
+                  </span>
+                ) : (
+                  t("settings.checkForUpdates")
+                )}
+              </Button>
+            ) : null}
           </div>
         </div>
 

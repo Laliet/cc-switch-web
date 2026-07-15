@@ -45,16 +45,22 @@ async fn dispatch(app: axum::Router, request: Request<Body>) -> axum::response::
     app.oneshot(request).await.expect("router response")
 }
 
-async fn response_error_message(res: axum::response::Response) -> String {
+async fn response_error_fields(res: axum::response::Response) -> (String, String) {
     let bytes = to_bytes(res.into_body(), usize::MAX)
         .await
         .expect("response body");
     let value: serde_json::Value = serde_json::from_slice(&bytes).expect("error json");
-    value
+    let code = value
+        .get("code")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let message = value
         .get("error")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
-        .to_string()
+        .to_string();
+    (code, message)
 }
 
 #[tokio::test]
@@ -73,8 +79,9 @@ async fn skills_list_rejects_claude_desktop_query() {
         .expect("build request");
 
     let res = dispatch(app, req).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let error = response_error_message(res).await;
+    assert_eq!(res.status(), StatusCode::NOT_IMPLEMENTED);
+    let (code, error) = response_error_fields(res).await;
+    assert_eq!(code, "skills_claude_desktop_unavailable");
     assert_unsupported_error(&error);
 }
 
@@ -102,8 +109,9 @@ async fn skills_install_rejects_claude_desktop_payload() {
         .expect("build request");
 
     let res = dispatch(app, req).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let error = response_error_message(res).await;
+    assert_eq!(res.status(), StatusCode::NOT_IMPLEMENTED);
+    let (code, error) = response_error_fields(res).await;
+    assert_eq!(code, "skills_claude_desktop_unavailable");
     assert_unsupported_error(&error);
 }
 
@@ -138,7 +146,7 @@ async fn config_get_dir_supports_opencode() {
 
 #[tokio::test]
 #[serial]
-async fn mcp_get_config_rejects_upcoming_app() {
+async fn mcp_get_config_maps_omo_to_opencode() {
     let _guard = async_test_mutex().lock().await;
     reset_test_fs();
     let _home = ensure_test_home();
@@ -152,12 +160,7 @@ async fn mcp_get_config_rejects_upcoming_app() {
         .expect("build request");
 
     let res = dispatch(app, req).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let error = response_error_message(res).await;
-    assert!(
-        error.contains("暂未支持") || error.contains("not supported yet"),
-        "unexpected error message: {error}"
-    );
+    assert_eq!(res.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -195,10 +198,74 @@ async fn prompts_list_rejects_upcoming_app() {
         .expect("build request");
 
     let res = dispatch(app, req).await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-    let error = response_error_message(res).await;
+    assert_eq!(res.status(), StatusCode::NOT_IMPLEMENTED);
+    let (code, error) = response_error_fields(res).await;
+    assert_eq!(code, "prompts_omo_unavailable");
     assert!(
         error.contains("暂未支持") || error.contains("not supported yet"),
         "unexpected error message: {error}"
     );
+}
+
+#[tokio::test]
+#[serial]
+async fn known_app_feature_boundaries_return_coded_501() {
+    let _guard = async_test_mutex().lock().await;
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    for (method, uri, csrf, expected_code) in [
+        (
+            Method::GET,
+            "/api/mcp/config/openclaw",
+            false,
+            "mcp_openclaw_unavailable",
+        ),
+        (
+            Method::GET,
+            "/api/config/opencode/common-snippet",
+            false,
+            "config_snippet_opencode_unavailable",
+        ),
+        (
+            Method::POST,
+            "/api/providers/openclaw/provider-a/usage",
+            true,
+            "usage_openclaw_unavailable",
+        ),
+    ] {
+        let app = make_app("password", "csrf-token");
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(AUTHORIZATION, basic_auth_header("admin", "password"));
+        if csrf {
+            request = request.header("x-csrf-token", HeaderValue::from_static("csrf-token"));
+        }
+        let response = dispatch(app, request.body(Body::empty()).expect("build request")).await;
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED, "{uri}");
+        let (code, error) = response_error_fields(response).await;
+        assert_eq!(code, expected_code, "{uri}: {error}");
+        assert!(error.contains("not supported yet"), "{uri}: {error}");
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn unknown_app_remains_a_bad_request() {
+    let _guard = async_test_mutex().lock().await;
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let app = make_app("password", "csrf-token");
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("/api/prompts/not-an-app")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .body(Body::empty())
+        .expect("build request");
+    let response = dispatch(app, request).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let (code, _) = response_error_fields(response).await;
+    assert_eq!(code, "bad_request");
 }

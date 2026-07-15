@@ -28,6 +28,32 @@ export interface StreamCheckResult {
   errorCategory?: string;
 }
 
+export interface StreamCheckLog {
+  id: number;
+  providerId: string;
+  providerName: string;
+  appType: string;
+  status: HealthStatus;
+  success: boolean;
+  message: string;
+  responseTimeMs?: number;
+  httpStatus?: number;
+  modelUsed: string;
+  retryCount: number;
+  errorCategory?: string;
+  testedAt: number;
+}
+
+export interface StreamCheckLogQuery {
+  appType?: AppId;
+  providerId?: string;
+  status?: HealthStatus;
+  since?: number;
+  until?: number;
+  limit?: number;
+  offset?: number;
+}
+
 // ===== 流式健康检查 API =====
 
 /**
@@ -64,4 +90,16 @@ export async function saveStreamCheckConfig(
   config: StreamCheckConfig,
 ): Promise<void> {
   return invoke("save_stream_check_config", { config });
+}
+
+export async function getStreamCheckLogs(
+  query: StreamCheckLogQuery = {},
+): Promise<StreamCheckLog[]> {
+  return invoke("get_stream_check_logs", { query });
+}
+
+export async function getLatestStreamCheckLogs(
+  appType?: AppId,
+): Promise<StreamCheckLog[]> {
+  return invoke("get_latest_stream_check_logs", { appType });
 }

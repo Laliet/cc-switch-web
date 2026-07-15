@@ -7,6 +7,7 @@ import type { CodexProviderPreset } from "@/config/codexProviderPresets";
 import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
 import type { ClaudeDesktopProviderPreset } from "@/config/claudeDesktopProviderPresets";
 import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
+import type { OpenClawProviderPreset } from "@/config/openclawProviderPresets";
 import type { ProviderCategory } from "@/types";
 
 type PresetEntry = {
@@ -16,7 +17,8 @@ type PresetEntry = {
     | CodexProviderPreset
     | GeminiProviderPreset
     | ClaudeDesktopProviderPreset
-    | OpenCodeProviderPreset;
+    | OpenCodeProviderPreset
+    | OpenClawProviderPreset;
 };
 
 interface ProviderPresetSelectorProps {
@@ -75,7 +77,8 @@ export function ProviderPresetSelector({
       | CodexProviderPreset
       | GeminiProviderPreset
       | ClaudeDesktopProviderPreset
-      | OpenCodeProviderPreset,
+      | OpenCodeProviderPreset
+      | OpenClawProviderPreset,
   ) => {
     const iconType = preset.theme?.icon;
     if (!iconType) return null;
@@ -102,7 +105,8 @@ export function ProviderPresetSelector({
       | CodexProviderPreset
       | GeminiProviderPreset
       | ClaudeDesktopProviderPreset
-      | OpenCodeProviderPreset,
+      | OpenCodeProviderPreset
+      | OpenClawProviderPreset,
   ) => {
     const baseClass =
       "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors";
@@ -127,7 +131,8 @@ export function ProviderPresetSelector({
       | CodexProviderPreset
       | GeminiProviderPreset
       | ClaudeDesktopProviderPreset
-      | OpenCodeProviderPreset,
+      | OpenCodeProviderPreset
+      | OpenClawProviderPreset,
   ) => {
     if (!isSelected || !preset.theme?.backgroundColor) {
       return undefined;

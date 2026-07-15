@@ -13,8 +13,8 @@ mod token_crypto;
 pub use backup::BackupEntry;
 pub use dao::{
     FailoverQueueItem, ModelPricing, ModelPricingRecord, ProviderHealthRecord,
-    ProxyRequestLogRecord, ProxyRequestUsageUpdate, PRICING_SOURCE_REQUEST,
-    PRICING_SOURCE_RESPONSE,
+    ProxyRequestLogRecord, ProxyRequestUsageUpdate, StreamCheckLogFilters, StreamCheckLogRecord,
+    PRICING_SOURCE_REQUEST, PRICING_SOURCE_RESPONSE,
 };
 
 use crate::{config::get_app_config_dir, error::AppError};
@@ -23,7 +23,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{path::PathBuf, sync::Mutex};
 use token_crypto::TokenCipher;
 
-pub(crate) const SCHEMA_VERSION: i32 = 6;
+pub(crate) const SCHEMA_VERSION: i32 = 7;
 pub(crate) const SETTINGS_CONFIG_VERSION: &str = "config_version";
 pub(crate) const SETTINGS_COMMON_SNIPPETS: &str = "common_config_snippets";
 pub(crate) const SETTINGS_DB_MIGRATED_FROM_JSON: &str = "migrated_from_config_json";

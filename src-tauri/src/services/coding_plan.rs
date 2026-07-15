@@ -108,11 +108,7 @@ fn parse_kimi(body: &Value) -> Vec<QuotaTier> {
 
 fn parse_zhipu(body: &Value) -> Result<Vec<QuotaTier>, String> {
     if body.get("success").and_then(Value::as_bool) == Some(false) {
-        return Err(body
-            .get("msg")
-            .and_then(Value::as_str)
-            .unwrap_or("Zhipu API returned an error")
-            .to_string());
+        return Err("Zhipu API returned an error".to_string());
     }
     let data = body
         .get("data")
@@ -157,11 +153,7 @@ fn parse_minimax(body: &Value) -> Result<Vec<QuotaTier>, String> {
             .and_then(Value::as_i64)
             .unwrap_or(-1);
         if code != 0 {
-            return Err(response
-                .get("status_msg")
-                .and_then(Value::as_str)
-                .unwrap_or("MiniMax API returned an error")
-                .to_string());
+            return Err("MiniMax API returned an error".to_string());
         }
     }
     let Some(item) = body
@@ -223,7 +215,7 @@ async fn request_quota(provider: CodingPlanProvider, api_key: &str) -> Result<Va
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
-        .map_err(|err| format!("Failed to create HTTP client: {err}"))?;
+        .map_err(|_| "Failed to create HTTP client".to_string())?;
     let authorization = if bearer {
         format!("Bearer {api_key}")
     } else {
@@ -235,19 +227,18 @@ async fn request_quota(provider: CodingPlanProvider, api_key: &str) -> Result<Va
         .header("accept", "application/json")
         .send()
         .await
-        .map_err(|err| format!("Network error: {err}"))?;
+        .map_err(|_| "Network error".to_string())?;
     let status = response.status();
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
         return Err(format!("Authentication failed (HTTP {status})"));
     }
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("API error (HTTP {status}): {body}"));
+        return Err(format!("API error (HTTP {status})"));
     }
     response
         .json()
         .await
-        .map_err(|err| format!("Failed to parse response: {err}"))
+        .map_err(|_| "Failed to parse response".to_string())
 }
 
 pub async fn get_coding_plan_quota(base_url: &str, api_key: &str) -> UsageResult {

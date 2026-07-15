@@ -26,7 +26,8 @@ impl McpApps {
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::Opencode => self.opencode,
-            AppType::Omo | AppType::OmoSlim => false,
+            AppType::OpenClaw => false,
+            AppType::Omo | AppType::OmoSlim => self.opencode,
         }
     }
 
@@ -38,7 +39,8 @@ impl McpApps {
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::Opencode => self.opencode = enabled,
-            AppType::Omo | AppType::OmoSlim => {}
+            AppType::OpenClaw => {}
+            AppType::Omo | AppType::OmoSlim => self.opencode = enabled,
         }
     }
 
@@ -237,6 +239,7 @@ pub enum AppType {
     Codex,
     Gemini,
     Opencode,
+    OpenClaw,
     Omo,
     #[serde(rename = "omo-slim")]
     OmoSlim,
@@ -250,6 +253,7 @@ impl AppType {
             AppType::Codex => "codex",
             AppType::Gemini => "gemini",
             AppType::Opencode => "opencode",
+            AppType::OpenClaw => "openclaw",
             AppType::Omo => "omo",
             AppType::OmoSlim => "omo-slim",
         }
@@ -263,6 +267,7 @@ impl AppType {
                 | AppType::Codex
                 | AppType::Gemini
                 | AppType::Opencode
+                | AppType::OpenClaw
         )
     }
 
@@ -287,11 +292,36 @@ impl AppType {
         let app = Self::from_str(s)?;
         Ok(match app {
             AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+            AppType::OpenClaw => {
+                return Err(AppError::localized(
+                    "skills.app_not_supported",
+                    "OpenClaw 暂不支持 Skills 同步。",
+                    "OpenClaw does not support Skills sync yet.",
+                ))
+            }
             AppType::ClaudeDesktop => {
                 return Err(AppError::localized(
                     "skills.app_not_supported",
                     "Claude Desktop 暂不支持 Skills 同步。",
                     "Claude Desktop does not support Skills sync yet.",
+                ))
+            }
+            other => {
+                other.ensure_supported()?;
+                other
+            }
+        })
+    }
+
+    pub fn parse_mcp_app(s: &str) -> Result<Self, AppError> {
+        let app = Self::from_str(s)?;
+        Ok(match app {
+            AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+            AppType::OpenClaw | AppType::ClaudeDesktop => {
+                return Err(AppError::localized(
+                    "mcp.app_not_supported",
+                    format!("{} 暂不支持 MCP 同步。", app.as_str()),
+                    format!("{} does not support MCP sync yet.", app.as_str()),
                 ))
             }
             other => {
@@ -315,15 +345,16 @@ impl FromStr for AppType {
             "codex" => Ok(AppType::Codex),
             "gemini" => Ok(AppType::Gemini),
             "opencode" => Ok(AppType::Opencode),
+            "openclaw" => Ok(AppType::OpenClaw),
             "omo" => Ok(AppType::Omo),
             "omo-slim" | "omoslim" => Ok(AppType::OmoSlim),
             other => Err(AppError::localized(
                 "unsupported_app",
                 format!(
-                    "不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, opencode, omo, omo-slim。"
+                    "不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, opencode, openclaw, omo, omo-slim。"
                 ),
                 format!(
-                    "Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, opencode, omo, omo-slim."
+                    "Unsupported app id: '{other}'. Allowed: claude, claude-desktop, codex, gemini, opencode, openclaw, omo, omo-slim."
                 ),
             )),
         }
@@ -351,7 +382,7 @@ impl CommonConfigSnippets {
             AppType::ClaudeDesktop => None,
             AppType::Codex => self.codex.as_ref(),
             AppType::Gemini => self.gemini.as_ref(),
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => None,
+            AppType::Opencode | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => None,
         }
     }
 
@@ -362,7 +393,7 @@ impl CommonConfigSnippets {
             AppType::ClaudeDesktop => {}
             AppType::Codex => self.codex = snippet,
             AppType::Gemini => self.gemini = snippet,
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {}
+            AppType::Opencode | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {}
         }
     }
 }
@@ -404,6 +435,7 @@ impl Default for MultiAppConfig {
         apps.insert("codex".to_string(), ProviderManager::default());
         apps.insert("gemini".to_string(), ProviderManager::default());
         apps.insert("opencode".to_string(), ProviderManager::default());
+        apps.insert("openclaw".to_string(), ProviderManager::default());
         apps.insert("omo".to_string(), ProviderManager::default());
         apps.insert("omo-slim".to_string(), ProviderManager::default());
 
@@ -474,7 +506,14 @@ impl MultiAppConfig {
             updated = true;
         }
 
-        for app_id in ["claude-desktop", "gemini", "opencode", "omo", "omo-slim"] {
+        for app_id in [
+            "claude-desktop",
+            "gemini",
+            "opencode",
+            "openclaw",
+            "omo",
+            "omo-slim",
+        ] {
             if !self.apps.contains_key(app_id) {
                 self.apps
                     .insert(app_id.to_string(), ProviderManager::default());
@@ -594,7 +633,9 @@ impl MultiAppConfig {
             AppType::ClaudeDesktop => &self.mcp.claude,
             AppType::Codex => &self.mcp.codex,
             AppType::Gemini => &self.mcp.gemini,
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => &self.mcp.opencode,
+            AppType::Opencode | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
+                &self.mcp.opencode
+            }
         }
     }
 
@@ -605,7 +646,9 @@ impl MultiAppConfig {
             AppType::ClaudeDesktop => &mut self.mcp.claude,
             AppType::Codex => &mut self.mcp.codex,
             AppType::Gemini => &mut self.mcp.gemini,
-            AppType::Opencode | AppType::Omo | AppType::OmoSlim => &mut self.mcp.opencode,
+            AppType::Opencode | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
+                &mut self.mcp.opencode
+            }
         }
     }
 
@@ -722,7 +765,7 @@ impl MultiAppConfig {
             AppType::ClaudeDesktop => return Ok(false),
             AppType::Codex => &mut config.prompts.codex.prompts,
             AppType::Gemini => &mut config.prompts.gemini.prompts,
-            AppType::Opencode => &mut config.prompts.opencode.prompts,
+            AppType::Opencode | AppType::OpenClaw => &mut config.prompts.opencode.prompts,
             AppType::Omo | AppType::OmoSlim => return Ok(false),
         };
 
@@ -763,7 +806,9 @@ impl MultiAppConfig {
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::Opencode => &self.mcp.opencode.servers,
-                AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => continue,
+                AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
+                    continue
+                }
             };
 
             for (id, entry) in old_servers {

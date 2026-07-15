@@ -2,9 +2,14 @@ import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { providersApi, settingsApi } from "@/lib/api";
+import { isWeb } from "@/lib/api/adapter";
 import type { DirectoryAppId } from "@/config/apps";
 import { syncCurrentProvidersLiveSafe } from "@/utils/postChangeSync";
-import { useSettingsQuery, useSaveSettingsMutation } from "@/lib/query";
+import {
+  useCapabilitiesQuery,
+  useSettingsQuery,
+  useSaveSettingsMutation,
+} from "@/lib/query";
 import type { Settings } from "@/types";
 import { useSettingsForm, type SettingsFormState } from "./useSettingsForm";
 import {
@@ -62,6 +67,7 @@ export function useSettings(): UseSettingsResult {
   const { t } = useTranslation();
   const { data } = useSettingsQuery();
   const saveMutation = useSaveSettingsMutation();
+  const { data: capabilities } = useCapabilitiesQuery();
 
   // 1️⃣ 表单状态管理
   const {
@@ -148,24 +154,28 @@ export function useSettings(): UseSettingsResult {
 
       await saveMutation.mutateAsync(payload);
 
-      await settingsApi.setAppConfigDirOverride(sanitizedAppDir ?? null);
+      if (!isWeb() && capabilities?.features.configDirOverride === true) {
+        await settingsApi.setAppConfigDirOverride(sanitizedAppDir ?? null);
+      }
 
-      try {
-        if (payload.enableClaudePluginIntegration) {
-          await settingsApi.applyClaudePluginConfig({ official: false });
-        } else {
-          await settingsApi.applyClaudePluginConfig({ official: true });
+      if (capabilities?.features.claudePluginIntegration === true) {
+        try {
+          if (payload.enableClaudePluginIntegration) {
+            await settingsApi.applyClaudePluginConfig({ official: false });
+          } else {
+            await settingsApi.applyClaudePluginConfig({ official: true });
+          }
+        } catch (error) {
+          console.warn(
+            "[useSettings] Failed to sync Claude plugin config",
+            error,
+          );
+          toast.error(
+            t("notifications.syncClaudePluginFailed", {
+              defaultValue: "同步 Claude 插件失败",
+            }),
+          );
         }
-      } catch (error) {
-        console.warn(
-          "[useSettings] Failed to sync Claude plugin config",
-          error,
-        );
-        toast.error(
-          t("notifications.syncClaudePluginFailed", {
-            defaultValue: "同步 Claude 插件失败",
-          }),
-        );
       }
 
       try {
@@ -179,10 +189,12 @@ export function useSettings(): UseSettingsResult {
         );
       }
 
-      try {
-        await providersApi.updateTrayMenu();
-      } catch (error) {
-        console.warn("[useSettings] Failed to refresh tray menu", error);
+      if (capabilities?.features.tray === true) {
+        try {
+          await providersApi.updateTrayMenu();
+        } catch (error) {
+          console.warn("[useSettings] Failed to refresh tray menu", error);
+        }
       }
 
       // 如果 Claude/Codex/Gemini 的目录覆盖发生变化，则立即将“当前使用的供应商”写回对应应用的 live 配置
@@ -215,6 +227,9 @@ export function useSettings(): UseSettingsResult {
     }
   }, [
     appConfigDir,
+    capabilities?.features.configDirOverride,
+    capabilities?.features.claudePluginIntegration,
+    capabilities?.features.tray,
     data,
     initialAppConfigDir,
     saveMutation,

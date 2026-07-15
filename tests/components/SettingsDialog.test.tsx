@@ -18,6 +18,17 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
+vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: {
+      features: {
+        claudePluginIntegration: true,
+        tray: true,
+      },
+    },
+  }),
+}));
+
 const adapterMocks = vi.hoisted(() => ({
   isWeb: vi.fn(() => true),
   getStoredWebUsername: vi.fn(() => "admin"),

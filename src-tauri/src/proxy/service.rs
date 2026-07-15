@@ -87,12 +87,22 @@ impl ProxyService {
         app: AppType,
         enabled: bool,
     ) -> Result<ProxyTakeoverResult, AppError> {
-        if matches!(app, AppType::Omo | AppType::OmoSlim) {
-            return Err(AppError::localized(
-                "proxy.omo.unsupported",
-                "代理暂不支持 OMO。",
-                "Proxy does not support OMO yet.",
-            ));
+        match app {
+            AppType::OpenClaw => {
+                return Err(AppError::localized(
+                    "proxy.openclaw.unsupported",
+                    "OpenClaw 第一阶段不支持代理接管。",
+                    "OpenClaw phase one does not support proxy takeover.",
+                ));
+            }
+            AppType::Omo | AppType::OmoSlim => {
+                return Err(AppError::localized(
+                    "proxy.omo.unsupported",
+                    "代理暂不支持 OMO。",
+                    "Proxy does not support OMO yet.",
+                ));
+            }
+            _ => {}
         }
         if enabled && matches!(app, AppType::Gemini) {
             let provider = server::current_provider(&state, &app)?;
@@ -194,7 +204,7 @@ fn set_app_enabled(config: &mut ProxySettings, app: &AppType, enabled: bool) {
         AppType::Codex => config.apps.codex.enabled = enabled,
         AppType::Gemini => config.apps.gemini.enabled = enabled,
         AppType::Opencode => config.apps.opencode.enabled = enabled,
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {}
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {}
     }
 }
 
@@ -204,7 +214,7 @@ fn is_app_enabled(config: &ProxySettings, app: &AppType) -> bool {
         AppType::Codex => config.apps.codex.enabled,
         AppType::Gemini => config.apps.gemini.enabled,
         AppType::Opencode => config.apps.opencode.enabled,
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => false,
     }
 }
 
@@ -214,7 +224,7 @@ fn is_app_failover_enabled(config: &ProxySettings, app: &AppType) -> bool {
         AppType::Codex => config.apps.codex.auto_failover_enabled,
         AppType::Gemini => config.apps.gemini.auto_failover_enabled,
         AppType::Opencode => config.apps.opencode.auto_failover_enabled,
-        AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => false,
+        AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => false,
     }
 }
 
@@ -313,6 +323,19 @@ fn ensure_takeover_config_supported(
     Ok(())
 }
 
+pub(crate) fn ensure_gemini_takeover_supported(
+    provider: &crate::provider::Provider,
+) -> Result<(), AppError> {
+    if ProviderService::is_google_official_gemini_provider(provider) {
+        return Err(AppError::localized(
+            "proxy.gemini.oauth.unsupported",
+            "Gemini OAuth Provider 暂不支持代理接管，请使用 API Key Provider。",
+            "Gemini OAuth providers are not supported for proxy takeover yet. Use an API key provider.",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{app_config::AppType, settings::ProxySettings};
@@ -339,17 +362,4 @@ mod tests {
         assert!(is_app_failover_enabled(&config, &AppType::Claude));
         assert!(!is_app_failover_enabled(&config, &AppType::Codex));
     }
-}
-
-pub(crate) fn ensure_gemini_takeover_supported(
-    provider: &crate::provider::Provider,
-) -> Result<(), AppError> {
-    if ProviderService::is_google_official_gemini_provider(provider) {
-        return Err(AppError::localized(
-            "proxy.gemini.oauth.unsupported",
-            "Gemini OAuth Provider 暂不支持代理接管，请使用 API Key Provider。",
-            "Gemini OAuth providers are not supported for proxy takeover yet. Use an API key provider.",
-        ));
-    }
-    Ok(())
 }

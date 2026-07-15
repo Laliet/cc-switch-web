@@ -16,7 +16,7 @@ pub mod types;
 pub mod usage;
 
 pub use server::{
-    clear_recent_logs, recent_logs, recent_logs_for_state, reset_provider_circuit,
+    clear_recent_logs, parse_proxy_app, recent_logs, recent_logs_for_state, reset_provider_circuit,
     start_from_saved_settings, start_proxy, status, status_for_state, stop_proxy, test_settings,
 };
 pub use service::ProxyService;

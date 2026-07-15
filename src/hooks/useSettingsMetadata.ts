@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { settingsApi } from "@/lib/api";
+import { useCapabilitiesQuery } from "@/lib/query";
 
 export interface UseSettingsMetadataResult {
   isPortable: boolean;
@@ -19,9 +20,16 @@ export function useSettingsMetadata(): UseSettingsMetadataResult {
   const [isPortable, setIsPortable] = useState(false);
   const [requiresRestart, setRequiresRestart] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const { data: capabilities } = useCapabilitiesQuery();
 
   // 加载元数据
   useEffect(() => {
+    if (!capabilities) return;
+    if (!capabilities.features.portableMode) {
+      setIsPortable(false);
+      setIsLoading(false);
+      return;
+    }
     let active = true;
     setIsLoading(true);
 
@@ -45,7 +53,7 @@ export function useSettingsMetadata(): UseSettingsMetadataResult {
     return () => {
       active = false;
     };
-  }, []);
+  }, [capabilities]);
 
   const acknowledgeRestart = useCallback(() => {
     setRequiresRestart(false);

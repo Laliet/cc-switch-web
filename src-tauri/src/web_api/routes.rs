@@ -7,14 +7,16 @@ use axum::{
 
 use super::{
     handlers::{
-        auth, config, deeplink, health, mcp, model_fetch, prompts, providers, proxy, sessions,
-        settings, skills, stream_check, system, usage, webdav,
+        auth, capabilities, config, deeplink, health, mcp, model_fetch, openclaw, prompts,
+        providers, proxy, sessions, settings, skills, stream_check, subscription, system, usage,
+        webdav, workspace,
     },
     SharedState,
 };
 
 pub fn create_router(state: SharedState) -> Router {
     Router::new()
+        .route("/capabilities", get(capabilities::get_capabilities))
         .route("/health/status", get(health::proxy_status))
         .nest("/auth", auth_routes())
         .nest("/providers", provider_routes())
@@ -27,6 +29,8 @@ pub fn create_router(state: SharedState) -> Router {
         .nest("/proxy", proxy_routes())
         .nest("/usage", usage_routes())
         .nest("/webdav", webdav_routes())
+        .nest("/workspace", workspace_routes())
+        .nest("/openclaw", openclaw_routes())
         .nest("/config", config_routes())
         .route("/model-fetch", post(model_fetch::fetch_models_for_config))
         .route(
@@ -38,14 +42,52 @@ pub fn create_router(state: SharedState) -> Router {
             get(model_fetch::get_github_copilot_models),
         )
         .nest("/stream-check", stream_check_routes())
+        .route("/subscriptions/quota", get(subscription::query_quota))
         .route("/tray/update", post(system::update_tray))
         .route("/system/csrf-token", get(system::get_csrf_token))
         .route("/system/credentials", put(system::update_credentials))
         .route("/system/open-external", post(system::open_external))
+        .route(
+            "/unsupported/:operation",
+            get(system::unsupported_operation)
+                .post(system::unsupported_operation)
+                .put(system::unsupported_operation)
+                .delete(system::unsupported_operation),
+        )
         .route("/fs/pick-directory", post(config::pick_directory))
         .route("/fs/save-file", post(config::save_file_dialog))
         .route("/fs/open-file", post(config::open_file_dialog))
         .with_state(state)
+}
+
+fn openclaw_routes() -> Router<SharedState> {
+    Router::new()
+        .route("/status", get(openclaw::get_status))
+        .route("/providers", get(openclaw::get_providers))
+        .route("/providers/:provider_id", get(openclaw::get_provider))
+        .route(
+            "/default-model",
+            get(openclaw::get_default_model)
+                .put(openclaw::set_default_model)
+                .delete(openclaw::clear_default_model),
+        )
+        .route("/health", get(openclaw::get_health))
+}
+
+fn workspace_routes() -> Router<SharedState> {
+    Router::new()
+        .route("/files", get(workspace::list_files))
+        .route(
+            "/files/:name",
+            get(workspace::read_file).put(workspace::write_file),
+        )
+        .route("/files/:name/backups", get(workspace::list_backups))
+        .route("/files/:name/restore", post(workspace::restore_backup))
+        .route("/memory", get(workspace::list_daily_memory))
+        .route(
+            "/memory/:date",
+            get(workspace::read_daily_memory).put(workspace::write_daily_memory),
+        )
 }
 
 fn session_routes() -> Router<SharedState> {
@@ -55,6 +97,7 @@ fn session_routes() -> Router<SharedState> {
             get(sessions::list_sessions).delete(sessions::delete_session),
         )
         .route("/messages", post(sessions::get_messages))
+        .route("/page", get(sessions::list_sessions_page))
         .route("/delete-batch", post(sessions::delete_sessions))
 }
 
@@ -111,7 +154,17 @@ fn stream_check_routes() -> Router<SharedState> {
             "/providers/:app/:id",
             post(stream_check::stream_check_provider),
         )
+        .route(
+            "/providers/:id",
+            post(stream_check::stream_check_provider_by_id),
+        )
+        .route("/all", post(stream_check::stream_check_all_providers))
         .route("/providers", post(stream_check::stream_check_all_providers))
+        .route("/logs", get(stream_check::get_stream_check_logs))
+        .route(
+            "/logs/latest",
+            get(stream_check::get_latest_stream_check_logs),
+        )
 }
 
 fn provider_routes() -> Router<SharedState> {

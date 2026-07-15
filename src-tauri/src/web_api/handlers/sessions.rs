@@ -1,10 +1,10 @@
 #![cfg(feature = "web-server")]
 
-use axum::Json;
+use axum::{extract::Query, Json};
 use serde::Deserialize;
 
 use crate::session_manager::{
-    self, DeleteSessionOutcome, DeleteSessionRequest, SessionMessage, SessionMeta,
+    self, DeleteSessionOutcome, DeleteSessionRequest, SessionMessage, SessionMeta, SessionPage,
 };
 
 use super::{ApiError, ApiResult};
@@ -16,16 +16,53 @@ pub struct MessagesRequest {
     source_path: String,
 }
 
-pub async fn list_sessions() -> ApiResult<Vec<SessionMeta>> {
-    let sessions = tokio::task::spawn_blocking(session_manager::scan_sessions)
-        .await
-        .map_err(|e| {
-            ApiError::new(
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to scan sessions: {e}"),
-            )
-        })?;
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListQuery {
+    refresh: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPageQuery {
+    cursor: Option<String>,
+    limit: Option<usize>,
+    provider_id: Option<String>,
+    refresh: Option<bool>,
+}
+
+pub async fn list_sessions(Query(query): Query<SessionListQuery>) -> ApiResult<Vec<SessionMeta>> {
+    let sessions = tokio::task::spawn_blocking(move || {
+        session_manager::scan_sessions_with_refresh(query.refresh.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| {
+        ApiError::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to scan sessions: {e}"),
+        )
+    })?;
     Ok(Json(sessions))
+}
+
+pub async fn list_sessions_page(Query(query): Query<SessionPageQuery>) -> ApiResult<SessionPage> {
+    let page = tokio::task::spawn_blocking(move || {
+        session_manager::scan_sessions_page(
+            query.cursor.as_deref(),
+            query.limit.unwrap_or(100),
+            query.provider_id.as_deref(),
+            query.refresh.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| {
+        ApiError::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to scan sessions: {e}"),
+        )
+    })?
+    .map_err(ApiError::bad_request)?;
+    Ok(Json(page))
 }
 
 pub async fn get_messages(Json(request): Json<MessagesRequest>) -> ApiResult<Vec<SessionMessage>> {

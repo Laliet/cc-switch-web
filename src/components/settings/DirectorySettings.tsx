@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { DirectoryAppId } from "@/config/apps";
 import type { ResolvedDirectories } from "@/hooks/useSettings";
 import type { ConfigDirInfo } from "@/lib/api/settings";
+import { useCapabilitiesQuery } from "@/lib/query";
 
 interface DirectorySettingsProps {
   appConfigDir?: string;
@@ -41,6 +42,9 @@ export function DirectorySettings({
   onApplyWslTemplate,
 }: DirectorySettingsProps) {
   const { t } = useTranslation();
+  const { data: capabilities } = useCapabilitiesQuery();
+  const canBrowse = capabilities?.features.directoryPicker === true;
+  const canOverride = capabilities?.features.configDirOverride === true;
 
   const handleApplyWslTemplate = () => {
     const distro = window.prompt(
@@ -72,25 +76,30 @@ export function DirectorySettings({
             placeholder={t("settings.browsePlaceholderApp")}
             className="font-mono text-xs"
             onChange={(event) => onAppConfigChange(event.target.value)}
+            disabled={!canOverride}
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={onBrowseAppConfig}
-            title={t("settings.browseDirectory")}
-          >
-            <FolderSearch className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={onResetAppConfig}
-            title={t("settings.resetDefault")}
-          >
-            <Undo2 className="h-4 w-4" />
-          </Button>
+          {canBrowse ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={onBrowseAppConfig}
+              title={t("settings.browseDirectory")}
+            >
+              <FolderSearch className="h-4 w-4" />
+            </Button>
+          ) : null}
+          {canOverride ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={onResetAppConfig}
+              title={t("settings.resetDefault")}
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          ) : null}
         </div>
       </section>
 
@@ -115,6 +124,8 @@ export function DirectorySettings({
           onChange={(val) => onDirectoryChange("claude", val)}
           onBrowse={() => onBrowseDirectory("claude")}
           onReset={() => onResetDirectory("claude")}
+          canBrowse={canBrowse}
+          canEdit={canOverride}
         />
 
         <DirectoryInput
@@ -127,6 +138,8 @@ export function DirectorySettings({
           onChange={(val) => onDirectoryChange("codex", val)}
           onBrowse={() => onBrowseDirectory("codex")}
           onReset={() => onResetDirectory("codex")}
+          canBrowse={canBrowse}
+          canEdit={canOverride}
         />
 
         <DirectoryInput
@@ -139,6 +152,8 @@ export function DirectorySettings({
           onChange={(val) => onDirectoryChange("gemini", val)}
           onBrowse={() => onBrowseDirectory("gemini")}
           onReset={() => onResetDirectory("gemini")}
+          canBrowse={canBrowse}
+          canEdit={canOverride}
         />
 
         <DirectoryInput
@@ -158,24 +173,30 @@ export function DirectorySettings({
           onChange={(val) => onDirectoryChange("opencode", val)}
           onBrowse={() => onBrowseDirectory("opencode")}
           onReset={() => onResetDirectory("opencode")}
+          canBrowse={canBrowse}
+          canEdit={canOverride}
         />
 
-        <p className="text-xs text-muted-foreground">
-          {t("settings.wslShareHint")}
-        </p>
-        <div className="pt-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleApplyWslTemplate}
-            className="text-xs"
-          >
-            {t("settings.fillWslTemplate", {
-              defaultValue: "填充 WSL 模板路径",
-            })}
-          </Button>
-        </div>
+        {canOverride ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.wslShareHint")}
+            </p>
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleApplyWslTemplate}
+                className="text-xs"
+              >
+                {t("settings.fillWslTemplate", {
+                  defaultValue: "填充 WSL 模板路径",
+                })}
+              </Button>
+            </div>
+          </>
+        ) : null}
       </section>
     </>
   );
@@ -191,6 +212,8 @@ interface DirectoryInputProps {
   onChange: (value?: string) => void;
   onBrowse: () => Promise<void>;
   onReset: () => Promise<void>;
+  canBrowse: boolean;
+  canEdit: boolean;
 }
 
 function DirectoryInput({
@@ -203,6 +226,8 @@ function DirectoryInput({
   onChange,
   onBrowse,
   onReset,
+  canBrowse,
+  canEdit,
 }: DirectoryInputProps) {
   const { t } = useTranslation();
   const displayValue = useMemo(
@@ -224,25 +249,30 @@ function DirectoryInput({
           placeholder={placeholder}
           className="font-mono text-xs"
           onChange={(event) => onChange(event.target.value)}
+          disabled={!canEdit}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={onBrowse}
-          title={t("settings.browseDirectory")}
-        >
-          <FolderSearch className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={onReset}
-          title={t("settings.resetDefault")}
-        >
-          <Undo2 className="h-4 w-4" />
-        </Button>
+        {canBrowse ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onBrowse}
+            title={t("settings.browseDirectory")}
+          >
+            <FolderSearch className="h-4 w-4" />
+          </Button>
+        ) : null}
+        {canEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onReset}
+            title={t("settings.resetDefault")}
+          >
+            <Undo2 className="h-4 w-4" />
+          </Button>
+        ) : null}
       </div>
       <p className="text-[11px] text-muted-foreground break-all">
         {t("settings.currentWriteTarget", {

@@ -19,6 +19,7 @@ impl Database {
             AppType::Codex,
             AppType::Gemini,
             AppType::Opencode,
+            AppType::OpenClaw,
             AppType::Omo,
             AppType::OmoSlim,
         ] {

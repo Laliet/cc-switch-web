@@ -12,7 +12,13 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::{app_config::AppType, error::AppError, provider::Provider, store::AppState};
+use crate::{
+    app_config::AppType,
+    database::{StreamCheckLogFilters, StreamCheckLogRecord},
+    error::AppError,
+    provider::Provider,
+    store::AppState,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -68,15 +74,94 @@ pub struct StreamCheckResult {
     pub error_category: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamCheckLog {
+    pub id: i64,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub app_type: String,
+    pub status: String,
+    pub success: bool,
+    pub message: String,
+    pub response_time_ms: Option<i64>,
+    pub http_status: Option<i64>,
+    pub model_used: String,
+    pub retry_count: i64,
+    pub error_category: Option<String>,
+    pub tested_at: i64,
+}
+
 pub struct StreamCheckService;
 
 impl StreamCheckService {
+    pub fn ensure_app_supported(app_type: &AppType) -> Result<(), AppError> {
+        match app_type {
+            AppType::OpenClaw => Err(AppError::localized(
+                "stream_check.openclaw.unsupported",
+                "OpenClaw 第一阶段不支持直接 Stream Check，请检测其上游 Provider。",
+                "OpenClaw phase one does not support direct Stream Check; test its upstream provider.",
+            )),
+            AppType::Omo | AppType::OmoSlim => Err(AppError::localized(
+                "stream_check.omo.unsupported",
+                "OMO profile 不支持直接 Stream Check，请检测底层 OpenCode Provider。",
+                "OMO profiles do not support direct Stream Check; test the underlying OpenCode provider.",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     pub fn get_config(state: &AppState) -> Result<StreamCheckConfig, AppError> {
         state.db.get_stream_check_config()
     }
 
     pub fn save_config(state: &AppState, config: &StreamCheckConfig) -> Result<(), AppError> {
+        validate_config(config)?;
         state.db.save_stream_check_config(config)
+    }
+
+    pub fn record_result(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+        result: &StreamCheckResult,
+    ) -> Result<StreamCheckLog, AppError> {
+        let record = StreamCheckLogRecord {
+            id: 0,
+            provider_id: provider.id.clone(),
+            provider_name: provider.name.clone(),
+            app_type: app_type.as_str().to_string(),
+            status: status_name(&result.status).to_string(),
+            success: result.success,
+            message: result.message.clone(),
+            response_time_ms: result.response_time_ms.map(|value| value as i64),
+            http_status: result.http_status.map(|value| value as i64),
+            model_used: result.model_used.clone(),
+            retry_count: result.retry_count as i64,
+            error_category: result.error_category.clone(),
+            tested_at: result.tested_at,
+        };
+        state.db.insert_stream_check_log(&record).map(Into::into)
+    }
+
+    pub fn list_logs(
+        state: &AppState,
+        filters: StreamCheckLogFilters,
+    ) -> Result<Vec<StreamCheckLog>, AppError> {
+        state
+            .db
+            .list_stream_check_logs(&filters)
+            .map(|logs| logs.into_iter().map(Into::into).collect())
+    }
+
+    pub fn latest_logs(
+        state: &AppState,
+        app_type: Option<&str>,
+    ) -> Result<Vec<StreamCheckLog>, AppError> {
+        state
+            .db
+            .list_latest_stream_check_logs(app_type)
+            .map(|logs| logs.into_iter().map(Into::into).collect())
     }
 
     pub async fn check_with_retry(
@@ -103,7 +188,15 @@ impl StreamCheckService {
     ) -> StreamCheckResult {
         let request = match build_request(app_type, provider, config) {
             Ok(request) => request,
-            Err(err) => return failed("", &err.to_string(), None, None, 0),
+            Err(_) => {
+                return failed(
+                    "",
+                    "Provider configuration is invalid",
+                    None,
+                    Some("configurationError".to_string()),
+                    0,
+                )
+            }
         };
         let model = request.model.clone();
         let start = Instant::now();
@@ -112,7 +205,15 @@ impl StreamCheckService {
             .build()
         {
             Ok(client) => client,
-            Err(err) => return failed(&model, &err.to_string(), None, None, 0),
+            Err(err) => {
+                return failed(
+                    &model,
+                    &err.to_string(),
+                    None,
+                    Some("clientError".to_string()),
+                    0,
+                )
+            }
         };
 
         let response = match client
@@ -123,20 +224,36 @@ impl StreamCheckService {
             .await
         {
             Ok(response) => response,
-            Err(err) => return failed(&model, &err.to_string(), None, None, 0),
+            Err(err) => {
+                let (message, category) = if err.is_timeout() {
+                    ("Stream Check request timed out", "timeout")
+                } else if err.is_connect() {
+                    (
+                        "Stream Check could not connect to the upstream",
+                        "connectionFailed",
+                    )
+                } else {
+                    ("Stream Check network request failed", "networkError")
+                };
+                let mut result = failed(&model, message, None, Some(category.to_string()), 0);
+                result.response_time_ms = Some(start.elapsed().as_millis() as u64);
+                return result;
+            }
         };
 
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             let category = classify_error(status.as_u16(), &body);
-            return failed(
-                &model,
-                &format!("HTTP {}: {}", status.as_u16(), truncate(&body)),
-                Some(status.as_u16()),
-                category,
-                0,
-            );
+            let public_body = redact_probe_secrets(&body, &request);
+            let message = if public_body.trim().is_empty() {
+                format!("HTTP {}", status.as_u16())
+            } else {
+                format!("HTTP {}: {}", status.as_u16(), truncate(&public_body))
+            };
+            let mut result = failed(&model, &message, Some(status.as_u16()), category, 0);
+            result.response_time_ms = Some(start.elapsed().as_millis() as u64);
+            return result;
         }
 
         let mut stream = response.bytes_stream();
@@ -162,11 +279,103 @@ impl StreamCheckService {
                     };
                 }
                 Ok(_) => continue,
-                Err(err) => return failed(&model, &err.to_string(), None, None, 0),
+                Err(err) => {
+                    let mut result = failed(
+                        &model,
+                        if err.is_timeout() {
+                            "Stream Check response timed out"
+                        } else {
+                            "Stream Check response stream failed"
+                        },
+                        None,
+                        Some(if err.is_timeout() {
+                            "timeout".to_string()
+                        } else {
+                            "streamError".to_string()
+                        }),
+                        0,
+                    );
+                    result.response_time_ms = Some(start.elapsed().as_millis() as u64);
+                    return result;
+                }
             }
         }
 
-        failed(&model, "Stream ended without data", Some(200), None, 0)
+        let mut result = failed(
+            &model,
+            "Stream ended without data",
+            Some(200),
+            Some("emptyStream".to_string()),
+            0,
+        );
+        result.response_time_ms = Some(start.elapsed().as_millis() as u64);
+        result
+    }
+}
+
+fn validate_config(config: &StreamCheckConfig) -> Result<(), AppError> {
+    if !(1..=300).contains(&config.timeout_secs) {
+        return Err(AppError::InvalidInput(
+            "Stream Check timeoutSecs must be between 1 and 300".to_string(),
+        ));
+    }
+    if config.max_retries > 10 {
+        return Err(AppError::InvalidInput(
+            "Stream Check maxRetries must be between 0 and 10".to_string(),
+        ));
+    }
+    if config.degraded_threshold_ms == 0
+        || config.degraded_threshold_ms > config.timeout_secs.saturating_mul(1000)
+    {
+        return Err(AppError::InvalidInput(
+            "Stream Check degradedThresholdMs must be positive and no greater than timeoutSecs"
+                .to_string(),
+        ));
+    }
+    for (name, value) in [
+        ("claudeModel", config.claude_model.as_str()),
+        ("codexModel", config.codex_model.as_str()),
+        ("geminiModel", config.gemini_model.as_str()),
+    ] {
+        if value.trim().is_empty() || value.len() > 256 {
+            return Err(AppError::InvalidInput(format!(
+                "Stream Check {name} must contain 1 to 256 bytes"
+            )));
+        }
+    }
+    if config.test_prompt.trim().is_empty() || config.test_prompt.len() > 4096 {
+        return Err(AppError::InvalidInput(
+            "Stream Check testPrompt must contain 1 to 4096 bytes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn status_name(status: &HealthStatus) -> &'static str {
+    match status {
+        HealthStatus::Operational => "operational",
+        HealthStatus::Degraded => "degraded",
+        HealthStatus::Failed => "failed",
+    }
+}
+
+impl From<StreamCheckLogRecord> for StreamCheckLog {
+    fn from(record: StreamCheckLogRecord) -> Self {
+        Self {
+            id: record.id,
+            provider_id: record.provider_id,
+            provider_name: record.provider_name,
+            app_type: record.app_type,
+            status: record.status,
+            success: record.success,
+            message: record.message,
+            response_time_ms: record.response_time_ms,
+            http_status: record.http_status,
+            model_used: record.model_used,
+            retry_count: record.retry_count,
+            error_category: record.error_category,
+            tested_at: record.tested_at,
+        }
     }
 }
 
@@ -177,6 +386,94 @@ struct ProbeRequest {
     body: Value,
     body_bytes: Option<Vec<u8>>,
     model: String,
+}
+
+fn redact_probe_secrets(message: &str, request: &ProbeRequest) -> String {
+    let mut secrets = Vec::new();
+    for (name, value) in &request.headers {
+        if !is_sensitive_name(name.as_str()) {
+            continue;
+        }
+        let Ok(value) = value.to_str() else {
+            continue;
+        };
+        secrets.push(value.to_string());
+        if let Some((_, credential)) = value.split_once(' ') {
+            secrets.push(credential.to_string());
+        }
+        for marker in ["Credential=", "Signature="] {
+            if let Some(value) = value.split(marker).nth(1) {
+                let value = value
+                    .split([',', '/', ' '])
+                    .next()
+                    .unwrap_or_default()
+                    .trim();
+                if !value.is_empty() {
+                    secrets.push(value.to_string());
+                }
+            }
+        }
+    }
+    collect_sensitive_json_values(&request.body, &mut secrets);
+    if let Ok(url) = Url::parse(&request.url) {
+        if !url.username().is_empty() {
+            secrets.push(url.username().to_string());
+        }
+        if let Some(password) = url.password() {
+            secrets.push(password.to_string());
+        }
+        for (key, value) in url.query_pairs() {
+            if is_sensitive_name(&key) && !value.is_empty() {
+                secrets.push(value.into_owned());
+            }
+        }
+    }
+
+    secrets.retain(|value| !value.is_empty());
+    secrets.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    secrets.dedup();
+    secrets
+        .into_iter()
+        .fold(message.to_string(), |value, secret| {
+            value.replace(&secret, "[redacted]")
+        })
+}
+
+fn collect_sensitive_json_values(value: &Value, secrets: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if is_sensitive_name(key) {
+                    match value {
+                        Value::String(value) if !value.is_empty() => secrets.push(value.clone()),
+                        Value::Number(value) => secrets.push(value.to_string()),
+                        _ => {}
+                    }
+                }
+                collect_sensitive_json_values(value, secrets);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_sensitive_json_values(value, secrets);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_name(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase().replace(['-', '_'], "");
+    normalized == "authorization"
+        || normalized == "proxyauthorization"
+        || normalized == "cookie"
+        || normalized == "setcookie"
+        || normalized.contains("apikey")
+        || normalized.contains("accesstoken")
+        || normalized.contains("refreshtoken")
+        || normalized.contains("sessiontoken")
+        || normalized.contains("secret")
+        || normalized.contains("password")
 }
 
 trait ProbeRequestBuilderExt {
@@ -209,8 +506,13 @@ fn build_request(
         ),
         AppType::Gemini => build_gemini_request(provider, config),
         AppType::Opencode => build_opencode_request(provider, config),
+        AppType::OpenClaw => Err(AppError::Message(
+            "OpenClaw does not expose a direct stream endpoint; check its configured upstream provider"
+                .to_string(),
+        )),
         AppType::Omo | AppType::OmoSlim => Err(AppError::Message(
-            "OMO profiles do not expose a direct stream endpoint; test the underlying OpenCode provider instead".to_string(),
+            "OMO profiles do not expose a direct stream endpoint; test the underlying OpenCode provider"
+                .to_string(),
         )),
     }
 }
@@ -971,6 +1273,87 @@ mod tests {
             .as_array()
             .is_some_and(|messages| !messages.is_empty()));
     }
+
+    #[test]
+    fn stream_check_config_rejects_unsafe_boundaries() {
+        let config = StreamCheckConfig {
+            timeout_secs: 0,
+            ..StreamCheckConfig::default()
+        };
+        assert!(validate_config(&config)
+            .expect_err("zero timeout should fail")
+            .to_string()
+            .contains("timeoutSecs"));
+
+        let defaults = StreamCheckConfig::default();
+        let config = StreamCheckConfig {
+            degraded_threshold_ms: defaults.timeout_secs * 1000 + 1,
+            ..defaults
+        };
+        assert!(validate_config(&config)
+            .expect_err("threshold after timeout should fail")
+            .to_string()
+            .contains("degradedThresholdMs"));
+
+        let mut config = StreamCheckConfig::default();
+        config.test_prompt.clear();
+        assert!(validate_config(&config)
+            .expect_err("empty prompt should fail")
+            .to_string()
+            .contains("testPrompt"));
+    }
+
+    #[test]
+    fn stream_check_error_categories_are_stable() {
+        assert_eq!(
+            classify_error(401, "invalid token").as_deref(),
+            Some("authenticationFailed")
+        );
+        assert_eq!(
+            classify_error(404, "model missing").as_deref(),
+            Some("modelNotFound")
+        );
+        assert_eq!(
+            classify_error(429, "rate limit").as_deref(),
+            Some("quotaExceeded")
+        );
+        assert_eq!(
+            classify_error(503, "maintenance").as_deref(),
+            Some("upstreamServerError")
+        );
+    }
+
+    #[test]
+    fn stream_check_error_bodies_redact_request_credentials() {
+        let provider = opencode_provider(
+            "@ai-sdk/openai-compatible",
+            json!({
+                "baseURL": "https://api.example.com/v1",
+                "apiKey": "header-secret"
+            }),
+            json!({}),
+        );
+        let mut request =
+            build_opencode_request(&provider, &StreamCheckConfig::default()).expect("request");
+        request.url.push_str("?api_key=query-secret");
+        request.body["metadata"] = json!({ "refresh_token": "body-secret" });
+        insert_header(&mut request.headers, "x-session-token", "session-secret");
+
+        let public = redact_probe_secrets(
+            "Bearer header-secret query-secret body-secret session-secret",
+            &request,
+        );
+
+        for secret in [
+            "header-secret",
+            "query-secret",
+            "body-secret",
+            "session-secret",
+        ] {
+            assert!(!public.contains(secret));
+        }
+        assert!(public.contains("[redacted]"));
+    }
 }
 
 fn failed(
@@ -1004,7 +1387,18 @@ fn classify_error(status: u16, body: &str) -> Option<String> {
     } else if status == 429 || lower.contains("quota") || lower.contains("rate limit") {
         Some("quotaExceeded".to_string())
     } else {
-        None
+        Some(
+            match status {
+                400 | 405 | 415 | 422 => "invalidRequest",
+                401 => "authenticationFailed",
+                403 => "permissionDenied",
+                408 => "timeout",
+                409 => "conflict",
+                500..=599 => "upstreamServerError",
+                _ => "httpError",
+            }
+            .to_string(),
+        )
     }
 }
 

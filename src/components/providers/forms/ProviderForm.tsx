@@ -18,6 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import { authApi, type AppId, type ManagedAuthAccount } from "@/lib/api";
+import { useCapabilitiesQuery } from "@/lib/query";
 import {
   fetchCodexOauthModels,
   fetchGithubCopilotModels,
@@ -47,6 +48,10 @@ import {
   opencodeProviderPresets,
   type OpenCodeProviderPreset,
 } from "@/config/opencodeProviderPresets";
+import {
+  openclawProviderPresets,
+  type OpenClawProviderPreset,
+} from "@/config/openclawProviderPresets";
 import {
   CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
   claudeDesktopProviderPresets,
@@ -132,7 +137,8 @@ type PresetEntry = {
     | ClaudeDesktopProviderPreset
     | CodexProviderPreset
     | GeminiProviderPreset
-    | OpenCodeProviderPreset;
+    | OpenCodeProviderPreset
+    | OpenClawProviderPreset;
 };
 
 type ClaudeDesktopRouteRole = keyof typeof CLAUDE_DESKTOP_ROLE_ROUTE_IDS;
@@ -444,14 +450,19 @@ export function ProviderForm({
   showButtons = true,
 }: ProviderFormProps) {
   const { t } = useTranslation();
+  const { data: capabilities } = useCapabilitiesQuery();
   const isEditMode = Boolean(initialData);
   const isOmoApp = appId === "omo" || appId === "omo-slim";
+  const [openclawProviderKey, setOpenclawProviderKey] = useState(
+    providerId ?? "",
+  );
   const supportsPresets =
     appId === "claude" ||
     appId === "claude-desktop" ||
     appId === "codex" ||
     appId === "gemini" ||
-    appId === "opencode";
+    appId === "opencode" ||
+    appId === "openclaw";
   const [claudeDesktopMode, setClaudeDesktopMode] = useState<ClaudeDesktopMode>(
     initialData?.meta?.claudeDesktopMode ?? "direct",
   );
@@ -533,6 +544,7 @@ export function ProviderForm({
   useEffect(() => {
     setSelectedPresetId(initialData ? null : "custom");
     setActivePreset(null);
+    setOpenclawProviderKey(providerId ?? "");
     if (appId === "claude-desktop") {
       const nextMode = initialData?.meta?.claudeDesktopMode ?? "direct";
       const nextFormat =
@@ -567,7 +579,7 @@ export function ProviderForm({
     if (!initialData) {
       setDraftCustomEndpoints([]);
     }
-  }, [appId, initialData]);
+  }, [appId, initialData, providerId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -602,9 +614,20 @@ export function ProviderForm({
               ? GEMINI_DEFAULT_CONFIG
               : appId === "opencode"
                 ? OPENCODE_DEFAULT_CONFIG
-                : appId === "omo" || appId === "omo-slim"
-                  ? OMO_DEFAULT_CONFIG
-                  : CLAUDE_DEFAULT_CONFIG,
+                : appId === "openclaw"
+                  ? JSON.stringify(
+                      {
+                        baseUrl: "",
+                        apiKey: "",
+                        api: "openai-completions",
+                        models: [{ id: "" }],
+                      },
+                      null,
+                      2,
+                    )
+                  : appId === "omo" || appId === "omo-slim"
+                    ? OMO_DEFAULT_CONFIG
+                    : CLAUDE_DEFAULT_CONFIG,
     }),
     [initialData, appId],
   );
@@ -753,6 +776,12 @@ export function ProviderForm({
     if (appId === "opencode") {
       return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
         id: `opencode-${index}`,
+        preset,
+      }));
+    }
+    if (appId === "openclaw") {
+      return openclawProviderPresets.map<PresetEntry>((preset, index) => ({
+        id: `openclaw-${index}`,
         preset,
       }));
     }
@@ -1094,6 +1123,23 @@ export function ProviderForm({
       );
     }
 
+    if (appId === "openclaw") {
+      const key = openclawProviderKey.trim();
+      if (!key) {
+        issues.push(
+          t("openclaw.providerKeyRequired", {
+            defaultValue: "请填写 OpenClaw Provider Key",
+          }),
+        );
+      } else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(key)) {
+        issues.push(
+          t("openclaw.providerKeyInvalid", {
+            defaultValue: "Provider Key 只能包含字母、数字、点、下划线和连字符",
+          }),
+        );
+      }
+    }
+
     if (
       category !== "official" &&
       category !== "cloud_provider" &&
@@ -1244,6 +1290,9 @@ export function ProviderForm({
       name: values.name.trim(),
       websiteUrl: values.websiteUrl?.trim() ?? "",
       settingsConfig,
+      ...(appId === "openclaw"
+        ? { providerKey: openclawProviderKey.trim() }
+        : {}),
     };
     if (usesManagedAuth) {
       payload.settingsConfig = stripManualAuthKeysForManagedMode(
@@ -1358,7 +1407,8 @@ export function ProviderForm({
   }, [groupedPresets]);
 
   // 判断是否显示端点测速（仅官方类别不显示）
-  const shouldShowSpeedTest = category !== "official";
+  const shouldShowSpeedTest =
+    category !== "official" && capabilities?.features.endpointTest === true;
 
   // 使用 API Key 链接 hook (Claude)
   const {
@@ -1445,6 +1495,9 @@ export function ProviderForm({
       if (appId === "opencode") {
         opencodeState.reset();
       }
+      if (appId === "openclaw") {
+        setOpenclawProviderKey("");
+      }
       return;
     }
 
@@ -1523,6 +1576,18 @@ export function ProviderForm({
       return;
     }
 
+    if (appId === "openclaw") {
+      const preset = entry.preset as OpenClawProviderPreset;
+      setOpenclawProviderKey(preset.providerKey);
+      form.reset({
+        name: preset.nameKey ? t(preset.nameKey) : preset.name,
+        websiteUrl: preset.websiteUrl ?? "",
+        notes: "",
+        settingsConfig: JSON.stringify(preset.settingsConfig, null, 2),
+      });
+      return;
+    }
+
     if (appId === "claude-desktop") {
       const preset = entry.preset as ClaudeDesktopProviderPreset;
       const apiKeyField = preset.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN";
@@ -1595,6 +1660,32 @@ export function ProviderForm({
 
         {/* 基础字段 */}
         <BasicFormFields form={form} />
+
+        {appId === "openclaw" ? (
+          <div className="space-y-2">
+            <Label htmlFor="openclaw-provider-key">
+              {t("openclaw.providerKey", { defaultValue: "Provider Key" })}
+            </Label>
+            <Input
+              id="openclaw-provider-key"
+              value={openclawProviderKey}
+              onChange={(event) => setOpenclawProviderKey(event.target.value)}
+              placeholder="deepseek"
+              autoComplete="off"
+              disabled={isEditMode}
+            />
+            <p className="text-xs text-muted-foreground">
+              {isEditMode
+                ? t("openclaw.providerKeyLockedHint", {
+                    defaultValue: "已写入 live 配置的 Provider Key 不可修改。",
+                  })
+                : t("openclaw.providerKeyHint", {
+                    defaultValue:
+                      "此值会成为 models.providers 下的键，例如 deepseek。",
+                  })}
+            </p>
+          </div>
+        ) : null}
 
         {shouldShowAuthBinding && managedProviderType ? (
           <div className="space-y-3 rounded-md border border-border-default p-4">
@@ -2308,4 +2399,5 @@ export type ProviderFormValues = ProviderFormData & {
   presetCategory?: ProviderCategory;
   isPartner?: boolean;
   meta?: ProviderMeta;
+  providerKey?: string;
 };

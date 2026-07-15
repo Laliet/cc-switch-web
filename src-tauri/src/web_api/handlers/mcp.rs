@@ -16,7 +16,16 @@ use crate::{
     store::AppState,
 };
 
-use super::{ApiError, ApiResult};
+use super::{ensure_app_feature, parse_known_app_type, ApiError, ApiResult};
+
+fn parse_mcp_app(app: &str) -> Result<AppType, ApiError> {
+    let parsed = parse_known_app_type(app)?;
+    ensure_app_feature(&parsed, "mcp")?;
+    Ok(match parsed {
+        AppType::Omo | AppType::OmoSlim => AppType::Opencode,
+        other => other,
+    })
+}
 
 pub async fn list_servers(
     State(state): State<Arc<AppState>>,
@@ -81,7 +90,7 @@ pub async fn toggle_app(
     Path((id, app)): Path<(String, String)>,
     Json(payload): Json<ToggleAppPayload>,
 ) -> ApiResult<bool> {
-    let app_ty = super::parse_app_type(&app)?;
+    let app_ty = parse_mcp_app(&app)?;
     McpService::toggle_app(&state, &id, app_ty, payload.enabled).map_err(internal_error)?;
     Ok(Json(true))
 }
@@ -127,8 +136,7 @@ pub async fn get_config(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
 ) -> ApiResult<McpConfigResponse> {
-    let app_ty =
-        AppType::parse_supported(&app).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let app_ty = parse_mcp_app(&app)?;
     let config_path = crate::config::get_app_config_path()
         .map_err(internal_error)?
         .to_string_lossy()
@@ -153,7 +161,7 @@ pub async fn upsert_server_in_config(
 ) -> ApiResult<bool> {
     use crate::app_config::McpApps;
 
-    let app_ty = super::parse_app_type(&app)?;
+    let app_ty = parse_mcp_app(&app)?;
     let spec = payload.spec;
 
     // 尝试读取现有服务器
@@ -207,7 +215,7 @@ pub async fn delete_server_in_config(
     Path((app, id)): Path<(String, String)>,
     payload: Option<Json<serde_json::Value>>,
 ) -> ApiResult<bool> {
-    let app_ty = super::parse_app_type(&app)?;
+    let app_ty = parse_mcp_app(&app)?;
     let sync_other_side = payload
         .as_ref()
         .and_then(|p| p.get("syncOtherSide"))
@@ -228,7 +236,7 @@ pub async fn set_enabled(
     Path((app, id)): Path<(String, String)>,
     Json(payload): Json<ToggleAppPayload>,
 ) -> ApiResult<bool> {
-    let app_ty = super::parse_app_type(&app)?;
+    let app_ty = parse_mcp_app(&app)?;
     McpService::toggle_app(&state, &id, app_ty, payload.enabled).map_err(internal_error)?;
     Ok(Json(true))
 }

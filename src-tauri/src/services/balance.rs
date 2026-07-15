@@ -52,26 +52,25 @@ async fn get_json(url: &str, api_key: &str) -> Result<Value, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
-        .map_err(|err| format!("Failed to create HTTP client: {err}"))?;
+        .map_err(|_| "Failed to create HTTP client".to_string())?;
     let response = client
         .get(url)
         .bearer_auth(api_key)
         .header("accept", "application/json")
         .send()
         .await
-        .map_err(|err| format!("Network error: {err}"))?;
+        .map_err(|_| "Network error".to_string())?;
     let status = response.status();
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
         return Err(format!("Authentication failed (HTTP {status})"));
     }
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("API error (HTTP {status}): {body}"));
+        return Err(format!("API error (HTTP {status})"));
     }
     response
         .json()
         .await
-        .map_err(|err| format!("Failed to parse response: {err}"))
+        .map_err(|_| "Failed to parse response".to_string())
 }
 
 fn data(

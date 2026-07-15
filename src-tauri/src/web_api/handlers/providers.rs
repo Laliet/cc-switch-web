@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::{parse_known_app_type, ApiError, ApiResult};
+use super::{ensure_app_feature, parse_known_app_type, ApiError, ApiResult};
 use crate::{
     provider::{Provider, UniversalProvider, UsageResult},
     services::provider::ProviderSortUpdate,
@@ -263,13 +263,14 @@ pub async fn query_provider_usage(
     Path((app, id)): Path<(String, String)>,
 ) -> ApiResult<UsageResult> {
     let app_type = parse_known_app_type(&app)?;
+    ensure_app_feature(&app_type, "usage")?;
     let result = ProviderService::query_usage(&state, app_type, &id).await;
     match result {
         Ok(r) => Ok(Json(r)),
         Err(err) => Ok(Json(UsageResult {
             success: false,
             data: None,
-            error: Some(err.to_string()),
+            error: Some(ApiError::from(err).public_message()),
         })),
     }
 }
@@ -292,6 +293,7 @@ pub async fn test_usage_script(
     Json(req): Json<TestUsageScriptRequest>,
 ) -> ApiResult<UsageResult> {
     let app_type = parse_known_app_type(&app)?;
+    ensure_app_feature(&app_type, "usage")?;
     let result = ProviderService::test_usage_script(
         &state,
         app_type,
@@ -310,7 +312,7 @@ pub async fn test_usage_script(
         Err(err) => Ok(Json(UsageResult {
             success: false,
             data: None,
-            error: Some(err.to_string()),
+            error: Some(ApiError::from(err).public_message()),
         })),
     }
 }

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
@@ -7,9 +8,23 @@ import {
 } from "@/lib/api/model-test";
 import type { AppId } from "@/lib/api";
 
+export interface StreamCheckBatchProgress {
+  running: boolean;
+  completed: number;
+  total: number;
+  failed: number;
+}
+
 export function useStreamCheck(appId: AppId) {
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  const [batchProgress, setBatchProgress] = useState<StreamCheckBatchProgress>({
+    running: false,
+    completed: 0,
+    total: 0,
+    failed: 0,
+  });
 
   const checkProvider = useCallback(
     async (
@@ -20,6 +35,9 @@ export function useStreamCheck(appId: AppId) {
 
       try {
         const result = await streamCheckProvider(appId, providerId);
+        await queryClient.invalidateQueries({
+          queryKey: ["stream-check-logs", appId],
+        });
 
         if (result.status === "operational") {
           toast.success(
@@ -120,7 +138,7 @@ export function useStreamCheck(appId: AppId) {
         });
       }
     },
-    [appId, t],
+    [appId, queryClient, t],
   );
 
   const isChecking = useCallback(
@@ -128,5 +146,61 @@ export function useStreamCheck(appId: AppId) {
     [checkingIds],
   );
 
-  return { checkProvider, isChecking };
+  const checkProviders = useCallback(
+    async (providers: Array<{ id: string; name: string }>) => {
+      if (providers.length === 0) return;
+      setBatchProgress({
+        running: true,
+        completed: 0,
+        total: providers.length,
+        failed: 0,
+      });
+
+      let failed = 0;
+      for (const provider of providers) {
+        setCheckingIds((previous) => new Set(previous).add(provider.id));
+        try {
+          const result = await streamCheckProvider(appId, provider.id);
+          if (!result.success) failed += 1;
+        } catch {
+          failed += 1;
+        } finally {
+          setCheckingIds((previous) => {
+            const next = new Set(previous);
+            next.delete(provider.id);
+            return next;
+          });
+          setBatchProgress((previous) => ({
+            ...previous,
+            completed: previous.completed + 1,
+            failed,
+          }));
+        }
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ["stream-check-logs", appId],
+      });
+      setBatchProgress((previous) => ({ ...previous, running: false }));
+      if (failed === 0) {
+        toast.success(
+          t("streamCheck.batchSuccess", {
+            defaultValue: `已完成 ${providers.length} 个 Provider 的检查`,
+            count: providers.length,
+          }),
+        );
+      } else {
+        toast.warning(
+          t("streamCheck.batchPartial", {
+            defaultValue: `检查完成，${failed} 个 Provider 失败`,
+            failed,
+            total: providers.length,
+          }),
+        );
+      }
+    },
+    [appId, queryClient, t],
+  );
+
+  return { checkProvider, checkProviders, isChecking, batchProgress };
 }

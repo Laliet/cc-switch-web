@@ -2,7 +2,12 @@
 
 use std::sync::Arc;
 
-use axum::{extract::Extension, http::StatusCode, response::IntoResponse, Json};
+use axum::{
+    extract::{Extension, Path},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
 use serde::Deserialize;
 
 use super::{ApiError, ApiResult};
@@ -15,7 +20,25 @@ const MIN_WEB_PASSWORD_LEN: usize = 8;
 
 /// Stub handler for tray updates in web mode.
 pub async fn update_tray() -> ApiResult<bool> {
-    Ok(Json(true))
+    Err(super::ApiError::not_implemented(
+        "tray_unavailable",
+        "Tray integration is not available in web server mode",
+    ))
+}
+
+pub async fn unsupported_operation(Path(operation): Path<String>) -> ApiResult<bool> {
+    if operation.is_empty()
+        || operation.len() > 80
+        || !operation
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(ApiError::bad_request("Invalid unsupported operation name"));
+    }
+    Err(ApiError::not_implemented(
+        format!("{operation}_unavailable"),
+        format!("Operation '{operation}' is not available in web server mode"),
+    ))
 }
 
 #[derive(Deserialize)]

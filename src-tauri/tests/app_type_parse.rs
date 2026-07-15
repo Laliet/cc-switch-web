@@ -57,6 +57,26 @@ fn parse_skills_app_maps_omo_to_opencode() {
 }
 
 #[test]
+fn parse_mcp_app_maps_omo_variants_to_opencode() {
+    assert!(matches!(
+        AppType::parse_mcp_app("omo"),
+        Ok(AppType::Opencode)
+    ));
+    assert!(matches!(
+        AppType::parse_mcp_app("omo-slim"),
+        Ok(AppType::Opencode)
+    ));
+}
+
+#[test]
+fn parse_mcp_app_rejects_apps_without_mcp_sync() {
+    for app in ["claude-desktop", "openclaw"] {
+        let error = AppType::parse_mcp_app(app).expect_err("MCP must be rejected");
+        assert!(error.to_string().contains("MCP"));
+    }
+}
+
+#[test]
 fn parse_skills_app_rejects_claude_desktop() {
     let err = AppType::parse_skills_app("claude-desktop").unwrap_err();
     let msg = err.to_string();
@@ -80,6 +100,12 @@ fn mcp_for_omo_uses_opencode_storage() {
         .mcp_for(&AppType::Codex)
         .servers
         .contains_key("omo-shared"));
+
+    let mut apps = cc_switch_lib::McpApps::default();
+    apps.set_enabled_for(&AppType::Omo, true);
+    assert!(apps.opencode);
+    assert!(apps.is_enabled_for(&AppType::Omo));
+    assert!(apps.is_enabled_for(&AppType::OmoSlim));
 }
 
 #[test]

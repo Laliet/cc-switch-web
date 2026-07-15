@@ -37,6 +37,7 @@ import { AuthCenterSection } from "@/components/settings/AuthCenterSection";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
+import { useCapabilitiesQuery } from "@/lib/query";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -52,6 +53,7 @@ export function SettingsDialog({
   onProvidersChanged,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
+  const { data: capabilities } = useCapabilitiesQuery();
   const {
     settings,
     isLoading,
@@ -318,10 +320,13 @@ export function SettingsDialog({
                       onChange={(lang) => updateSettings({ language: lang })}
                     />
                     <ThemeSettings />
-                    <WindowSettings
-                      settings={settings}
-                      onChange={updateSettings}
-                    />
+                    {capabilities?.features.tray === true ||
+                    capabilities?.features.claudePluginIntegration === true ? (
+                      <WindowSettings
+                        settings={settings}
+                        onChange={updateSettings}
+                      />
+                    ) : null}
                   </>
                 ) : null}
               </TabsContent>

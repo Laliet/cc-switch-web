@@ -5,6 +5,7 @@ import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
+  listPage: vi.fn(),
   getMessages: vi.fn(),
   delete: vi.fn(),
   deleteMany: vi.fn(),
@@ -34,7 +35,14 @@ const sessions = [
 
 describe("SessionManagerPage", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     api.list.mockResolvedValue(sessions);
+    api.listPage.mockResolvedValue({
+      sessions,
+      nextCursor: undefined,
+      total: sessions.length,
+      scannedAt: 1_700_000_000_000,
+    });
     api.getMessages.mockResolvedValue([
       { role: "user", content: "Please fix authentication" },
       { role: "assistant", content: "I will inspect the login flow" },
@@ -63,6 +71,11 @@ describe("SessionManagerPage", () => {
       "codex",
       "/home/server/.codex/sessions/codex-1.jsonl",
     );
+    expect(api.listPage).toHaveBeenCalledWith({
+      limit: 100,
+      providerId: undefined,
+      refresh: false,
+    });
   });
 
   it("searches across titles and project paths", async () => {
@@ -92,5 +105,35 @@ describe("SessionManagerPage", () => {
         "codex resume codex-1",
       ),
     );
+  });
+
+  it("loads additional session pages on demand", async () => {
+    api.listPage
+      .mockResolvedValueOnce({
+        sessions: [sessions[0]],
+        nextCursor: "1",
+        total: 2,
+        scannedAt: 1_700_000_000_000,
+      })
+      .mockResolvedValueOnce({
+        sessions: [sessions[1]],
+        nextCursor: undefined,
+        total: 2,
+        scannedAt: 1_700_000_000_000,
+      });
+
+    render(<SessionManagerPage open onOpenChange={vi.fn()} />);
+    await screen.findAllByText("Fix the login flow");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /sessionManager\.loadMore/ }),
+    );
+
+    expect(await screen.findByText("Document deployment")).toBeInTheDocument();
+    expect(api.listPage).toHaveBeenLastCalledWith({
+      cursor: "1",
+      limit: 100,
+      providerId: undefined,
+    });
   });
 });

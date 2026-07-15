@@ -7,6 +7,7 @@ import type {
 } from "@dnd-kit/core";
 import type { Provider } from "@/types";
 import type { ProviderHealth } from "@/lib/api";
+import type { StreamCheckLog } from "@/lib/api/model-test";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 
 type DragHandleProps = {
@@ -23,6 +24,10 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("@/components/UsageFooter", () => ({
   default: () => <div data-testid="usage-footer" />,
+}));
+
+vi.mock("@/components/providers/SubscriptionQuotaSummary", () => ({
+  SubscriptionQuotaSummary: () => <div data-testid="subscription-quota" />,
 }));
 
 const providerActionsSpy = vi.fn();
@@ -77,6 +82,7 @@ const renderProviderCard = (
     isEditMode?: boolean;
     dragHandleProps?: DragHandleProps;
     healthStatus?: ProviderHealth;
+    streamCheckLog?: StreamCheckLog;
     appId?:
       | "claude"
       | "claude-desktop"
@@ -108,6 +114,7 @@ const renderProviderCard = (
       onDuplicate={onDuplicate}
       dragHandleProps={options.dragHandleProps}
       healthStatus={options.healthStatus}
+      streamCheckLog={options.streamCheckLog}
     />,
   );
 
@@ -302,6 +309,35 @@ describe("ProviderCard", () => {
     expect(indicator.querySelector("span[aria-hidden='true']")).toHaveClass(
       "bg-yellow-500",
     );
+  });
+
+  it("shows the latest Stream Check status, latency, and error category", () => {
+    renderProviderCard(
+      {},
+      {
+        streamCheckLog: {
+          id: 7,
+          providerId: "provider-1",
+          providerName: "Test Provider",
+          appType: "claude",
+          status: "failed",
+          success: false,
+          message: "HTTP 401",
+          responseTimeMs: 321,
+          httpStatus: 401,
+          modelUsed: "test-model",
+          retryCount: 0,
+          errorCategory: "authenticationFailed",
+          testedAt: 1_700_000_000,
+        },
+      },
+    );
+
+    const indicator = screen.getByLabelText(/authenticationFailed/);
+    expect(indicator).toHaveTextContent("streamCheck.statusFailed");
+    expect(indicator).toHaveTextContent("321ms");
+    expect(indicator).toHaveTextContent("authenticationFailed");
+    expect(indicator).toHaveClass("text-red-600");
   });
 
   it("shows drag handle and duplicate button in edit mode", async () => {

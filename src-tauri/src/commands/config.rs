@@ -51,6 +51,15 @@ pub async fn get_config_status(app: String) -> Result<ConfigStatus, String> {
 
             Ok(ConfigStatus { exists, path })
         }
+        AppType::OpenClaw => {
+            let config_path = crate::openclaw_config::get_openclaw_config_path();
+            let exists = config_path.exists();
+            let path = crate::openclaw_config::get_openclaw_dir()
+                .to_string_lossy()
+                .to_string();
+
+            Ok(ConfigStatus { exists, path })
+        }
         AppType::Omo | AppType::OmoSlim => {
             let config_path = if matches!(app_type, AppType::OmoSlim) {
                 crate::omo_config::resolve_omo_slim_config_path()
@@ -84,6 +93,7 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
         AppType::Opencode => crate::opencode_config::get_opencode_dir(),
+        AppType::OpenClaw => crate::openclaw_config::get_openclaw_dir(),
         AppType::Omo | AppType::OmoSlim => crate::omo_config::get_omo_dir(),
     };
 
@@ -101,6 +111,16 @@ pub async fn get_config_dir_info(app: String) -> Result<ConfigDirInfo, String> {
         AppType::Opencode => {
             crate::opencode_config::get_opencode_dir_info().map_err(|e| e.to_string())
         }
+        AppType::OpenClaw => Ok(ConfigDirInfo {
+            dir: crate::openclaw_config::get_openclaw_dir()
+                .to_string_lossy()
+                .to_string(),
+            source: crate::config::ConfigDirSource::ServiceHomeDefault,
+            override_dir: None,
+            service_home: None,
+            account_home: None,
+            home_mismatch: false,
+        }),
         AppType::Omo | AppType::OmoSlim => {
             crate::opencode_config::get_opencode_dir_info().map_err(|e| e.to_string())
         }
@@ -117,6 +137,7 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
         AppType::Codex => codex_config::get_codex_config_dir().map_err(|e| e.to_string())?,
         AppType::Gemini => crate::gemini_config::get_gemini_dir().map_err(|e| e.to_string())?,
         AppType::Opencode => crate::opencode_config::get_opencode_dir(),
+        AppType::OpenClaw => crate::openclaw_config::get_openclaw_dir(),
         AppType::Omo | AppType::OmoSlim => crate::omo_config::get_omo_dir(),
     };
 
@@ -260,7 +281,11 @@ pub async fn set_common_config_snippet(
                 // TOML 格式暂不验证（或可使用 toml crate）
                 // 注意：TOML 验证较为复杂，暂时跳过
             }
-            AppType::ClaudeDesktop | AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
+            AppType::ClaudeDesktop
+            | AppType::Opencode
+            | AppType::OpenClaw
+            | AppType::Omo
+            | AppType::OmoSlim => {
                 return Err(format!("应用暂未支持: {}", app.as_str()));
             }
         }

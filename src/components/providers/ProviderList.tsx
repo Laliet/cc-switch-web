@@ -5,8 +5,9 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { PowerOff } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { AlertTriangle, PowerOff } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import type { Provider } from "@/types";
 import { providersApi, type AppId, type ProviderHealth } from "@/lib/api";
 import { useDragSort } from "@/hooks/useDragSort";
@@ -14,6 +15,9 @@ import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderEmptyState } from "@/components/providers/ProviderEmptyState";
 import { Button } from "@/components/ui/button";
 import { useStreamCheck } from "@/hooks/useStreamCheck";
+import { useLatestStreamCheckHistory } from "@/hooks/useStreamCheckHistory";
+import { StreamCheckHistoryPanel } from "./StreamCheckHistoryPanel";
+import { useOpenClawStatusQuery } from "@/lib/query";
 
 interface ProviderListProps {
   providers: Record<string, Provider>;
@@ -52,6 +56,7 @@ export function ProviderList({
   onAutoFailover,
   onOmoDisabled,
 }: ProviderListProps) {
+  const { t } = useTranslation();
   const { sortedProviders, sensors, handleDragEnd } = useDragSort(
     providers,
     appId,
@@ -59,9 +64,30 @@ export function ProviderList({
   const [omoPluginEnabled, setOmoPluginEnabled] = useState<boolean | null>(
     null,
   );
-  const { checkProvider, isChecking } = useStreamCheck(appId);
+  const { checkProvider, checkProviders, isChecking, batchProgress } =
+    useStreamCheck(appId);
+  const { data: latestStreamChecks } = useLatestStreamCheckHistory(appId);
+  const { data: openClawStatus } = useOpenClawStatusQuery(appId === "openclaw");
   const [isDisablingOmo, setIsDisablingOmo] = useState(false);
   const [omoDisableError, setOmoDisableError] = useState<string | null>(null);
+  const openClawDefaultProviderId = openClawStatus?.defaultModel?.primary.split(
+    "/",
+    1,
+  )[0];
+  const effectiveCurrentProviderId =
+    appId === "openclaw" && openClawStatus
+      ? (openClawDefaultProviderId ?? "")
+      : currentProviderId;
+  const openClawLiveProviderIds = new Set(
+    openClawStatus?.providers.map((provider) => provider.id) ?? [],
+  );
+  const latestStreamCheckByProvider = useMemo(
+    () =>
+      new Map(
+        (latestStreamChecks ?? []).map((log) => [log.providerId, log] as const),
+      ),
+    [latestStreamChecks],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +160,45 @@ export function ProviderList({
         strategy={verticalListSortingStrategy}
       >
         <div className="space-y-3">
+          {appId === "openclaw" && openClawStatus ? (
+            <div className="flex flex-col gap-2 border-y border-border-default bg-muted/30 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <span className="font-medium">
+                  {t("openclaw.defaultModelValue", {
+                    defaultValue: "默认模型：{{model}}",
+                    model: openClawStatus.defaultModel?.primary ?? "-",
+                  })}
+                </span>
+                <span className="ml-2 text-muted-foreground">
+                  {t("openclaw.liveProviders", {
+                    defaultValue: "已写入 {{live}} / {{total}} 个 Provider",
+                    live: openClawStatus.providers.length,
+                    total: sortedProviders.length,
+                  })}
+                </span>
+              </div>
+              {openClawStatus.warnings.length > 0 ? (
+                <span
+                  className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300"
+                  title={openClawStatus.warnings
+                    .map((warning) => warning.message)
+                    .join("\n")}
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  {t("openclaw.configWarnings", {
+                    defaultValue: "{{count}} 项配置告警",
+                    count: openClawStatus.warnings.length,
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          <StreamCheckHistoryPanel
+            appId={appId}
+            providers={providers}
+            onCheckAll={() => void checkProviders(sortedProviders)}
+            batchProgress={batchProgress}
+          />
           {(appId === "omo" || appId === "omo-slim") && (
             <div className="flex flex-col gap-3 rounded-lg border border-border-default bg-muted/40 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -174,7 +239,12 @@ export function ProviderList({
             <SortableProviderCard
               key={provider.id}
               provider={provider}
-              isCurrent={provider.id === currentProviderId}
+              isCurrent={provider.id === effectiveCurrentProviderId}
+              isLiveConfigured={
+                appId === "openclaw"
+                  ? openClawLiveProviderIds.has(provider.id)
+                  : undefined
+              }
               backupProviderId={backupProviderId}
               appId={appId}
               isEditMode={isEditMode}
@@ -184,7 +254,7 @@ export function ProviderList({
               onDuplicate={onDuplicate}
               onConfigureUsage={onConfigureUsage}
               onStreamCheck={
-                appId === "omo" || appId === "omo-slim"
+                appId === "omo" || appId === "omo-slim" || appId === "openclaw"
                   ? undefined
                   : (provider) => void checkProvider(provider.id, provider.name)
               }
@@ -192,6 +262,7 @@ export function ProviderList({
               onOpenWebsite={onOpenWebsite}
               onAutoFailover={onAutoFailover}
               healthStatus={healthMap?.[provider.id]}
+              streamCheckLog={latestStreamCheckByProvider.get(provider.id)}
             />
           ))}
         </div>
@@ -205,6 +276,8 @@ interface SortableProviderCardProps {
   isCurrent: boolean;
   backupProviderId?: string | null;
   healthStatus?: ProviderHealth;
+  streamCheckLog?: import("@/lib/api/model-test").StreamCheckLog;
+  isLiveConfigured?: boolean;
   appId: AppId;
   isEditMode: boolean;
   onSwitch: (provider: Provider) => void;
@@ -223,6 +296,8 @@ function SortableProviderCard({
   isCurrent,
   backupProviderId,
   healthStatus,
+  streamCheckLog,
+  isLiveConfigured,
   appId,
   isEditMode,
   onSwitch,
@@ -269,6 +344,8 @@ function SortableProviderCard({
         onOpenWebsite={onOpenWebsite}
         onAutoFailover={onAutoFailover}
         healthStatus={healthStatus}
+        streamCheckLog={streamCheckLog}
+        isLiveConfigured={isLiveConfigured}
         dragHandleProps={{
           attributes,
           listeners,

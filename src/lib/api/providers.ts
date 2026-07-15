@@ -23,6 +23,7 @@ export interface ClaudeDesktopDefaultRoute {
 export interface ClaudeDesktopStatus {
   supported: boolean;
   configured: boolean;
+  desktopRunning: boolean;
   appliedId?: string | null;
   profilePath?: string | null;
   configLibraryPath?: string | null;

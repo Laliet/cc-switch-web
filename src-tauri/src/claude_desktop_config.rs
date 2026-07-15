@@ -4,6 +4,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(any(target_os = "macos", windows))]
 use crate::config::get_home_dir;
@@ -30,6 +31,7 @@ const CONFIG_FILE: &str = "claude_desktop_config.json";
 #[cfg(any(target_os = "macos", windows))]
 const CONFIG_LIBRARY_DIR: &str = "configLibrary";
 const GATEWAY_TOKEN_SETTING_KEY: &str = "claude_desktop_gateway_token";
+const CONFIG_WRITTEN_AT_SETTING_KEY: &str = "claude_desktop_config_written_at_ms";
 const CLAUDE_DESKTOP_PROXY_PREFIX: &str = "/claude-desktop";
 const DEFAULT_CREATED_AT: &str = "2024-01-01T00:00:00Z";
 const GEMINI_SYNTHESIZED_ID_PREFIX: &str = "gemini_synth_";
@@ -126,6 +128,7 @@ struct FileSnapshot {
 pub struct ClaudeDesktopStatus {
     pub supported: bool,
     pub configured: bool,
+    pub desktop_running: bool,
     pub applied_id: Option<String>,
     pub profile_path: Option<String>,
     pub config_library_path: Option<String>,
@@ -166,6 +169,7 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
         return Ok(ClaudeDesktopStatus {
             supported: false,
             configured: false,
+            desktop_running: false,
             applied_id: None,
             profile_path: None,
             config_library_path: None,
@@ -188,6 +192,9 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
     let paths = current_platform_paths()?;
     let applied_id = read_applied_id(&paths.meta_path);
     let configured = paths.profile_path.exists() || meta_has_profile_entry(&paths.meta_path);
+    let desktop_started_at = claude_desktop_process_started_at();
+    let desktop_running = desktop_started_at.is_some();
+    let config_written_at = configuration_written_at(db);
     let profile = read_json_or_empty(&paths.profile_path).unwrap_or_else(|_| json!({}));
     let actual_base_url = profile
         .get("inferenceGatewayBaseUrl")
@@ -226,7 +233,7 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
         matches!(provider_mode(provider), ClaudeDesktopMode::Proxy)
             && proxy_model_routes(provider).is_err()
     });
-    let needs_restart = configured;
+    let needs_restart = restart_required_for_timestamps(config_written_at, desktop_started_at);
     let mut issues = Vec::new();
     if !configured {
         issues.push("CC Switch profile has not been applied to Claude Desktop yet.".to_string());
@@ -267,6 +274,7 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
     Ok(ClaudeDesktopStatus {
         supported: true,
         configured,
+        desktop_running,
         applied_id,
         profile_path: Some(paths.profile_path.display().to_string()),
         config_library_path: Some(paths.config_library_path.display().to_string()),
@@ -281,6 +289,62 @@ pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopSta
         restart_hint,
         issues,
     })
+}
+
+fn restart_required_for_timestamps(
+    config_written_at_ms: Option<u64>,
+    desktop_started_at_ms: Option<u64>,
+) -> bool {
+    matches!(
+        (config_written_at_ms, desktop_started_at_ms),
+        (Some(config_written_at_ms), Some(desktop_started_at_ms))
+            if desktop_started_at_ms < config_written_at_ms
+    )
+}
+
+fn configuration_written_at(db: &Database) -> Option<u64> {
+    db.get_setting(CONFIG_WRITTEN_AT_SETTING_KEY)
+        .ok()
+        .flatten()?
+        .parse()
+        .ok()
+}
+
+fn record_configuration_write(db: &Database) -> Result<(), AppError> {
+    let written_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| {
+            AppError::Config(format!(
+                "Failed to record Claude Desktop configuration time: {error}"
+            ))
+        })?
+        .as_millis();
+    let written_at_ms = u64::try_from(written_at_ms).unwrap_or(u64::MAX);
+    db.set_setting(CONFIG_WRITTEN_AT_SETTING_KEY, &written_at_ms.to_string())
+}
+
+#[cfg(any(test, target_os = "macos", windows))]
+fn is_claude_desktop_process_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "claude" | "claude.exe" | "claude desktop" | "claude desktop.exe"
+    )
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn claude_desktop_process_started_at() -> Option<u64> {
+    let system = sysinfo::System::new_all();
+    system
+        .processes()
+        .values()
+        .filter(|process| is_claude_desktop_process_name(process.name()))
+        .map(|process| process.start_time().saturating_mul(1000))
+        .min()
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn claude_desktop_process_started_at() -> Option<u64> {
+    None
 }
 
 fn provider_status_issues(db: &Database, provider: &Provider, proxy_running: bool) -> Vec<String> {
@@ -2893,11 +2957,12 @@ fn apply_provider_to_paths(
     paths: &ClaudeDesktopPaths,
 ) -> Result<(), AppError> {
     if is_official_provider(provider) {
-        return restore_official_at_paths(paths);
+        return restore_official_at_paths(db, paths);
     }
     validate_provider(provider)?;
     with_rollback(paths, |paths| {
-        apply_provider_to_paths_inner(db, provider, paths)
+        apply_provider_to_paths_inner(db, provider, paths)?;
+        record_configuration_write(db)
     })
 }
 
@@ -2955,8 +3020,11 @@ fn apply_provider_to_paths_inner(
     Ok(())
 }
 
-fn restore_official_at_paths(paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
-    with_rollback(paths, restore_official_at_paths_inner)
+fn restore_official_at_paths(db: &Database, paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
+    with_rollback(paths, |paths| {
+        restore_official_at_paths_inner(paths)?;
+        record_configuration_write(db)
+    })
 }
 
 fn restore_official_at_paths_inner(paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
@@ -3431,6 +3499,34 @@ mod tests {
                 ..ProviderMeta::default()
             },
         )
+    }
+
+    #[test]
+    fn desktop_restart_is_required_only_for_a_running_stale_process() {
+        assert!(restart_required_for_timestamps(Some(200), Some(100)));
+        assert!(!restart_required_for_timestamps(Some(200), Some(200)));
+        assert!(!restart_required_for_timestamps(Some(200), Some(300)));
+        assert!(!restart_required_for_timestamps(Some(200), None));
+        assert!(!restart_required_for_timestamps(None, Some(100)));
+    }
+
+    #[test]
+    fn configuration_write_marker_roundtrips_through_settings() {
+        let db = Database::memory().expect("memory db");
+        assert_eq!(configuration_written_at(&db), None);
+
+        record_configuration_write(&db).expect("record configuration write");
+
+        assert!(configuration_written_at(&db).is_some());
+    }
+
+    #[test]
+    fn desktop_process_name_excludes_electron_helpers_and_claude_code() {
+        assert!(is_claude_desktop_process_name("Claude"));
+        assert!(is_claude_desktop_process_name("claude.exe"));
+        assert!(is_claude_desktop_process_name("Claude Desktop.exe"));
+        assert!(!is_claude_desktop_process_name("Claude Helper"));
+        assert!(!is_claude_desktop_process_name("claude-code"));
     }
 
     #[test]

@@ -124,9 +124,14 @@ struct RemoteTarget {
     manifest_url: Url,
     db_url: Url,
     skills_url: Url,
+    legacy_manifest_url: Option<Url>,
+    legacy_db_url: Option<Url>,
+    legacy_skills_url: Option<Url>,
     snapshot_url: Url,
     backup_index_url: Url,
     backup_segments: Vec<String>,
+    previous_schema_backup_index_url: Option<Url>,
+    previous_schema_backup_segments: Option<Vec<String>>,
     legacy_backup_index_url: Url,
     legacy_backup_segments: Vec<String>,
     collection_urls: Vec<Url>,
@@ -308,6 +313,25 @@ pub async fn preview_snapshot(
             manifest.modified_at,
             &manifest.manifest,
         ));
+    }
+    if let Some(legacy_manifest_url) = target.legacy_manifest_url.clone() {
+        if let Some(manifest) =
+            download_manifest(&client, &settings, legacy_manifest_url.clone()).await?
+        {
+            return Ok(preview_from_manifest(
+                legacy_manifest_url.as_str(),
+                Some(
+                    manifest
+                        .manifest
+                        .artifacts
+                        .values()
+                        .map(|meta| meta.size)
+                        .sum(),
+                ),
+                manifest.modified_at,
+                &manifest.manifest,
+            ));
+        }
     }
     Ok(
         preview_snapshot_with_client(&client, &settings, target.snapshot_url.clone())
@@ -500,6 +524,16 @@ pub async fn list_backups(settings: &WebDavSettings) -> Result<Vec<WebDavBackupE
     let mut backups = load_backup_index(&client, &settings, target.backup_index_url.clone())
         .await?
         .backups;
+    if let Some(previous_index_url) = target.previous_schema_backup_index_url.clone() {
+        let previous = load_backup_index(&client, &settings, previous_index_url)
+            .await?
+            .backups;
+        for entry in previous {
+            if !backups.iter().any(|current| current.id == entry.id) {
+                backups.push(entry);
+            }
+        }
+    }
     let legacy = load_backup_index(&client, &settings, target.legacy_backup_index_url.clone())
         .await?
         .backups;
@@ -530,53 +564,38 @@ pub async fn restore_backup(
         .find(|backup| backup.id == backup_id)
         .cloned()
     {
-        let segments = backup_snapshot_segments(&target, &backup_id)?;
-        let manifest_url = artifact_url(&settings, &segments, REMOTE_MANIFEST)?;
-        let manifest = download_manifest(&client, &settings, manifest_url.clone())
-            .await?
-            .ok_or_else(|| {
-                AppError::InvalidInput("Remote WebDAV backup manifest was not found".into())
-            })?;
-        let preview = preview_from_manifest(
-            manifest_url.as_str(),
-            Some(
-                manifest
-                    .manifest
-                    .artifacts
-                    .values()
-                    .map(|meta| meta.size)
-                    .sum(),
-            ),
-            manifest.modified_at,
-            &manifest.manifest,
-        );
-        ensure_preview_compatible(&preview)?;
-        let db_url = artifact_url(&settings, &segments, REMOTE_DB_SQL)?;
-        let skills_url = artifact_url(&settings, &segments, REMOTE_SKILLS_ZIP)?;
-        let db_sql = download_and_verify(
+        return restore_v2_backup(
+            state,
             &client,
             &settings,
-            db_url,
-            REMOTE_DB_SQL,
-            &manifest.manifest.artifacts,
+            &target.backup_segments,
+            entry,
+            "WebDAV v2 backup restored",
         )
-        .await?;
-        let skills_zip = download_and_verify(
-            &client,
-            &settings,
-            skills_url,
-            REMOTE_SKILLS_ZIP,
-            &manifest.manifest.artifacts,
-        )
-        .await?;
-        let local_backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
-        return Ok(WebDavSyncResult {
-            success: true,
-            message: "WebDAV v2 backup restored".to_string(),
-            remote_path: entry.remote_path,
-            backup_id: Some(local_backup_id),
-            preview: Some(preview),
-        });
+        .await;
+    }
+
+    if let (Some(previous_index_url), Some(previous_segments)) = (
+        target.previous_schema_backup_index_url.clone(),
+        target.previous_schema_backup_segments.as_deref(),
+    ) {
+        let previous_index = load_backup_index(&client, &settings, previous_index_url).await?;
+        if let Some(entry) = previous_index
+            .backups
+            .iter()
+            .find(|backup| backup.id == backup_id)
+            .cloned()
+        {
+            return restore_v2_backup(
+                state,
+                &client,
+                &settings,
+                previous_segments,
+                entry,
+                "WebDAV v2 backup restored from previous schema",
+            )
+            .await;
+        }
     }
 
     let legacy_index =
@@ -621,6 +640,62 @@ pub async fn restore_backup(
     })
 }
 
+async fn restore_v2_backup(
+    state: &AppState,
+    client: &Client,
+    settings: &WebDavSettings,
+    backup_segments: &[String],
+    entry: WebDavBackupEntry,
+    message: &str,
+) -> Result<WebDavSyncResult, AppError> {
+    let mut segments = backup_segments.to_vec();
+    segments.push(sanitize_backup_id(&entry.id)?);
+    let manifest_url = artifact_url(settings, &segments, REMOTE_MANIFEST)?;
+    let manifest = download_manifest(client, settings, manifest_url.clone())
+        .await?
+        .ok_or_else(|| {
+            AppError::InvalidInput("Remote WebDAV backup manifest was not found".into())
+        })?;
+    let preview = preview_from_manifest(
+        manifest_url.as_str(),
+        Some(
+            manifest
+                .manifest
+                .artifacts
+                .values()
+                .map(|meta| meta.size)
+                .sum(),
+        ),
+        manifest.modified_at,
+        &manifest.manifest,
+    );
+    ensure_preview_compatible(&preview)?;
+    let db_sql = download_and_verify(
+        client,
+        settings,
+        artifact_url(settings, &segments, REMOTE_DB_SQL)?,
+        REMOTE_DB_SQL,
+        &manifest.manifest.artifacts,
+    )
+    .await?;
+    let skills_zip = download_and_verify(
+        client,
+        settings,
+        artifact_url(settings, &segments, REMOTE_SKILLS_ZIP)?,
+        REMOTE_SKILLS_ZIP,
+        &manifest.manifest.artifacts,
+    )
+    .await?;
+    let local_backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
+    Ok(WebDavSyncResult {
+        success: true,
+        message: message.to_string(),
+        remote_path: entry.remote_path,
+        backup_id: Some(local_backup_id),
+        preview: Some(preview),
+    })
+}
+
 pub async fn download_snapshot(
     state: &AppState,
     settings: &WebDavSettings,
@@ -629,47 +704,37 @@ pub async fn download_snapshot(
     let settings = normalized_settings(settings)?;
     let target = remote_target(&settings)?;
     let client = webdav_client()?;
-    if let Some(manifest) =
-        download_manifest(&client, &settings, target.manifest_url.clone()).await?
+    if let Some(result) = download_v2_snapshot_from_urls(
+        state,
+        &client,
+        &settings,
+        target.manifest_url.clone(),
+        target.db_url.clone(),
+        target.skills_url.clone(),
+        "WebDAV v2 snapshot downloaded",
+    )
+    .await?
     {
-        let preview = preview_from_manifest(
-            target.manifest_url.as_str(),
-            Some(
-                manifest
-                    .manifest
-                    .artifacts
-                    .values()
-                    .map(|meta| meta.size)
-                    .sum(),
-            ),
-            manifest.modified_at,
-            &manifest.manifest,
-        );
-        ensure_preview_compatible(&preview)?;
-        let db_sql = download_and_verify(
+        return Ok(result);
+    }
+    if let (Some(manifest_url), Some(db_url), Some(skills_url)) = (
+        target.legacy_manifest_url.clone(),
+        target.legacy_db_url.clone(),
+        target.legacy_skills_url.clone(),
+    ) {
+        if let Some(result) = download_v2_snapshot_from_urls(
+            state,
             &client,
             &settings,
-            target.db_url,
-            REMOTE_DB_SQL,
-            &manifest.manifest.artifacts,
+            manifest_url,
+            db_url,
+            skills_url,
+            "WebDAV v2 snapshot downloaded from previous schema",
         )
-        .await?;
-        let skills_zip = download_and_verify(
-            &client,
-            &settings,
-            target.skills_url,
-            REMOTE_SKILLS_ZIP,
-            &manifest.manifest.artifacts,
-        )
-        .await?;
-        let backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
-        return Ok(WebDavSyncResult {
-            success: true,
-            message: "WebDAV v2 snapshot downloaded".to_string(),
-            remote_path: target.manifest_url.to_string(),
-            backup_id: Some(backup_id),
-            preview: Some(preview),
-        });
+        .await?
+        {
+            return Ok(result);
+        }
     }
 
     // 0.18.x snapshots remain read-only compatible.
@@ -704,6 +769,58 @@ pub async fn download_snapshot(
         backup_id: Some(backup_id),
         preview: Some(preview),
     })
+}
+
+async fn download_v2_snapshot_from_urls(
+    state: &AppState,
+    client: &Client,
+    settings: &WebDavSettings,
+    manifest_url: Url,
+    db_url: Url,
+    skills_url: Url,
+    message: &str,
+) -> Result<Option<WebDavSyncResult>, AppError> {
+    let Some(manifest) = download_manifest(client, settings, manifest_url.clone()).await? else {
+        return Ok(None);
+    };
+    let preview = preview_from_manifest(
+        manifest_url.as_str(),
+        Some(
+            manifest
+                .manifest
+                .artifacts
+                .values()
+                .map(|meta| meta.size)
+                .sum(),
+        ),
+        manifest.modified_at,
+        &manifest.manifest,
+    );
+    ensure_preview_compatible(&preview)?;
+    let db_sql = download_and_verify(
+        client,
+        settings,
+        db_url,
+        REMOTE_DB_SQL,
+        &manifest.manifest.artifacts,
+    )
+    .await?;
+    let skills_zip = download_and_verify(
+        client,
+        settings,
+        skills_url,
+        REMOTE_SKILLS_ZIP,
+        &manifest.manifest.artifacts,
+    )
+    .await?;
+    let backup_id = apply_v2_snapshot(state, &db_sql, &skills_zip)?;
+    Ok(Some(WebDavSyncResult {
+        success: true,
+        message: message.to_string(),
+        remote_path: manifest_url.to_string(),
+        backup_id: Some(backup_id),
+        preview: Some(preview),
+    }))
 }
 
 fn webdav_client() -> Result<Client, AppError> {
@@ -819,20 +936,84 @@ fn remote_target(settings: &WebDavSettings) -> Result<RemoteTarget, AppError> {
         &backup_segments,
         Some(BACKUP_INDEX_FILE),
     )?;
+
+    // Keep one read-only fallback for the previous v2 schema directory. New
+    // uploads always use the current schema path, but existing v6 snapshots
+    // must remain restorable after the v7 migration.
+    let legacy_schema = DB_COMPAT_VERSION.saturating_sub(1);
+    let legacy_segments = if legacy_schema > 0 {
+        let mut segments = remote_segments.clone();
+        segments.extend([
+            format!("v{PROTOCOL_VERSION}"),
+            format!("db-v{legacy_schema}"),
+            profile.clone(),
+        ]);
+        Some(segments)
+    } else {
+        None
+    };
+    let legacy_manifest_url = legacy_segments
+        .as_deref()
+        .map(|segments| {
+            build_url(
+                base.clone(),
+                &base_segments,
+                segments,
+                Some(REMOTE_MANIFEST),
+            )
+        })
+        .transpose()?;
+    let legacy_db_url = legacy_segments
+        .as_deref()
+        .map(|segments| build_url(base.clone(), &base_segments, segments, Some(REMOTE_DB_SQL)))
+        .transpose()?;
+    let legacy_skills_url = legacy_segments
+        .as_deref()
+        .map(|segments| {
+            build_url(
+                base.clone(),
+                &base_segments,
+                segments,
+                Some(REMOTE_SKILLS_ZIP),
+            )
+        })
+        .transpose()?;
     let legacy_backup_index_url = build_url(
-        base,
+        base.clone(),
         &base_segments,
         &legacy_backup_segments,
         Some(BACKUP_INDEX_FILE),
     )?;
 
+    let previous_schema_backup_segments = legacy_segments.as_ref().map(|segments| {
+        let mut backup_segments = segments.clone();
+        backup_segments.push(HISTORY_DIR.to_string());
+        backup_segments
+    });
+    let previous_schema_backup_index_url = previous_schema_backup_segments
+        .as_deref()
+        .map(|segments| {
+            build_url(
+                base.clone(),
+                &base_segments,
+                segments,
+                Some(BACKUP_INDEX_FILE),
+            )
+        })
+        .transpose()?;
+
     Ok(RemoteTarget {
         manifest_url,
         db_url,
         skills_url,
+        legacy_manifest_url,
+        legacy_db_url,
+        legacy_skills_url,
         snapshot_url,
         backup_index_url,
         backup_segments,
+        previous_schema_backup_index_url,
+        previous_schema_backup_segments,
         legacy_backup_index_url,
         legacy_backup_segments,
         collection_urls,
@@ -1218,6 +1399,7 @@ fn preview_from_manifest(
     modified_at: Option<String>,
     manifest: &SyncManifest,
 ) -> WebDavSnapshotPreview {
+    let expected_snapshot_id = compute_snapshot_id(&manifest.artifacts);
     let checks = vec![
         WebDavCompatibilityCheck {
             name: "protocolFormat".to_string(),
@@ -1234,9 +1416,9 @@ fn preview_from_manifest(
         },
         WebDavCompatibilityCheck {
             name: "databaseSchema".to_string(),
-            ok: manifest.db_compat_version == DB_COMPAT_VERSION,
+            ok: manifest.db_compat_version > 0 && manifest.db_compat_version <= DB_COMPAT_VERSION,
             message: format!(
-                "db-v{}, supported db-v{}",
+                "db-v{}, supported up to db-v{}",
                 manifest.db_compat_version, DB_COMPAT_VERSION
             ),
         },
@@ -1251,6 +1433,15 @@ fn preview_from_manifest(
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(", "),
+        },
+        WebDavCompatibilityCheck {
+            name: "snapshotId".to_string(),
+            ok: !manifest.snapshot_id.is_empty() && manifest.snapshot_id == expected_snapshot_id,
+            message: if manifest.snapshot_id == expected_snapshot_id {
+                "snapshot identity matches artifacts".to_string()
+            } else {
+                "snapshot identity does not match artifacts".to_string()
+            },
         },
         WebDavCompatibilityCheck {
             name: "artifactSize".to_string(),
@@ -1728,7 +1919,7 @@ mod tests {
 
         assert_eq!(
             target.manifest_url.as_str(),
-            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/manifest.json"
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v7/main-profile/manifest.json"
         );
         assert_eq!(
             target.snapshot_url.as_str(),
@@ -1741,11 +1932,33 @@ mod tests {
         );
         assert_eq!(
             target.collection_urls[5].as_str(),
-            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/history/"
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v7/main-profile/history/"
         );
         assert_eq!(
             target.backup_index_url.as_str(),
+            "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v7/main-profile/history/index.json"
+        );
+        assert_eq!(
+            target
+                .previous_schema_backup_index_url
+                .as_ref()
+                .expect("previous schema history index")
+                .as_str(),
             "https://dav.example.com/remote.php/dav/files/me/cc-switch-web/prod/v2/db-v6/main-profile/history/index.json"
+        );
+        assert_eq!(
+            target
+                .previous_schema_backup_segments
+                .as_ref()
+                .expect("previous schema history segments"),
+            &[
+                "cc-switch-web".to_string(),
+                "prod".to_string(),
+                "v2".to_string(),
+                "db-v6".to_string(),
+                "main-profile".to_string(),
+                "history".to_string(),
+            ]
         );
     }
 
@@ -1846,6 +2059,17 @@ mod tests {
     }
 
     #[test]
+    fn legacy_config_snapshot_without_schema_remains_compatible() {
+        let value = serde_json::to_value(MultiAppConfig::default()).expect("serialize config");
+
+        let parsed = parse_snapshot_value(&value).expect("parse legacy snapshot");
+        let preview = build_preview("legacy.json", Some(1), None, &parsed);
+
+        assert!(preview.compatible);
+        assert_eq!(preview.schema_version, None);
+    }
+
+    #[test]
     fn v2_snapshot_id_is_deterministic_for_artifact_hashes() {
         let mut first = BTreeMap::new();
         first.insert(
@@ -1904,8 +2128,95 @@ mod tests {
         manifest.db_compat_version += 1;
         assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
         manifest.db_compat_version = DB_COMPAT_VERSION;
+
+        manifest.db_compat_version = DB_COMPAT_VERSION.saturating_sub(1);
+        assert!(preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+        manifest.db_compat_version = DB_COMPAT_VERSION;
+
+        manifest.snapshot_id = "mismatched-snapshot-id".to_string();
+        assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+        manifest.snapshot_id = compute_snapshot_id(&manifest.artifacts);
+
         manifest.artifacts.remove(REMOTE_SKILLS_ZIP);
         assert!(!preview_from_manifest("manifest.json", None, None, &manifest).compatible);
+    }
+
+    #[tokio::test]
+    async fn preview_falls_back_from_current_schema_to_v6_manifest() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind WebDAV mock");
+        let address = listener.local_addr().expect("mock address");
+        let mut artifacts = BTreeMap::new();
+        artifacts.insert(
+            REMOTE_DB_SQL.to_string(),
+            ArtifactMeta {
+                sha256: "db-v6-hash".to_string(),
+                size: 10,
+            },
+        );
+        artifacts.insert(
+            REMOTE_SKILLS_ZIP.to_string(),
+            ArtifactMeta {
+                sha256: "skills-v6-hash".to_string(),
+                size: 20,
+            },
+        );
+        let previous_schema = DB_COMPAT_VERSION.saturating_sub(1);
+        let manifest = SyncManifest {
+            format: PROTOCOL_FORMAT.to_string(),
+            version: PROTOCOL_VERSION,
+            db_compat_version: previous_schema,
+            device_name: "v6-device".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            snapshot_id: compute_snapshot_id(&artifacts),
+            artifacts,
+        };
+        let manifest_body = serde_json::to_vec(&manifest).expect("serialize v6 manifest");
+        let previous_path = format!("/db-v{previous_schema}/");
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.expect("accept WebDAV request");
+                let mut request = [0u8; 4096];
+                let length = socket.read(&mut request).await.expect("read request");
+                let request = String::from_utf8_lossy(&request[..length]);
+                let (status, body) = if request.contains(&previous_path) {
+                    ("200 OK", manifest_body.as_slice())
+                } else {
+                    ("404 Not Found", &[][..])
+                };
+                let headers = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(headers.as_bytes())
+                    .await
+                    .expect("write response headers");
+                socket.write_all(body).await.expect("write response body");
+            }
+        });
+        let settings = WebDavSettings {
+            enabled: true,
+            base_url: format!("http://{address}"),
+            remote_dir: "sync".to_string(),
+            profile: "default".to_string(),
+            ..WebDavSettings::default()
+        };
+
+        let preview = preview_snapshot(&settings)
+            .await
+            .expect("preview v6 fallback");
+
+        assert!(preview.exists);
+        assert!(preview.compatible);
+        assert_eq!(preview.schema_version, i32::try_from(previous_schema).ok());
+        assert!(preview
+            .remote_path
+            .contains(&format!("db-v{previous_schema}")));
+        server.await.expect("WebDAV mock join");
     }
 
     #[test]

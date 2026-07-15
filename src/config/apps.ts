@@ -11,6 +11,7 @@ export const PROVIDER_APPS = [
   "codex",
   "gemini",
   "opencode",
+  "openclaw",
   "omo",
   "omo-slim",
 ] as const satisfies readonly AppId[];

@@ -1,5 +1,4 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "HEAD";
 type CommandArgs = Record<string, unknown>;
@@ -16,33 +15,6 @@ const DEFAULT_WEB_API_BASE = "/api";
 export const WEB_AUTH_STORAGE_KEY = "cc-switch-web-auth";
 export const WEB_CSRF_STORAGE_KEY = "cc-switch-csrf-token";
 export const WEB_API_BASE_STORAGE_KEY = "cc-switch-web-api-base";
-
-const WEB_UNSUPPORTED_COMMANDS: Record<string, string> = {
-  test_api_endpoints: "Web 端暂不支持端点测速，请使用桌面版。",
-  get_custom_endpoints: "Web 端暂不支持获取 VSCode 自定义端点，请使用桌面版。",
-  add_custom_endpoint: "Web 端暂不支持添加 VSCode 自定义端点，请使用桌面版。",
-  remove_custom_endpoint:
-    "Web 端暂不支持删除 VSCode 自定义端点，请使用桌面版。",
-  update_endpoint_last_used: "Web 端暂不支持记录端点使用情况，请使用桌面版。",
-};
-
-const webUnsupportedNotices = new Set<string>();
-
-const notifyWebUnsupported = (cmd: string, message: string): never => {
-  if (typeof window !== "undefined") {
-    if (!webUnsupportedNotices.has(cmd)) {
-      webUnsupportedNotices.add(cmd);
-      try {
-        toast.error(message);
-      } catch {
-        console.warn(`cc-switch: ${message}`);
-      }
-    } else {
-      console.warn(`cc-switch: ${message}`);
-    }
-  }
-  throw new Error(message);
-};
 
 const getEnvNumber = (value: unknown, fallback: number) => {
   const parsed = Number(value);
@@ -675,8 +647,57 @@ export function commandToEndpoint(
 ): Endpoint {
   const apiBase = getWebApiBase();
   switch (cmd) {
+    case "get_capabilities":
+      return { method: "GET", url: `${apiBase}/capabilities` };
+    case "get_openclaw_status":
+      return { method: "GET", url: `${apiBase}/openclaw/status` };
+    case "get_openclaw_live_providers":
+      return { method: "GET", url: `${apiBase}/openclaw/providers` };
+    case "get_openclaw_live_provider":
+      return {
+        method: "GET",
+        url: `${apiBase}/openclaw/providers/${encode(requireArg(args, "providerId", cmd))}`,
+      };
+    case "get_openclaw_default_model":
+      return { method: "GET", url: `${apiBase}/openclaw/default-model` };
+    case "set_openclaw_default_model":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/default-model`,
+        body: requireArg(args, "model", cmd),
+      };
+    case "clear_openclaw_default_model":
+      return { method: "DELETE", url: `${apiBase}/openclaw/default-model` };
+    case "scan_openclaw_config_health":
+      return { method: "GET", url: `${apiBase}/openclaw/health` };
+    case "query_subscription_quota": {
+      const params = new URLSearchParams({
+        provider: String(requireArg(args, "provider", cmd)),
+      });
+      if (args.accountId) params.set("accountId", String(args.accountId));
+      if (args.force) params.set("force", "true");
+      return {
+        method: "GET",
+        url: `${apiBase}/subscriptions/quota?${params.toString()}`,
+      };
+    }
     case "list_sessions":
-      return { method: "GET", url: `${apiBase}/sessions` };
+      return {
+        method: "GET",
+        url: `${apiBase}/sessions${args.refresh ? "?refresh=true" : ""}`,
+      };
+    case "list_sessions_page": {
+      const params = new URLSearchParams();
+      if (args.cursor) params.set("cursor", String(args.cursor));
+      if (args.limit) params.set("limit", String(args.limit));
+      if (args.providerId) params.set("providerId", String(args.providerId));
+      if (args.refresh) params.set("refresh", "true");
+      const query = params.toString();
+      return {
+        method: "GET",
+        url: `${apiBase}/sessions/page${query ? `?${query}` : ""}`,
+      };
+    }
     case "get_session_messages":
       return {
         method: "POST",
@@ -701,6 +722,52 @@ export function commandToEndpoint(
         method: "POST",
         url: `${apiBase}/sessions/delete-batch`,
         body: requireArg(args, "items", cmd),
+      };
+    case "list_workspace_files":
+      return { method: "GET", url: `${apiBase}/workspace/files` };
+    case "read_workspace_file":
+      return {
+        method: "GET",
+        url: `${apiBase}/workspace/files/${encode(requireArg(args, "filename", cmd))}`,
+      };
+    case "write_workspace_file":
+      return {
+        method: "PUT",
+        url: `${apiBase}/workspace/files/${encode(requireArg(args, "filename", cmd))}`,
+        body: {
+          content: requireArg(args, "content", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "list_workspace_backups":
+      return {
+        method: "GET",
+        url: `${apiBase}/workspace/files/${encode(requireArg(args, "filename", cmd))}/backups`,
+      };
+    case "restore_workspace_backup":
+      return {
+        method: "POST",
+        url: `${apiBase}/workspace/files/${encode(requireArg(args, "filename", cmd))}/restore`,
+        body: {
+          backupId: requireArg(args, "backupId", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "list_daily_memory_files":
+      return { method: "GET", url: `${apiBase}/workspace/memory` };
+    case "read_daily_memory_file":
+      return {
+        method: "GET",
+        url: `${apiBase}/workspace/memory/${encode(requireArg(args, "date", cmd))}`,
+      };
+    case "write_daily_memory_file":
+      return {
+        method: "PUT",
+        url: `${apiBase}/workspace/memory/${encode(requireArg(args, "date", cmd))}`,
+        body: {
+          content: requireArg(args, "content", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
       };
     case "parse_deeplink":
       return {
@@ -848,13 +915,14 @@ export function commandToEndpoint(
       const providerId = requireArg(args, "providerId", cmd);
       return {
         method: "POST",
-        url: `${apiBase}/stream-check/providers/${encode(appType)}/${encode(providerId)}`,
+        url: `${apiBase}/stream-check/providers/${encode(providerId)}`,
+        body: { appType },
       };
     }
     case "stream_check_all_providers":
       return {
         method: "POST",
-        url: `${apiBase}/stream-check/providers`,
+        url: `${apiBase}/stream-check/all`,
         body: args,
       };
     case "get_stream_check_config":
@@ -867,6 +935,20 @@ export function commandToEndpoint(
         method: "PUT",
         url: `${apiBase}/stream-check/config`,
         body: requireArg(args, "config", cmd),
+      };
+    case "get_stream_check_logs": {
+      const query = (args.query ?? {}) as Record<string, unknown>;
+      return {
+        method: "GET",
+        url: `${apiBase}/stream-check/logs${queryString(query)}`,
+      };
+    }
+    case "get_latest_stream_check_logs":
+      return {
+        method: "GET",
+        url: `${apiBase}/stream-check/logs/latest${queryString({
+          appType: args.appType,
+        })}`,
       };
     case "get_opencode_live_provider_ids":
       return {
@@ -1546,11 +1628,32 @@ export function commandToEndpoint(
         },
       };
     case "restart_app":
-      return { method: "POST", url: `${apiBase}/system/restart` };
+      return { method: "POST", url: `${apiBase}/unsupported/restart_app` };
     case "check_for_updates":
-      return { method: "POST", url: `${apiBase}/system/check-updates` };
+      return {
+        method: "POST",
+        url: `${apiBase}/unsupported/check_for_updates`,
+      };
     case "is_portable_mode":
-      return { method: "GET", url: `${apiBase}/system/is-portable` };
+      return { method: "GET", url: `${apiBase}/unsupported/is_portable_mode` };
+    case "check_env_conflicts":
+    case "delete_env_vars":
+    case "restore_env_backup":
+    case "get_env_var":
+    case "set_env_var":
+    case "test_api_endpoints":
+    case "get_custom_endpoints":
+    case "add_custom_endpoint":
+    case "remove_custom_endpoint":
+    case "update_endpoint_last_used":
+      return {
+        method:
+          cmd === "get_custom_endpoints" || cmd === "get_env_var"
+            ? "GET"
+            : "POST",
+        url: `${apiBase}/unsupported/${encode(cmd)}`,
+        body: args,
+      };
     case "get_config_dir": {
       const app = requireArg(args, "app", cmd);
       return { method: "GET", url: `${apiBase}/config/${encode(app)}/dir` };
@@ -1790,33 +1893,7 @@ export async function invoke<T>(
     return tauriInvoke<T>(cmd, args);
   }
 
-  const unsupportedMessage = WEB_UNSUPPORTED_COMMANDS[cmd];
-  if (unsupportedMessage) {
-    return notifyWebUnsupported(cmd, unsupportedMessage);
-  }
-
   switch (cmd) {
-    case "update_tray_menu":
-      return true as T;
-    case "check_for_updates":
-      return null;
-    case "restart_app":
-      return undefined as T;
-    case "is_portable_mode":
-      return false as T;
-    case "check_env_conflicts":
-      return [] as T;
-    case "delete_env_vars":
-      return {
-        backupPath: "",
-        timestamp: "",
-        conflicts: [],
-      } as T;
-    case "restore_env_backup":
-      return undefined as T;
-    case "get_env_var":
-    case "set_env_var":
-      return null;
     case "open_external": {
       const url = args.url as string | undefined;
       if (typeof window !== "undefined" && typeof url === "string") {

@@ -30,6 +30,7 @@ import {
   type ManagedAuthProvider,
   type ManagedAuthUsage,
 } from "@/lib/api";
+import { SubscriptionQuotaPanel } from "./SubscriptionQuotaPanel";
 
 const PROVIDERS: {
   id: ManagedAuthProvider;
@@ -368,6 +369,7 @@ export function AuthCenterSection() {
 
   return (
     <div className="space-y-6">
+      <SubscriptionQuotaPanel />
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-medium">

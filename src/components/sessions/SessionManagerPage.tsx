@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   CheckSquare,
+  ChevronDown,
   Clock3,
   Copy,
   FolderOpen,
@@ -37,13 +38,20 @@ import { sessionsApi, type DeleteSessionResult } from "@/lib/api/sessions";
 import type { SessionMessage, SessionMeta } from "@/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
-type ProviderFilter = "all" | "claude" | "codex" | "gemini" | "opencode";
+type ProviderFilter =
+  | "all"
+  | "claude"
+  | "codex"
+  | "gemini"
+  | "opencode"
+  | "openclaw";
 
 const providerLabels: Record<Exclude<ProviderFilter, "all">, string> = {
   claude: "Claude",
   codex: "Codex",
   gemini: "Gemini",
   opencode: "OpenCode",
+  openclaw: "OpenClaw",
 };
 
 const sessionKey = (session: SessionMeta) =>
@@ -74,6 +82,9 @@ export function SessionManagerPage({
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState<ProviderFilter>("all");
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [totalSessions, setTotalSessions] = useState(0);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<SessionMeta[] | null>(
@@ -123,34 +134,68 @@ export function SessionManagerPage({
     }
   }, [filteredSessions, selectedKey]);
 
-  const loadSessions = useCallback(async () => {
-    setLoading(true);
+  const loadFirstPage = useCallback(
+    async (refresh = false) => {
+      setLoading(true);
+      try {
+        const page = await sessionsApi.listPage({
+          limit: 100,
+          providerId: provider === "all" ? undefined : provider,
+          refresh,
+        });
+        setSessions(page.sessions);
+        setNextCursor(page.nextCursor);
+        setTotalSessions(page.total);
+        setSelectedKeys((current) => {
+          const valid = new Set(page.sessions.map(sessionKey));
+          return new Set([...current].filter((key) => valid.has(key)));
+        });
+        setSelectedKey((current) => {
+          if (
+            current &&
+            page.sessions.some((session) => sessionKey(session) === current)
+          ) {
+            return current;
+          }
+          return page.sessions[0] ? sessionKey(page.sessions[0]) : null;
+        });
+      } catch (error) {
+        toast.error(extractErrorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [provider],
+  );
+
+  const loadMoreSessions = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
     try {
-      const next = await sessionsApi.list();
-      setSessions(next);
-      setSelectedKeys((current) => {
-        const valid = new Set(next.map(sessionKey));
-        return new Set([...current].filter((key) => valid.has(key)));
+      const page = await sessionsApi.listPage({
+        cursor: nextCursor,
+        limit: 100,
+        providerId: provider === "all" ? undefined : provider,
       });
-      setSelectedKey((current) => {
-        if (
-          current &&
-          next.some((session) => sessionKey(session) === current)
-        ) {
-          return current;
-        }
-        return next[0] ? sessionKey(next[0]) : null;
+      setSessions((current) => {
+        const known = new Set(current.map(sessionKey));
+        return [
+          ...current,
+          ...page.sessions.filter((session) => !known.has(sessionKey(session))),
+        ];
       });
+      setNextCursor(page.nextCursor);
+      setTotalSessions(page.total);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
-  }, []);
+  }, [loadingMore, nextCursor, provider]);
 
   useEffect(() => {
-    if (open) void loadSessions();
-  }, [loadSessions, open]);
+    if (open) void loadFirstPage(false);
+  }, [loadFirstPage, open]);
 
   useEffect(() => {
     if (!selectedSession?.sourcePath) {
@@ -230,7 +275,7 @@ export function SessionManagerPage({
         );
       }
       setDeleteTargets(null);
-      await loadSessions();
+      await loadFirstPage(true);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     } finally {
@@ -275,7 +320,7 @@ export function SessionManagerPage({
                     size="icon"
                     variant="outline"
                     title={t("sessionManager.refresh")}
-                    onClick={() => void loadSessions()}
+                    onClick={() => void loadFirstPage(true)}
                     disabled={loading}
                   >
                     <RefreshCw
@@ -396,6 +441,27 @@ export function SessionManagerPage({
                     );
                   })
                 )}
+                {nextCursor ? (
+                  <div className="border-t border-border-default p-3">
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void loadMoreSessions()}
+                      disabled={loadingMore}
+                    >
+                      <ChevronDown
+                        className={`h-4 w-4 ${loadingMore ? "animate-bounce" : ""}`}
+                      />
+                      {loadingMore
+                        ? t("common.loading")
+                        : t("sessionManager.loadMore", {
+                            loaded: sessions.length,
+                            total: totalSessions,
+                          })}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </section>
 

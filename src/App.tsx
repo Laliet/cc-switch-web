@@ -9,10 +9,17 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { BarChart3, Plus, Settings, Edit3, History } from "lucide-react";
+import {
+  BarChart3,
+  Plus,
+  Settings,
+  Edit3,
+  History,
+  FolderOpen,
+} from "lucide-react";
 import type { Provider } from "@/types";
 import type { EnvConflict } from "@/types/env";
-import { useProvidersQuery } from "@/lib/query";
+import { useCapabilitiesQuery, useProvidersQuery } from "@/lib/query";
 import {
   providersApi,
   settingsApi,
@@ -30,13 +37,7 @@ import {
   isWeb,
 } from "@/lib/api/adapter";
 import { AppSwitcher } from "@/components/AppSwitcher";
-import {
-  isMcpApp,
-  isPromptApp,
-  isProviderApp,
-  isSkillsApp,
-  isUsageApp,
-} from "@/config/apps";
+import { isProviderApp } from "@/config/apps";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { ClaudeDesktopPanel } from "@/components/providers/ClaudeDesktopPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -90,6 +91,11 @@ const SessionManagerPage = lazy(() =>
     default: module.SessionManagerPage,
   })),
 );
+const WorkspacePanel = lazy(() =>
+  import("@/components/workspace/WorkspacePanel").then((module) => ({
+    default: module.WorkspacePanel,
+  })),
+);
 
 async function validateWebCredentials(url: string): Promise<boolean> {
   const headers = buildWebAuthHeadersForUrl(url);
@@ -137,6 +143,7 @@ function AppContent() {
   const [isSkillsOpen, setIsSkillsOpen] = useState(false);
   const [isUsageDashboardOpen, setIsUsageDashboardOpen] = useState(false);
   const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false);
+  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
@@ -144,10 +151,21 @@ function AppContent() {
   const [showEnvBanner, setShowEnvBanner] = useState(false);
   const [claudeDesktopStatusRefreshKey, setClaudeDesktopStatusRefreshKey] =
     useState(0);
-  const promptSupported = isPromptApp(activeApp);
-  const mcpSupported = isMcpApp(activeApp);
-  const skillsSupported = isSkillsApp(activeApp);
-  const usageSupported = isUsageApp(activeApp);
+  const { data: capabilities } = useCapabilitiesQuery();
+  const activeCapabilities = capabilities?.appFeatures[activeApp];
+  const promptSupported = activeCapabilities?.prompts === true;
+  const mcpSupported = activeCapabilities?.mcp === true;
+  const skillsSupported = activeCapabilities?.skills === true;
+  const usageSupported = activeCapabilities?.usage === true;
+  const sessionManagerSupported =
+    capabilities?.features.sessionManager === true;
+  const workspaceSupported = capabilities?.features.workspace === true;
+  const usageDashboardSupported =
+    capabilities?.features.usageDashboard === true;
+  const environmentManagementSupported =
+    capabilities?.features.environmentManagement === true;
+  const isAdditiveProviderApp =
+    activeCapabilities?.additiveProviderMode === true;
 
   const { data, isLoading, refetch } = useProvidersQuery(activeApp);
   const providers = useMemo(() => data?.providers ?? {}, [data]);
@@ -171,6 +189,12 @@ function AppContent() {
       console.warn("[App] Failed to persist active app", error);
     }
   }, []);
+
+  useEffect(() => {
+    if (!capabilities || capabilities.apps.includes(activeApp)) return;
+    const fallback = capabilities.apps[0];
+    if (fallback) handleSwitchApp(fallback);
+  }, [activeApp, capabilities, handleSwitchApp]);
 
   useEffect(() => {
     if (!promptSupported && isPromptOpen) {
@@ -337,6 +361,11 @@ function AppContent() {
 
   // 切换应用时检测当前应用的环境变量冲突
   useEffect(() => {
+    if (!environmentManagementSupported) {
+      setEnvConflicts([]);
+      setShowEnvBanner(false);
+      return;
+    }
     const checkEnvOnSwitch = async () => {
       try {
         const conflicts = await checkEnvConflicts(activeApp);
@@ -363,7 +392,7 @@ function AppContent() {
     };
 
     checkEnvOnSwitch();
-  }, [activeApp]);
+  }, [activeApp, environmentManagementSupported]);
 
   // 打开网站链接
   const handleOpenWebsite = async (url: string) => {
@@ -591,10 +620,12 @@ function AppContent() {
   // 导入配置成功后刷新
   const handleImportSuccess = async () => {
     await refetch();
-    try {
-      await providersApi.updateTrayMenu();
-    } catch (error) {
-      console.error("[App] Failed to refresh tray menu", error);
+    if (capabilities?.features.tray === true) {
+      try {
+        await providersApi.updateTrayMenu();
+      } catch (error) {
+        console.error("[App] Failed to refresh tray menu", error);
+      }
     }
   };
 
@@ -664,7 +695,11 @@ function AppContent() {
 
           <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <div className="flex min-w-0 max-w-full flex-col gap-1">
-              <AppSwitcher activeApp={activeApp} onSwitch={handleSwitchApp} />
+              <AppSwitcher
+                activeApp={activeApp}
+                onSwitch={handleSwitchApp}
+                availableApps={capabilities?.apps}
+              />
               <span className="text-xs text-muted-foreground">
                 {t("apps.scopeHint", {
                   defaultValue:
@@ -672,36 +707,38 @@ function AppContent() {
                 })}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {t("provider.backupLabel", { defaultValue: "备用" })}
-              </span>
-              <Select
-                value={backupProviderId ?? "none"}
-                onValueChange={(val) => {
-                  const next = val === "none" ? null : val;
-                  void handleSetBackup(next);
-                }}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue
-                    placeholder={t("provider.backupPlaceholder", {
-                      defaultValue: "选择备用供应商",
-                    })}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    {t("common.none", { defaultValue: "无" })}
-                  </SelectItem>
-                  {Object.values(providers).map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
+            {!isAdditiveProviderApp ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {t("provider.backupLabel", { defaultValue: "备用" })}
+                </span>
+                <Select
+                  value={backupProviderId ?? "none"}
+                  onValueChange={(val) => {
+                    const next = val === "none" ? null : val;
+                    void handleSetBackup(next);
+                  }}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue
+                      placeholder={t("provider.backupPlaceholder", {
+                        defaultValue: "选择备用供应商",
+                      })}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      {t("common.none", { defaultValue: "无" })}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                    {Object.values(providers).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {promptSupported ? (
               <Button
                 variant="mcp"
@@ -729,22 +766,36 @@ function AppContent() {
                 {t("skills.manage")}
               </Button>
             ) : null}
-            <Button
-              variant="outline"
-              onClick={() => setIsSessionManagerOpen(true)}
-              className="min-w-[92px]"
-            >
-              <History className="h-4 w-4" />
-              {t("sessionManager.manage")}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setIsUsageDashboardOpen(true)}
-              className="min-w-[92px]"
-            >
-              <BarChart3 className="h-4 w-4" />
-              {t("usage.dashboard", { defaultValue: "用量" })}
-            </Button>
+            {sessionManagerSupported ? (
+              <Button
+                variant="outline"
+                onClick={() => setIsSessionManagerOpen(true)}
+                className="min-w-[92px]"
+              >
+                <History className="h-4 w-4" />
+                {t("sessionManager.manage")}
+              </Button>
+            ) : null}
+            {activeApp === "openclaw" && workspaceSupported ? (
+              <Button
+                variant="outline"
+                onClick={() => setIsWorkspaceOpen(true)}
+                className="min-w-[104px]"
+              >
+                <FolderOpen className="h-4 w-4" />
+                Workspace
+              </Button>
+            ) : null}
+            {usageDashboardSupported ? (
+              <Button
+                variant="outline"
+                onClick={() => setIsUsageDashboardOpen(true)}
+                className="min-w-[92px]"
+              >
+                <BarChart3 className="h-4 w-4" />
+                {t("usage.dashboard", { defaultValue: "用量" })}
+              </Button>
+            ) : null}
             <Button onClick={() => setIsAddOpen(true)}>
               <Plus className="h-4 w-4" />
               {t("header.addProvider")}
@@ -914,6 +965,14 @@ function AppContent() {
           <SessionManagerPage
             open={isSessionManagerOpen}
             onOpenChange={setIsSessionManagerOpen}
+          />
+        </Suspense>
+      ) : null}
+      {isWorkspaceOpen && workspaceSupported ? (
+        <Suspense fallback={null}>
+          <WorkspacePanel
+            open={isWorkspaceOpen}
+            onOpenChange={setIsWorkspaceOpen}
           />
         </Suspense>
       ) : null}

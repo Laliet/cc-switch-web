@@ -12,9 +12,27 @@ export interface DeleteSessionResult extends DeleteSessionOptions {
   error?: string;
 }
 
+export interface SessionPage {
+  sessions: SessionMeta[];
+  nextCursor?: string;
+  total: number;
+  scannedAt: number;
+}
+
 export const sessionsApi = {
-  list(): Promise<SessionMeta[]> {
-    return invoke("list_sessions");
+  list(refresh = false): Promise<SessionMeta[]> {
+    return invoke("list_sessions", { refresh });
+  },
+
+  listPage(
+    options: {
+      cursor?: string;
+      limit?: number;
+      providerId?: string;
+      refresh?: boolean;
+    } = {},
+  ): Promise<SessionPage> {
+    return invoke("list_sessions_page", options);
   },
 
   getMessages(

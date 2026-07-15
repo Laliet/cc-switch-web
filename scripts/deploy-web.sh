@@ -215,7 +215,7 @@ build_frontend() {
 build_backend() {
   log "构建 Rust Web 服务器..."
   cd src-tauri
-  cargo build --release --features web-server --example server
+  cargo build --release --no-default-features --features web-server --example server
   cd ..
 
   success "后端构建完成"

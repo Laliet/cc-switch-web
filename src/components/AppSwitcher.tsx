@@ -8,10 +8,18 @@ import { ProviderIcon } from "./ProviderIcon";
 interface AppSwitcherProps {
   activeApp: AppId;
   onSwitch: (app: AppId) => void;
+  availableApps?: readonly AppId[];
 }
 
-export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
+export function AppSwitcher({
+  activeApp,
+  onSwitch,
+  availableApps,
+}: AppSwitcherProps) {
   const { t } = useTranslation();
+  const apps = availableApps
+    ? SWITCHER_APPS.filter((app) => availableApps.includes(app.id))
+    : SWITCHER_APPS;
 
   const handleSwitch = (app: AppId) => {
     if (app === activeApp) return;
@@ -60,6 +68,18 @@ export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
         />
       );
     }
+    if (appId === "openclaw") {
+      return (
+        <ProviderIcon
+          name="openclaw"
+          size={16}
+          showFallback
+          className={
+            isActive ? "opacity-100" : "opacity-60 group-hover:opacity-100"
+          }
+        />
+      );
+    }
     return (
       <Blocks
         size={16}
@@ -75,7 +95,7 @@ export function AppSwitcher({ activeApp, onSwitch }: AppSwitcherProps) {
   return (
     <div className="max-w-full overflow-x-auto rounded-lg">
       <div className="inline-flex min-w-max gap-1 rounded-lg border border-transparent bg-gray-100 p-1 dark:bg-gray-800">
-        {SWITCHER_APPS.map((app) => {
+        {apps.map((app) => {
           const isActive = activeApp === app.id;
 
           return (

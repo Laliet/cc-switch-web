@@ -3,11 +3,20 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSettingsMetadata } from "@/hooks/useSettingsMetadata";
 
 const isPortableMock = vi.hoisted(() => vi.fn());
+const capabilitiesMock = vi.hoisted(() => ({
+  features: { portableMode: true },
+}));
 
 vi.mock("@/lib/api", () => ({
   settingsApi: {
     isPortable: (...args: unknown[]) => isPortableMock(...args),
   },
+}));
+
+vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: capabilitiesMock,
+  }),
 }));
 
 describe("useSettingsMetadata", () => {

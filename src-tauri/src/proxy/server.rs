@@ -143,13 +143,23 @@ fn runtime() -> Arc<ProxyRuntime> {
 }
 
 pub fn parse_proxy_app(value: &str) -> Result<AppType, AppError> {
-    let app = AppType::parse_supported(value)?;
-    if matches!(app, AppType::Omo | AppType::OmoSlim) {
-        return Err(AppError::localized(
-            "proxy.omo.unsupported",
-            "代理暂不支持 OMO，请选择 OpenCode。",
-            "Proxy does not support OMO yet; choose OpenCode.",
-        ));
+    let app = value.parse::<AppType>()?;
+    match app {
+        AppType::OpenClaw => {
+            return Err(AppError::localized(
+                "proxy.openclaw.unsupported",
+                "OpenClaw 第一阶段不支持代理接管。",
+                "OpenClaw phase one does not support proxy takeover.",
+            ));
+        }
+        AppType::Omo | AppType::OmoSlim => {
+            return Err(AppError::localized(
+                "proxy.omo.unsupported",
+                "代理暂不支持 OMO，请选择 OpenCode。",
+                "Proxy does not support OMO yet; choose OpenCode.",
+            ));
+        }
+        _ => app.ensure_supported()?,
     }
     Ok(app)
 }
@@ -1010,6 +1020,19 @@ fn failover_provider_candidates(
     if providers.is_empty() {
         providers.push(current_provider.clone());
     }
+    if let Some(backup_id) = manager
+        .backup_current
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider_id| !provider_id.is_empty())
+    {
+        let already_present = providers.iter().any(|provider| provider.id == backup_id);
+        if !already_present {
+            if let Some(backup) = manager.providers.get(backup_id) {
+                providers.push(backup.clone());
+            }
+        }
+    }
     Ok(providers)
 }
 
@@ -1651,7 +1674,7 @@ fn proxy_app_settings(settings: &ProxySettings, app: &AppType) -> ProxyAppSettin
         AppType::Gemini => settings.apps.gemini.clone(),
         AppType::Opencode => settings.apps.opencode.clone(),
         AppType::ClaudeDesktop => settings.apps.claude.clone(),
-        AppType::Omo | AppType::OmoSlim => ProxyAppSettings::default(),
+        AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => ProxyAppSettings::default(),
     }
 }
 
@@ -5625,7 +5648,7 @@ mod tests {
         let (first, first_events) = converter
             .push_bytes(&Bytes::from_static(br#"data: {"responseId":"resp-1","modelVersion":"gemini-2.5-pro","candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}"#))
             .expect("first chunk");
-        assert!(first_events.len() == 0);
+        assert!(first_events.is_empty());
         assert!(first.is_empty());
 
         let (second, second_events) = converter
@@ -6033,9 +6056,7 @@ mod tests {
     #[test]
     fn gemini_native_sse_converter_handles_utf8_split_across_chunks() {
         let mut converter = GeminiNativeSseConverter::default();
-        let input = concat!(
-            "data: {\"responseId\":\"gemini-utf8\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"你好\"}]}}],\"usageMetadata\":{\"promptTokenCount\":5,\"totalTokenCount\":7}}\n\n"
-        );
+        let input = "data: {\"responseId\":\"gemini-utf8\",\"modelVersion\":\"gemini-2.5-pro\",\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[{\"text\":\"你好\"}]}}],\"usageMetadata\":{\"promptTokenCount\":5,\"totalTokenCount\":7}}\n\n";
         let (left, right) = split_inside_utf8_char(input, "你");
 
         let (first, first_events) = converter
@@ -6191,8 +6212,10 @@ mod tests {
 
     #[test]
     fn effective_proxy_settings_use_selected_app_timeouts_and_circuit_values() {
-        let mut settings = ProxySettings::default();
-        settings.streaming_first_byte_timeout = 99;
+        let mut settings = ProxySettings {
+            streaming_first_byte_timeout: 99,
+            ..ProxySettings::default()
+        };
         settings.apps.codex.streaming_first_byte_timeout = 21;
         settings.apps.codex.streaming_idle_timeout = 45;
         settings.apps.codex.non_streaming_timeout = 321;

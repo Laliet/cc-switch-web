@@ -11,16 +11,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{parse_app_type, parse_known_app_type, ApiError, ApiResult};
+use super::{parse_app_feature_type, parse_known_app_type, ApiError, ApiResult};
 use crate::{
     app_config::{AppType, MultiAppConfig},
     codex_config,
     config::{
-        atomic_write, get_app_config_dir, get_app_config_path as resolve_app_config_path,
-        get_claude_settings_path,
+        atomic_write, get_app_config_path as resolve_app_config_path, get_claude_settings_path,
     },
     database::{BackupEntry, Database},
-    error::AppError,
     gemini_config,
     services::ConfigService,
     store::AppState,
@@ -240,6 +238,16 @@ pub async fn get_config_dir_info(
         AppType::Opencode => {
             crate::opencode_config::get_opencode_dir_info().map_err(ApiError::from)?
         }
+        AppType::OpenClaw => crate::config::ConfigDirInfo {
+            dir: crate::openclaw_config::get_openclaw_dir()
+                .to_string_lossy()
+                .to_string(),
+            source: crate::config::ConfigDirSource::ServiceHomeDefault,
+            override_dir: None,
+            service_home: None,
+            account_home: None,
+            home_mismatch: false,
+        },
         AppType::Omo | AppType::OmoSlim => {
             crate::opencode_config::get_opencode_dir_info().map_err(ApiError::from)?
         }
@@ -249,11 +257,11 @@ pub async fn get_config_dir_info(
 }
 
 pub async fn open_config_folder(Path(app): Path<String>) -> ApiResult<bool> {
-    let app_type = parse_config_app_type(&app)?;
-    let dir = get_supported_config_dir(app_type)?;
-
-    std::fs::create_dir_all(&dir).map_err(|e| ApiError::from(AppError::io(&dir, e)))?;
-    Ok(Json(true))
+    let _ = parse_config_app_type(&app)?;
+    Err(ApiError::not_implemented(
+        "open_config_folder_unavailable",
+        "Opening a config folder is not available in web server mode",
+    ))
 }
 
 fn get_supported_config_dir(app_type: AppType) -> Result<std::path::PathBuf, ApiError> {
@@ -264,6 +272,7 @@ fn get_supported_config_dir(app_type: AppType) -> Result<std::path::PathBuf, Api
         AppType::Codex => codex_config::get_codex_config_dir().map_err(ApiError::from),
         AppType::Gemini => gemini_config::get_gemini_dir().map_err(ApiError::from),
         AppType::Opencode => Ok(crate::opencode_config::get_opencode_dir()),
+        AppType::OpenClaw => Ok(crate::openclaw_config::get_openclaw_dir()),
         AppType::Omo | AppType::OmoSlim => Ok(crate::omo_config::get_omo_dir()),
     }
 }
@@ -273,8 +282,8 @@ fn parse_config_app_type(app: &str) -> Result<AppType, ApiError> {
 }
 
 pub async fn pick_directory() -> ApiResult<Option<String>> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
+    Err(ApiError::not_implemented(
+        "directory_picker_unavailable",
         "Directory picker is not available in web server mode",
     ))
 }
@@ -290,14 +299,17 @@ pub async fn get_app_config_path() -> ApiResult<String> {
 }
 
 pub async fn open_app_config_folder() -> ApiResult<bool> {
-    let dir = get_app_config_dir().map_err(ApiError::from)?;
-    std::fs::create_dir_all(&dir).map_err(|e| ApiError::from(AppError::io(&dir, e)))?;
-    Ok(Json(true))
+    Err(ApiError::not_implemented(
+        "open_config_folder_unavailable",
+        "Opening the application config folder is not available in web server mode",
+    ))
 }
 
 pub async fn get_app_config_dir_override() -> ApiResult<Option<String>> {
-    // Web server mode does not support overriding the app config directory.
-    Ok(Json(None))
+    Err(ApiError::not_implemented(
+        "config_dir_override_unavailable",
+        "Config directory override is not available in web server mode",
+    ))
 }
 
 #[derive(Deserialize)]
@@ -308,8 +320,10 @@ pub struct OverridePayload {
 
 pub async fn set_app_config_dir_override(Json(payload): Json<OverridePayload>) -> ApiResult<bool> {
     let _ = payload;
-    // No-op in web server mode; desktop handles persistence.
-    Ok(Json(true))
+    Err(ApiError::not_implemented(
+        "config_dir_override_unavailable",
+        "Config directory override is not available in web server mode",
+    ))
 }
 
 #[derive(Deserialize)]
@@ -317,18 +331,20 @@ pub struct ClaudePluginPayload {
     pub official: bool,
 }
 
-/// Web Server 模式下仅做占位，避免 404；实际写入由桌面端处理。
 pub async fn apply_claude_plugin_config(
     Json(_payload): Json<ClaudePluginPayload>,
 ) -> ApiResult<bool> {
-    Ok(Json(true))
+    Err(ApiError::not_implemented(
+        "claude_plugin_config_unavailable",
+        "Claude plugin integration is not available in web server mode",
+    ))
 }
 
 pub async fn get_common_config_snippet(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
 ) -> ApiResult<Option<String>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_app_feature_type(&app, "config_snippet")?;
     let cfg = state.load_config().map_err(ApiError::from)?;
     Ok(Json(cfg.common_config_snippets.get(&app_type).cloned()))
 }
@@ -343,8 +359,7 @@ pub async fn set_common_config_snippet(
     Path(app): Path<String>,
     Json(payload): Json<SnippetPayload>,
 ) -> ApiResult<bool> {
-    let app_type =
-        AppType::parse_supported(&app).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let app_type = parse_app_feature_type(&app, "config_snippet")?;
 
     if !payload.snippet.trim().is_empty() {
         match app_type {
@@ -353,12 +368,7 @@ pub async fn set_common_config_snippet(
                     .map_err(|e| ApiError::bad_request(format!("无效的 JSON 格式: {e}")))?;
             }
             AppType::Codex => { /* 不验证 TOML */ }
-            AppType::ClaudeDesktop | AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
-                return Err(ApiError::bad_request(format!(
-                    "应用 '{}' 暂未支持，敬请期待。",
-                    app_type.as_str()
-                )));
-            }
+            _ => unreachable!("config snippet parser already checked app capability"),
         }
     }
 
@@ -408,15 +418,15 @@ pub async fn set_claude_common_config_snippet(
 }
 
 pub async fn save_file_dialog() -> ApiResult<Option<String>> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
+    Err(ApiError::not_implemented(
+        "file_save_dialog_unavailable",
         "File save dialog is not available in web server mode",
     ))
 }
 
 pub async fn open_file_dialog() -> ApiResult<Option<String>> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
+    Err(ApiError::not_implemented(
+        "file_open_dialog_unavailable",
         "File open dialog is not available in web server mode",
     ))
 }

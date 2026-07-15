@@ -1,0 +1,12 @@
+upstream_repository = "farion1231/cc-switch"
+upstream_tag = "v3.15.0"
+upstream_commit = "9e3f1689038febb36da08993cd47281426b5dd7c"
+resolved_at = "2026-07-13"
+
+# The tag was resolved through the China-network mirror below. The commit is
+# pinned so release audits do not silently compare against a moving tag.
+source = "https://gitclone.com/github.com/farion1231/cc-switch.git"
+query = "git ls-remote https://gitclone.com/github.com/farion1231/cc-switch.git refs/tags/v3.15.0*"
+
+# GitHub origin (fallback when the mirror is unavailable):
+# https://github.com/farion1231/cc-switch/tree/v3.15.0

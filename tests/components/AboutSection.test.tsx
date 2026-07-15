@@ -29,6 +29,12 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
+vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: { features: { appUpdate: true } },
+  }),
+}));
+
 vi.mock("@/lib/updater", () => ({
   getCurrentVersion: (...args: unknown[]) => getCurrentVersionMock(...args),
   relaunchApp: (...args: unknown[]) => relaunchAppMock(...args),

@@ -9,6 +9,12 @@ vi.mock("@/lib/updater", () => ({
   checkForUpdate: (...args: unknown[]) => checkForUpdateMock(...args),
 }));
 
+vi.mock("@/lib/query", () => ({
+  useCapabilitiesQuery: () => ({
+    data: { features: { appUpdate: true } },
+  }),
+}));
+
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {

@@ -1,23 +1,23 @@
 # cc-switch-web
 
-> Web-based CC Switch for Claude Code, Codex, Gemini CLI, OpenCode & OMO.
+> Web-based CC Switch for Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw & OMO.
 
 <sub>🙏 This project is a fork of [farion1231/cc-switch](https://github.com/farion1231/cc-switch) by Jason Young. Thanks to the original author for the excellent work. This fork adds Web Server mode for cloud/headless deployment.</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.19.1-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.20.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/Laliet/cc-switch-web/pkgs/container/cc-switch-web)
 
-**Cross-platform web-based All-in-One assistant for Claude Code, Codex, Gemini CLI, OpenCode & OMO**
+**Cross-platform web-based All-in-One assistant for Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw & OMO**
 
 English | [中文](README_ZH.md) | [Legal Notice](LEGAL_NOTICE.md) | [Changelog](CHANGELOG.md)
 
 ## About / 项目简介
 
-**cc-switch-web** is a cross-platform web-based **CC Switch** for **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**, and **oh-my-opencode (OMO)**. It lets you switch providers, manage MCP servers, install skills, edit system prompts, and run the same workflow on desktop or headless cloud environments.
+**cc-switch-web** is a cross-platform web-based **CC Switch** for **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**, **OpenClaw**, and **oh-my-opencode (OMO)**. It lets you manage providers and host-side configuration from either a desktop app or an authenticated headless Web console.
 
 Whether you're working locally or in a headless cloud environment, cc-switch-web offers a seamless experience for:
 
@@ -27,7 +27,8 @@ Whether you're working locally or in a headless cloud environment, cc-switch-web
 - **System prompt editor** with syntax highlighting
 - **Configuration backup/restore** with version history
 - **OpenCode and OMO configuration UI** with presets, model metadata, and OMO Slim support
-- **Stream health checks** for validating provider streaming responses
+- **OpenClaw phase-one management** for additive providers, default models, Workspace files, daily memory, and sessions
+- **Stream health checks and retained history** for validating provider streaming responses
 - **Web server mode** for cloud/headless deployment with Basic Auth
 
 ---
@@ -66,11 +67,13 @@ If you have any questions, you can contact me here https://linux.do/t/topic/1217
 - **Prompt Management**: Create and manage system prompts with a built-in CodeMirror editor
 - **OpenCode Provider Presets**: Select AI SDK packages, import preset models, fetch model lists, and edit model variants/options
 - **OMO / OMO Slim UI**: Manage oh-my-opencode and oh-my-opencode-slim configuration with structured fields
+- **OpenClaw Management**: Manage additive providers/default models and edit allowlisted Workspace and daily-memory files with ETag conflict protection and backups
 
 ### Extended Features
 
 - **Backup Auto-failover**: Automatically switch to backup providers when primary fails
 - **Stream Health Check**: Test streaming responses and classify common provider errors
+- **Session Manager**: Browse host-side Claude, Codex, Gemini, OpenCode, and OpenClaw sessions with snapshot-bound pagination and protected deletion
 - **Import/Export**: Backup and restore all configurations with version history
 - **Cross-platform**: Available for Windows, macOS, Linux (desktop) and Web/Docker (server)
 
@@ -90,10 +93,10 @@ Download precompiled server binary—no compilation required:
 
 | Architecture              | Download                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-aarch64) |
 
-Release page: [v0.19.1 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)
+Release page: [v0.20.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
@@ -157,7 +160,7 @@ pnpm build:web
 
 # 3. Build and run server
 cd src-tauri
-cargo build --release --features web-server --example server
+cargo build --release --no-default-features --features web-server --example server
 HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 ```
 
@@ -167,6 +170,20 @@ HOST=0.0.0.0 PORT=3000 ./target/release/examples/server
 - **Password**: Auto-generated on first run, stored in `~/.cc-switch/web_password`
 - **CORS**: Same-origin by default; set `CORS_ALLOW_ORIGINS=https://your-domain.com` for cross-origin (`CORS_ALLOW_ORIGINS="*"` is ignored). For LAN/private origins, enable `ALLOW_LAN_CORS=1` (or `CC_SWITCH_LAN_CORS=1`) to auto-allow
 - **Note**: Web mode doesn't support native file pickers—enter paths manually
+
+### Web Runtime Boundaries
+
+Web mode manages files and processes on the **server host**, not on the browser device. The runtime capability endpoint (`GET /api/capabilities`) drives the UI so native-only controls are not presented as working Web features.
+
+| App | Web/headless support |
+| --- | --- |
+| Claude, Codex, Gemini | Providers, MCP, prompts, skills, usage, sessions, and local routing on the server host |
+| OpenCode | Additive providers plus MCP, prompts, skills, usage, sessions, and local routing |
+| OpenClaw | Additive providers, default model/status, allowlisted Workspace/daily-memory editing, and sessions |
+| OMO / OMO Slim | Provider profiles plus shared OpenCode MCP/Skills storage; no local proxy takeover |
+| Claude Desktop | Provider/local-routing profiles only on a supported macOS or Windows server host; no MCP, prompts, skills, usage, or sessions |
+
+Native file dialogs, tray integration, app update, portable-mode controls, environment management, and native endpoint testing remain desktop-only. OpenClaw local routing, MCP, prompts, skills, and usage are intentionally outside the v0.20.0 phase-one scope.
 
 ### Security
 
@@ -208,11 +225,11 @@ Full-featured desktop app with graphical interface, built with Tauri.
 
 | Platform    | Download                                                                                                                                           | Description                              |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Windows** | [CC-Switch-v0.19.1-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows.msi)                   | Installer                                |
-|             | [CC-Switch-v0.19.1-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Windows-Portable.zip) | Portable (no install)                    |
-| **macOS**   | [CC-Switch-v0.19.1-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
-| **Linux**   | [CC-Switch-v0.19.1-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.AppImage)             | AppImage                                 |
-|             | [CC-Switch-v0.19.1-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.19.1/CC-Switch-v0.19.1-Linux.deb)                       | Debian/Ubuntu package                    |
+| **Windows** | [CC-Switch-v0.20.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows.msi)                   | Installer                                |
+|             | [CC-Switch-v0.20.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.20.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.20.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.AppImage)             | AppImage                                 |
+|             | [CC-Switch-v0.20.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -236,7 +253,7 @@ This script will:
 
 ```bash
 # Install a specific release version
-VERSION=v0.19.1 curl -fsSL https://...install.sh | bash
+VERSION=v0.20.0 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -300,6 +317,7 @@ CC-Switch manages these configuration files:
 | **Codex**       | `~/.codex/auth.json`, `~/.codex/config.toml`, `~/.codex/AGENTS.md`            |
 | **Gemini**      | `~/.gemini/.env`, `~/.gemini/settings.json`, `~/.gemini/GEMINI.md`            |
 | **OpenCode**    | `~/.config/opencode/opencode.json`                                            |
+| **OpenClaw**    | `~/.openclaw/openclaw.json`, `~/.openclaw/workspace/`, `~/.openclaw/agents/`  |
 | **OMO**         | OMO / OMO Slim profiles and plugins under the shared OpenCode config location |
 
 CC-Switch's runtime store: `~/.cc-switch/cc-switch.db`
@@ -309,6 +327,8 @@ existing snapshot is imported into SQLite when the database is empty; after that
 SQLite is the authoritative store for providers, MCP servers, prompts, skills,
 proxy settings, provider health, request logs, failover queue entries, and
 compatible JSON snapshots used by import/export flows.
+
+v0.20.0 uses SQLite **Schema v7**, which adds retained Stream Check history. WebDAV v2 writes new snapshots under `v2/db-v7/<profile>/`, still reads and restores v0.19.1 `db-v6` snapshots/history, and keeps the legacy 0.18 JSON snapshot as a read-only migration source. Runtime logs, usage data, health state, session sync state, and Stream Check history are not uploaded; existing local diagnostic history is preserved during restore.
 
 ---
 
@@ -346,8 +366,19 @@ pnpm test:unit
 
 ## What's New
 
-> Current release: [v0.19.1](https://github.com/Laliet/cc-switch-web/releases/tag/v0.19.1)<br>
-> `v0.19.1` is a release-quality patch for the v0.19 feature line.
+> Current release: [v0.20.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)<br>
+> `v0.20.0` completes the Web/headless capability loop, OpenClaw phase one, and proxy diagnostic reliability work.
+
+### v0.20.0 - Web/Headless + OpenClaw Phase One
+
+- Adds an explicit desktop/Web capability contract and host-bound UI behavior
+- Adds OpenClaw phase-one provider/default-model, Workspace/daily-memory, and Session Manager workflows
+- Persists Stream Check configuration/history in Schema v7 and adds provider quota summaries
+- Adds real HTTP proxy conformance coverage, more precise usage parsing, stable failover ordering, and Claude Desktop restart-state detection
+- Hardens Session pagination/path handling, Web error disclosure, WebDAV v6 fallback, and manifest identity validation
+- Keeps OMO/OMO Slim MCP and Skills on shared OpenCode storage while continuing to reject OMO proxy takeover
+- Pins the upstream v3.15.0 comparison baseline in [`docs/upstream-v3.15.0.lock`](docs/upstream-v3.15.0.lock)
+- Release notes: [v0.20.0](docs/release-note-v0.20.0-en.md)
 
 ### v0.19.1 - Release Quality Patch
 
@@ -396,7 +427,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) and [v0.19.1 release notes](docs/release-note-v0.19.1-zh.md) - Current release: **v0.19.1**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.20.0 release notes](docs/release-note-v0.20.0-en.md) - Current release: **v0.20.0**
 
 ---
 

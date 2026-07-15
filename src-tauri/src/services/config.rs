@@ -292,6 +292,7 @@ impl ConfigService {
         Self::sync_current_provider_for_app(config, &AppType::Codex)?;
         Self::sync_current_provider_for_app(config, &AppType::Gemini)?;
         Self::sync_current_provider_for_app(config, &AppType::Opencode)?;
+        Self::sync_current_provider_for_app(config, &AppType::OpenClaw)?;
         Self::sync_current_provider_for_app(config, &AppType::Omo)?;
         Self::sync_current_provider_for_app(config, &AppType::OmoSlim)?;
         Ok(())
@@ -301,6 +302,36 @@ impl ConfigService {
         config: &mut MultiAppConfig,
         app_type: &AppType,
     ) -> Result<(), AppError> {
+        if matches!(app_type, AppType::OpenClaw) {
+            let Some(manager) = config.get_manager(app_type) else {
+                return Ok(());
+            };
+            let providers = manager
+                .providers
+                .iter()
+                .map(|(id, provider)| (id.clone(), provider.settings_config.clone()))
+                .collect();
+            crate::openclaw_config::merge_providers(providers)?;
+            if let Some(provider) = manager.providers.get(&manager.current) {
+                if let Some(model_id) = provider
+                    .settings_config
+                    .get("models")
+                    .and_then(Value::as_array)
+                    .and_then(|models| models.first())
+                    .and_then(|model| model.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    crate::openclaw_config::set_default_model(
+                        &crate::openclaw_config::OpenClawDefaultModel {
+                            primary: format!("{}/{}", provider.id, model_id),
+                            fallbacks: Vec::new(),
+                        },
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+
         let (current_id, provider) = {
             let manager = match config.get_manager(app_type) {
                 Some(manager) => manager,
@@ -329,6 +360,7 @@ impl ConfigService {
             AppType::Claude => Self::sync_claude_live(config, &current_id, &provider)?,
             AppType::Gemini => Self::sync_gemini_live(config, &current_id, &provider)?,
             AppType::ClaudeDesktop => {}
+            AppType::OpenClaw => unreachable!("handled before current-provider lookup"),
             AppType::Opencode => Self::sync_opencode_live(config)?,
             AppType::Omo | AppType::OmoSlim => {
                 Self::sync_omo_live(config, app_type, &current_id, &provider)?

@@ -108,10 +108,13 @@ pub fn rectify_anthropic_request(body: &mut Value) -> ThinkingRectifyResult {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if should_remove_top_level_thinking(body, &messages_snapshot) {
+    let removed_historical_thinking =
+        result.removed_thinking_blocks > 0 || result.removed_redacted_thinking_blocks > 0;
+    if removed_historical_thinking || should_remove_top_level_thinking(body, &messages_snapshot) {
         if let Some(object) = body.as_object_mut() {
-            object.remove("thinking");
-            result.applied = true;
+            if object.remove("thinking").is_some() {
+                result.applied = true;
+            }
         }
     }
 

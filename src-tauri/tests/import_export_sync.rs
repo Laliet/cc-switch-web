@@ -81,6 +81,75 @@ fn sync_claude_provider_writes_live_settings() {
 }
 
 #[test]
+fn sync_openclaw_providers_is_additive_and_preserves_unmanaged_entries() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let home = ensure_test_home();
+    let openclaw_dir = home.join(".openclaw");
+    fs::create_dir_all(&openclaw_dir).expect("create OpenClaw directory");
+    fs::write(
+        openclaw_dir.join("openclaw.json"),
+        r#"{
+  channels: { telegram: { enabled: true } },
+  models: {
+    mode: 'merge',
+    providers: {
+      unmanaged: { baseUrl: 'https://unmanaged.example', models: [{ id: 'u-1' }] },
+      managed: { baseUrl: 'https://stale.example', models: [{ id: 'old' }] },
+    },
+  },
+}
+"#,
+    )
+    .expect("seed OpenClaw config");
+
+    let mut config = MultiAppConfig::default();
+    let manager = config
+        .get_manager_mut(&AppType::OpenClaw)
+        .expect("OpenClaw manager");
+    manager.current = "managed".to_string();
+    manager.providers.insert(
+        "managed".to_string(),
+        Provider::with_id(
+            "managed".to_string(),
+            "Managed".to_string(),
+            json!({
+                "baseUrl": "https://managed.example",
+                "api": "openai-completions",
+                "models": [{ "id": "m-1" }]
+            }),
+            None,
+        ),
+    );
+
+    ConfigService::sync_current_providers_to_live(&mut config).expect("sync OpenClaw providers");
+
+    let source =
+        fs::read_to_string(openclaw_dir.join("openclaw.json")).expect("read OpenClaw config");
+    let live: serde_json::Value = json5::from_str(&source).expect("parse OpenClaw JSON5");
+    assert_eq!(
+        live.pointer("/models/providers/unmanaged/baseUrl")
+            .and_then(serde_json::Value::as_str),
+        Some("https://unmanaged.example")
+    );
+    assert_eq!(
+        live.pointer("/models/providers/managed/baseUrl")
+            .and_then(serde_json::Value::as_str),
+        Some("https://managed.example")
+    );
+    assert_eq!(
+        live.pointer("/agents/defaults/model/primary")
+            .and_then(serde_json::Value::as_str),
+        Some("managed/m-1")
+    );
+    assert_eq!(
+        live.pointer("/channels/telegram/enabled")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn sync_codex_provider_writes_auth_and_config() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

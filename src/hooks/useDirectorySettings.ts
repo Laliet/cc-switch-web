@@ -199,6 +199,17 @@ export function useDirectorySettings({
       };
     };
 
+    const loadAppConfigOverride = async (): Promise<string | null> => {
+      try {
+        return await settingsApi.getAppConfigDirOverride();
+      } catch (error) {
+        if (isWeb()) {
+          return null;
+        }
+        throw error;
+      }
+    };
+
     const load = async () => {
       try {
         const [
@@ -213,7 +224,7 @@ export function useDirectorySettings({
           defaultGeminiDir,
           defaultOpencodeDir,
         ] = await Promise.all([
-          settingsApi.getAppConfigDirOverride(),
+          loadAppConfigOverride(),
           loadConfigDirInfo("claude"),
           loadConfigDirInfo("codex"),
           loadConfigDirInfo("gemini"),

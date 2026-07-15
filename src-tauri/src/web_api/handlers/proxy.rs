@@ -16,7 +16,18 @@ use crate::{
     store::AppState,
 };
 
-use super::{parse_app_type, ApiError, ApiResult};
+use super::{ApiError, ApiResult};
+
+fn parse_proxy_route_app(value: &str) -> Result<AppType, ApiError> {
+    let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+    if matches!(normalized.as_str(), "openclaw" | "omo" | "omo-slim") {
+        return Err(ApiError::not_implemented(
+            format!("proxy_{}_unavailable", normalized.replace('-', "_")),
+            format!("Proxy routing is not available for {normalized}"),
+        ));
+    }
+    proxy::parse_proxy_app(value).map_err(ApiError::from)
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,7 +103,7 @@ pub async fn set_takeover(
     axum::extract::Path(app): axum::extract::Path<String>,
     Json(payload): Json<TakeoverPayload>,
 ) -> ApiResult<proxy::ProxyTakeoverResult> {
-    let app_type = AppType::parse_supported(&app).map_err(ApiError::from)?;
+    let app_type = parse_proxy_route_app(&app)?;
     let result = ProxyService::set_takeover(state, app_type, payload.enabled)
         .await
         .map_err(ApiError::from)?;
@@ -167,7 +178,7 @@ pub async fn get_failover_queue(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
 ) -> ApiResult<Vec<FailoverQueueResponseItem>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     let items = failover_queue_items(&state, app_type.as_str()).map_err(ApiError::from)?;
     Ok(Json(items))
 }
@@ -177,7 +188,7 @@ pub async fn replace_failover_queue(
     Path(app): Path<String>,
     Json(payload): Json<FailoverQueuePayload>,
 ) -> ApiResult<Vec<FailoverQueueResponseItem>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     validate_failover_provider_ids(&state, app_type.as_str(), &payload.provider_ids)
         .map_err(ApiError::from)?;
     state
@@ -192,7 +203,7 @@ pub async fn add_failover_provider(
     State(state): State<Arc<AppState>>,
     Path((app, id)): Path<(String, String)>,
 ) -> ApiResult<Vec<FailoverQueueResponseItem>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     validate_failover_provider_ids(&state, app_type.as_str(), std::slice::from_ref(&id))
         .map_err(ApiError::from)?;
     state
@@ -207,7 +218,7 @@ pub async fn remove_failover_provider(
     State(state): State<Arc<AppState>>,
     Path((app, id)): Path<(String, String)>,
 ) -> ApiResult<Vec<FailoverQueueResponseItem>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     state
         .db
         .remove_failover_provider(app_type.as_str(), &id)
@@ -220,7 +231,7 @@ pub async fn clear_failover_queue(
     State(state): State<Arc<AppState>>,
     Path(app): Path<String>,
 ) -> ApiResult<Vec<FailoverQueueResponseItem>> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     state
         .db
         .clear_failover_queue(app_type.as_str())
@@ -232,7 +243,7 @@ pub async fn reset_provider_circuit(
     State(state): State<Arc<AppState>>,
     Path((app, id)): Path<(String, String)>,
 ) -> ApiResult<ProxyStatus> {
-    let app_type = parse_app_type(&app)?;
+    let app_type = parse_proxy_route_app(&app)?;
     validate_failover_provider_ids(&state, app_type.as_str(), std::slice::from_ref(&id))
         .map_err(ApiError::from)?;
     proxy::reset_provider_circuit(&app_type, &id).await;
@@ -249,7 +260,7 @@ fn validate_failover_provider_ids(
     provider_ids: &[String],
 ) -> Result<(), crate::AppError> {
     let config = state.load_config()?;
-    let app = crate::AppType::parse_supported(app_type)?;
+    let app = crate::proxy::parse_proxy_app(app_type)?;
     let Some(manager) = config.get_manager(&app) else {
         return Err(crate::AppError::InvalidInput(format!(
             "No provider manager found for app '{app_type}'"
@@ -275,7 +286,7 @@ fn failover_queue_items(
     app_type: &str,
 ) -> Result<Vec<FailoverQueueResponseItem>, crate::AppError> {
     let config = state.load_config()?;
-    let app = crate::AppType::parse_supported(app_type)?;
+    let app = crate::proxy::parse_proxy_app(app_type)?;
     let manager = config.get_manager(&app);
     state
         .db

@@ -25,7 +25,9 @@ interface AddProviderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appId: AppId;
-  onSubmit: (provider: Omit<Provider, "id">) => Promise<void> | void;
+  onSubmit: (
+    provider: Omit<Provider, "id"> & { id?: string },
+  ) => Promise<void> | void;
 }
 
 export function AddProviderDialog({
@@ -44,7 +46,10 @@ export function AddProviderDialog({
       >;
 
       // 构造基础提交数据
-      const providerData: Omit<Provider, "id"> = {
+      const providerData: Omit<Provider, "id"> & { id?: string } = {
+        ...(appId === "openclaw" && values.providerKey
+          ? { id: values.providerKey }
+          : {}),
         name: values.name.trim(),
         notes: values.notes?.trim() || undefined,
         websiteUrl: values.websiteUrl?.trim() || undefined,
@@ -153,6 +158,8 @@ export function AddProviderDialog({
           if (options?.baseURL) {
             addUrl(options.baseURL);
           }
+        } else if (appId === "openclaw") {
+          addUrl(parsedConfig.baseUrl as string | undefined);
         }
 
         const urls = Array.from(urlSet);

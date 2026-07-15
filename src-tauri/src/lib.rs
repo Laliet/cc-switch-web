@@ -2,8 +2,10 @@ mod app_config;
 #[cfg(feature = "desktop")]
 mod app_store;
 mod auth;
+pub mod capabilities;
 mod claude_desktop_config;
 mod claude_mcp;
+#[cfg(feature = "desktop")]
 mod claude_plugin;
 mod codex_config;
 #[cfg(feature = "desktop")]
@@ -22,6 +24,7 @@ pub(crate) mod json_canonical;
 pub mod local_proxy;
 mod mcp;
 mod omo_config;
+mod openclaw_config;
 mod opencode_config;
 mod prompt;
 mod prompt_files;
@@ -37,6 +40,7 @@ mod usage_script;
 pub mod web_api;
 mod webdav_auto_sync;
 mod webdav_sync;
+pub mod workspace;
 
 pub use webdav_sync::start_auto_sync_worker as start_webdav_auto_sync_worker;
 
@@ -59,6 +63,11 @@ pub use mcp::{
     sync_enabled_to_gemini, sync_single_server_to_claude, sync_single_server_to_codex,
     sync_single_server_to_gemini, sync_single_server_to_opencode,
 };
+pub use openclaw_config::{
+    get_openclaw_config_path, get_openclaw_dir, get_openclaw_workspace_dir, OpenClawDefaultModel,
+    OpenClawHealthWarning, OpenClawLiveModelSummary, OpenClawLiveProviderSummary,
+    OpenClawLiveStatus, OpenClawModelEntry, OpenClawProviderConfig, OpenClawWriteOutcome,
+};
 pub use prompt::Prompt;
 pub use provider::{
     ClaudeDesktopMode, ClaudeDesktopModelRoute, Provider, ProviderAuthBinding, ProviderMeta,
@@ -66,7 +75,8 @@ pub use provider::{
 };
 pub use services::{
     AuthService, CodexOAuthManager, ConfigService, CopilotAuthManager, EndpointLatency, McpService,
-    PromptService, ProviderService, SkillService, SpeedtestService,
+    PromptService, ProviderService, SkillService, SpeedtestService, SubscriptionProvider,
+    SubscriptionQuota, SubscriptionService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -638,6 +648,7 @@ pub fn run() {
                 config.ensure_app(&app_config::AppType::Codex);
                 config.ensure_app(&app_config::AppType::Gemini);
                 config.ensure_app(&app_config::AppType::Opencode);
+                config.ensure_app(&app_config::AppType::OpenClaw);
                 config.ensure_app(&app_config::AppType::Omo);
                 config.ensure_app(&app_config::AppType::OmoSlim);
                 Ok(())
@@ -720,6 +731,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_capabilities,
             commands::get_providers,
             commands::get_universal_providers,
             commands::get_universal_provider,
@@ -852,6 +864,8 @@ pub fn run() {
             commands::stream_check_all_providers,
             commands::get_stream_check_config,
             commands::save_stream_check_config,
+            commands::get_stream_check_logs,
+            commands::get_latest_stream_check_logs,
             // theirs: config import/export and dialogs
             commands::export_config_to_file,
             commands::import_config_from_file,
@@ -872,6 +886,14 @@ pub fn run() {
             commands::start_managed_auth_device_login,
             commands::poll_managed_auth_device_login,
             commands::query_managed_auth_usage,
+            commands::query_subscription_quota,
+            commands::get_openclaw_status,
+            commands::get_openclaw_live_providers,
+            commands::get_openclaw_live_provider,
+            commands::get_openclaw_default_model,
+            commands::set_openclaw_default_model,
+            commands::clear_openclaw_default_model,
+            commands::scan_openclaw_config_health,
             // Deep link import
             commands::parse_deeplink,
             commands::merge_deeplink_config,
@@ -900,9 +922,19 @@ pub fn run() {
             commands::remove_skill_repo,
             // Session manager (Web copies resume commands; desktop terminal launch is intentionally absent)
             commands::list_sessions,
+            commands::list_sessions_page,
             commands::get_session_messages,
             commands::delete_session,
             commands::delete_sessions,
+            // OpenClaw workspace and daily memory
+            commands::list_workspace_files,
+            commands::read_workspace_file,
+            commands::write_workspace_file,
+            commands::list_workspace_backups,
+            commands::restore_workspace_backup,
+            commands::list_daily_memory_files,
+            commands::read_daily_memory_file,
+            commands::write_daily_memory_file,
         ]);
 
     let app = builder

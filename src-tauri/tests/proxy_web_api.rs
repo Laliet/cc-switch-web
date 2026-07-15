@@ -1,13 +1,22 @@
 #![cfg(feature = "web-server")]
 #![allow(clippy::await_holding_lock)]
 
-use std::{collections::HashMap, env, ffi::OsString, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    env,
+    ffi::OsString,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use axum::{
     body::{to_bytes, Body, Bytes},
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
-        HeaderValue, Method, Request, StatusCode,
+        HeaderMap, HeaderValue, Method, Request, StatusCode, Uri,
     },
     Json,
 };
@@ -20,6 +29,7 @@ use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use serial_test::serial;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 #[path = "support.rs"]
@@ -29,6 +39,28 @@ use support::{ensure_test_home, reset_test_fs, test_mutex};
 struct AccountHomeGuard {
     user: Option<OsString>,
     logname: Option<OsString>,
+}
+
+#[derive(Debug)]
+struct CapturedUpstreamRequest {
+    method: Method,
+    path_and_query: String,
+    headers: HeaderMap,
+    body: Bytes,
+}
+
+#[derive(Clone)]
+struct CaptureUpstreamState {
+    sender: tokio::sync::mpsc::UnboundedSender<CapturedUpstreamRequest>,
+    status: StatusCode,
+    content_type: &'static str,
+    response_body: Arc<str>,
+}
+
+#[derive(Clone)]
+struct RectifierRetryUpstreamState {
+    sender: tokio::sync::mpsc::UnboundedSender<CapturedUpstreamRequest>,
+    requests: Arc<AtomicUsize>,
 }
 
 impl AccountHomeGuard {
@@ -361,6 +393,114 @@ fn claude_desktop_proxy_provider_without_auth(base_url: &str) -> Provider {
     provider
 }
 
+fn codex_provider_with_base_url(base_url: &str) -> Provider {
+    let mut provider = Provider::with_id(
+        "codex-local".to_string(),
+        "Codex Local".to_string(),
+        json!({
+            "auth": {
+                "OPENAI_API_KEY": "codex-token"
+            },
+            "config": format!(
+                "model_provider = \"local\"\n[model_providers.local]\nbase_url = \"{base_url}\""
+            )
+        }),
+        None,
+    );
+    provider.meta = Some(ProviderMeta {
+        provider_type: Some("codex_oauth".to_string()),
+        prompt_cache_key: Some("codex-cache-key".to_string()),
+        ..ProviderMeta::default()
+    });
+    provider
+}
+
+fn gemini_provider_with_base_url(base_url: &str) -> Provider {
+    Provider::with_id(
+        "gemini-local".to_string(),
+        "Gemini Local".to_string(),
+        json!({
+            "env": {
+                "GEMINI_API_KEY": "gemini-token",
+                "GOOGLE_GEMINI_BASE_URL": base_url
+            }
+        }),
+        None,
+    )
+}
+
+fn claude_desktop_protocol_provider(
+    base_url: &str,
+    api_format: &str,
+    upstream_model: &str,
+) -> Provider {
+    let settings_config = match api_format {
+        "gemini_native" => json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url,
+                "GEMINI_API_KEY": "gemini-desktop-token"
+            }
+        }),
+        "openai_chat" | "openai_responses" => json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url,
+                "OPENAI_API_KEY": "openai-desktop-token"
+            }
+        }),
+        _ => json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url,
+                "ANTHROPIC_AUTH_TOKEN": "anthropic-desktop-token"
+            }
+        }),
+    };
+    let mut provider = Provider::with_id(
+        format!("claude-desktop-{api_format}"),
+        format!("Claude Desktop {api_format}"),
+        settings_config,
+        None,
+    );
+    provider.meta = Some(ProviderMeta {
+        claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+        claude_desktop_model_routes: HashMap::from([(
+            "claude-sonnet-4-6".to_string(),
+            ClaudeDesktopModelRoute {
+                model: upstream_model.to_string(),
+                label_override: None,
+                supports_1m: Some(false),
+            },
+        )]),
+        api_format: Some(api_format.to_string()),
+        ..ProviderMeta::default()
+    });
+    provider
+}
+
+fn make_app_with_protocol_providers(
+    password: &str,
+    csrf: &str,
+    upstream_base: &str,
+) -> (axum::Router, Arc<AppState>) {
+    env::set_var("WEB_CSRF_TOKEN", csrf);
+    let mut config = MultiAppConfig::default();
+    add_claude_provider_value(&mut config, claude_provider_with_base_url(upstream_base));
+    let codex_provider = codex_provider_with_base_url(upstream_base);
+    let codex_manager = config
+        .get_manager_mut(&AppType::Codex)
+        .expect("codex manager");
+    codex_manager.current = codex_provider.id.clone();
+    codex_manager
+        .providers
+        .insert(codex_provider.id.clone(), codex_provider);
+    add_gemini_provider(&mut config, gemini_provider_with_base_url(upstream_base));
+
+    let state = Arc::new(AppState::new_for_tests(config).expect("test app state"));
+    (
+        web_api::create_router(state.clone(), password.to_string()),
+        state,
+    )
+}
+
 fn free_tcp_port() -> u16 {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind free port");
     listener.local_addr().expect("local addr").port()
@@ -439,6 +579,127 @@ async fn spawn_authorization_capture_upstream() -> (
     (format!("http://{addr}"), handle, rx)
 }
 
+async fn capture_upstream_request(
+    axum::extract::State(state): axum::extract::State<CaptureUpstreamState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> axum::response::Response {
+    let path_and_query = uri
+        .path_and_query()
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let _ = state.sender.send(CapturedUpstreamRequest {
+        method,
+        path_and_query,
+        headers,
+        body,
+    });
+    axum::response::Response::builder()
+        .status(state.status)
+        .header(CONTENT_TYPE, state.content_type)
+        .body(Body::from(state.response_body.to_string()))
+        .expect("capture upstream response")
+}
+
+async fn spawn_capture_upstream(
+    status: StatusCode,
+    content_type: &'static str,
+    response_body: &'static str,
+) -> (
+    String,
+    tokio::task::JoinHandle<()>,
+    tokio::sync::mpsc::UnboundedReceiver<CapturedUpstreamRequest>,
+) {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind capture upstream");
+    let addr = listener.local_addr().expect("capture upstream addr");
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    let app = axum::Router::new()
+        .fallback(capture_upstream_request)
+        .with_state(CaptureUpstreamState {
+            sender,
+            status,
+            content_type,
+            response_body: Arc::from(response_body),
+        });
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{addr}"), handle, receiver)
+}
+
+async fn rectifier_retry_upstream(
+    axum::extract::State(state): axum::extract::State<RectifierRetryUpstreamState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> axum::response::Response {
+    let path_and_query = uri
+        .path_and_query()
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let _ = state.sender.send(CapturedUpstreamRequest {
+        method,
+        path_and_query,
+        headers,
+        body,
+    });
+    let attempt = state.requests.fetch_add(1, Ordering::SeqCst);
+    let (status, body) = if attempt == 0 {
+        (
+            StatusCode::BAD_REQUEST,
+            r#"{"error":{"message":"Invalid signature in thinking block"}}"#,
+        )
+    } else {
+        (
+            StatusCode::OK,
+            r#"{"id":"msg-retried","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":9,"output_tokens":2}}"#,
+        )
+    };
+    axum::response::Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(body))
+        .expect("rectifier upstream response")
+}
+
+async fn spawn_rectifier_retry_upstream() -> (
+    String,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+    tokio::sync::mpsc::UnboundedReceiver<CapturedUpstreamRequest>,
+) {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind rectifier upstream");
+    let address = listener.local_addr().expect("rectifier upstream address");
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let app = axum::Router::new()
+        .fallback(rectifier_retry_upstream)
+        .with_state(RectifierRetryUpstreamState {
+            sender,
+            requests: requests.clone(),
+        });
+    let handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{address}"), requests, handle, receiver)
+}
+
+async fn next_captured_request(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<CapturedUpstreamRequest>,
+) -> CapturedUpstreamRequest {
+    tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("upstream request should arrive")
+        .expect("capture upstream should remain available")
+}
+
 async fn spawn_text_upstream(
     status: StatusCode,
     content_type: &'static str,
@@ -489,47 +750,58 @@ async fn spawn_delayed_stream_upstream(
     first_delay: Duration,
     second_delay: Option<Duration>,
 ) -> (String, tokio::task::JoinHandle<()>) {
-    async fn stream_response(
-        first_delay: Duration,
-        second_delay: Option<Duration>,
-    ) -> axum::response::Response {
-        let first = futures::stream::once(async move {
-            tokio::time::sleep(first_delay).await;
-            Ok::<Bytes, std::io::Error>(Bytes::from_static(b"data: first\n\n"))
-        });
-        let body_stream = if let Some(second_delay) = second_delay {
-            first
-                .chain(futures::stream::once(async move {
-                    tokio::time::sleep(second_delay).await;
-                    Ok::<Bytes, std::io::Error>(Bytes::from_static(b"data: second\n\n"))
-                }))
-                .boxed()
-        } else {
-            first.boxed()
-        };
-
-        axum::response::Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, "text/event-stream")
-            .body(Body::from_stream(body_stream))
-            .expect("response")
-    }
-
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .expect("bind upstream");
     let addr = listener.local_addr().expect("upstream addr");
-    let app = axum::Router::new()
-        .route(
-            "/",
-            axum::routing::any(move || stream_response(first_delay, second_delay)),
-        )
-        .route(
-            "/*path",
-            axum::routing::any(move || stream_response(first_delay, second_delay)),
-        );
     let handle = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        let mut request = vec![0u8; 16 * 1024];
+        let _ = socket.read(&mut request).await;
+        if socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .is_err()
+        {
+            return;
+        }
+        if socket.flush().await.is_err() {
+            return;
+        }
+
+        tokio::time::sleep(first_delay).await;
+        let first = b"data: first\n\n";
+        if socket
+            .write_all(format!("{:X}\r\n", first.len()).as_bytes())
+            .await
+            .is_err()
+            || socket.write_all(first).await.is_err()
+            || socket.write_all(b"\r\n").await.is_err()
+            || socket.flush().await.is_err()
+        {
+            return;
+        }
+
+        if let Some(second_delay) = second_delay {
+            tokio::time::sleep(second_delay).await;
+            let second = b"data: second\n\n";
+            if socket
+                .write_all(format!("{:X}\r\n", second.len()).as_bytes())
+                .await
+                .is_err()
+                || socket.write_all(second).await.is_err()
+                || socket.write_all(b"\r\n").await.is_err()
+                || socket.flush().await.is_err()
+            {
+                return;
+            }
+        }
+        let _ = socket.write_all(b"0\r\n\r\n").await;
+        let _ = socket.flush().await;
     });
     (format!("http://{addr}"), handle)
 }
@@ -571,6 +843,40 @@ async fn json_body<T: DeserializeOwned>(res: axum::response::Response) -> T {
         .await
         .expect("response body");
     serde_json::from_slice(&bytes).expect("json response")
+}
+
+async fn start_test_proxy(app: &axum::Router, proxy_port: u16) -> String {
+    start_test_proxy_for_app(app, proxy_port, "claude").await
+}
+
+async fn start_test_proxy_for_app(app: &axum::Router, proxy_port: u16, bind_app: &str) -> String {
+    let response = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/proxy/start",
+            Some(json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": proxy_port,
+                    "bindApp": bind_app,
+                    "enableLogging": true
+                }
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: Value = json_body(response).await;
+    status["listenUrl"]
+        .as_str()
+        .expect("proxy listen URL")
+        .to_string()
+}
+
+async fn stop_test_proxy(app: &axum::Router) {
+    let response = dispatch(app.clone(), request(Method::POST, "/api/proxy/stop", None)).await;
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 fn setup() -> AccountHomeGuard {
@@ -771,16 +1077,46 @@ async fn proxy_routes_validate_test_payload_and_reject_unsupported_takeover_app(
     assert_eq!(result["success"], json!(true));
     assert_eq!(result["baseUrl"], json!("https://api.anthropic.com"));
 
-    let res = dispatch(
-        app,
-        request(
-            Method::PUT,
-            "/api/proxy/takeover/omo",
-            Some(json!({ "enabled": true })),
-        ),
-    )
-    .await;
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    for unsupported in ["omo", "openclaw"] {
+        let res = dispatch(
+            app.clone(),
+            request(
+                Method::PUT,
+                &format!("/api/proxy/takeover/{unsupported}"),
+                Some(json!({ "enabled": true })),
+            ),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::NOT_IMPLEMENTED,
+            "takeover must reject {unsupported}"
+        );
+        let error: Value = json_body(res).await;
+        assert!(
+            error["code"]
+                .as_str()
+                .is_some_and(|code| code.ends_with("_unavailable")),
+            "unsupported takeover should return a capability code: {error}"
+        );
+    }
+
+    for unsupported in ["omo", "openclaw"] {
+        let res = dispatch(
+            app.clone(),
+            request(
+                Method::GET,
+                &format!("/api/proxy/failover/{unsupported}"),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::NOT_IMPLEMENTED,
+            "failover queue must reject {unsupported}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1194,6 +1530,7 @@ async fn claude_desktop_web_api_exposes_status_routes_and_import() {
     let status: Value = json_body(res).await;
     assert!(status.get("supported").is_some());
     assert!(status.get("proxyRunning").is_some());
+    assert!(status.get("desktopRunning").is_some());
 
     let res = dispatch(
         app.clone(),
@@ -1288,6 +1625,16 @@ async fn proxy_config_routes_reject_invalid_settings_boundaries() {
                     "host": "127.0.0.1",
                     "port": 3456,
                     "bindApp": "omo"
+                }
+            }),
+        ),
+        (
+            "unsupported OpenClaw bind app",
+            json!({
+                "settings": {
+                    "host": "127.0.0.1",
+                    "port": 3456,
+                    "bindApp": "openclaw"
                 }
             }),
         ),
@@ -1536,6 +1883,521 @@ async fn claude_desktop_gateway_bearer_token_is_not_forwarded_upstream() {
     assert_eq!(forwarded_auth, None);
 
     let _ = dispatch(app, request(Method::POST, "/api/proxy/stop", None)).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_native_protocol_http_conformance_preserves_method_url_auth_and_schema() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) =
+        spawn_capture_upstream(StatusCode::OK, "application/json", r#"{"ok":true}"#).await;
+    let (app, state) = make_app_with_protocol_providers("password", "csrf-token", &upstream_base);
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(format!("{listen_url}/v1/messages?trace=anthropic"))
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "_private": "remove-me",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "tools": [{
+                "name": "lookup",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "_id": { "type": "string", "_private_note": "remove-me" }
+                    }
+                }
+            }]
+        }))
+        .send()
+        .await
+        .expect("anthropic proxy request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(request.path_and_query, "/v1/messages?trace=anthropic");
+    assert_eq!(
+        request
+            .headers
+            .get("x-api-key")
+            .and_then(|value| value.to_str().ok()),
+        Some("test-token")
+    );
+    let body: Value = serde_json::from_slice(&request.body).expect("anthropic upstream body");
+    assert!(body.get("_private").is_none());
+    assert!(body["tools"][0]["input_schema"]["properties"]
+        .get("_id")
+        .is_some());
+    assert!(body["tools"][0]["input_schema"]["properties"]["_id"]
+        .get("_private_note")
+        .is_none());
+
+    let response = client
+        .post(format!("{listen_url}/v1/responses?trace=codex"))
+        .json(&json!({
+            "model": "gpt-5.1-codex",
+            "metadata": { "session_id": "codex-session-1" },
+            "input": "hello"
+        }))
+        .send()
+        .await
+        .expect("codex proxy request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(request.path_and_query, "/v1/responses?trace=codex");
+    assert_eq!(
+        request
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer codex-token")
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("openai-session-id")
+            .and_then(|value| value.to_str().ok()),
+        Some("codex-session-1")
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("openai-prompt-cache-key")
+            .and_then(|value| value.to_str().ok()),
+        Some("codex-cache-key")
+    );
+    let body: Value = serde_json::from_slice(&request.body).expect("codex upstream body");
+    assert_eq!(body["model"], json!("gpt-5.1-codex"));
+
+    let logs = state
+        .db
+        .recent_proxy_request_logs(10)
+        .expect("proxy request logs");
+    let codex_log = logs
+        .iter()
+        .find(|log| log.app_type == "codex")
+        .expect("Codex request log");
+    assert_eq!(codex_log.session_id.as_deref(), Some("codex-session-1"));
+
+    let response = client
+        .post(format!(
+            "{listen_url}/v1beta/models/gemini-2.5-pro:generateContent?alt=json"
+        ))
+        .json(&json!({
+            "contents": [{ "role": "user", "parts": [{ "text": "hello" }] }]
+        }))
+        .send()
+        .await
+        .expect("gemini proxy request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(
+        request.path_and_query,
+        "/v1beta/models/gemini-2.5-pro:generateContent?alt=json"
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("x-goog-api-key")
+            .and_then(|value| value.to_str().ok()),
+        Some("gemini-token")
+    );
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_codex_models_method_and_session_cache_usage_are_correlated() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) = spawn_capture_upstream(
+        StatusCode::OK,
+        "application/json",
+        r#"{"id":"resp-usage","model":"gpt-5.1-codex","usage":{"input_tokens":42,"output_tokens":7},"output":[]}"#,
+    )
+    .await;
+    let (app, state) = make_app_with_protocol_providers("password", "csrf-token", &upstream_base);
+    let listen_url = start_test_proxy_for_app(&app, free_tcp_port(), "codex").await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("{listen_url}/v1/models?limit=20"))
+        .send()
+        .await
+        .expect("models request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::GET);
+    assert_eq!(request.path_and_query, "/v1/models?limit=20");
+    assert_eq!(
+        request
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer codex-token")
+    );
+
+    let response = client
+        .post(format!("{listen_url}/v1/responses"))
+        .json(&json!({
+            "model": "gpt-5.1-codex",
+            "metadata": { "session_id": "codex-session-usage" },
+            "input": "hello"
+        }))
+        .send()
+        .await
+        .expect("Codex usage request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(
+        request
+            .headers
+            .get("openai-session-id")
+            .and_then(|value| value.to_str().ok()),
+        Some("codex-session-usage")
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("openai-prompt-cache-key")
+            .and_then(|value| value.to_str().ok()),
+        Some("codex-cache-key")
+    );
+
+    let logs = state
+        .db
+        .recent_proxy_request_logs(10)
+        .expect("proxy request logs");
+    let usage_log = logs
+        .iter()
+        .find(|log| log.session_id.as_deref() == Some("codex-session-usage"))
+        .expect("session-linked usage log");
+    assert_eq!(usage_log.provider_id, "codex-local");
+    assert_eq!(usage_log.input_tokens, 42);
+    assert_eq!(usage_log.output_tokens, 7);
+    assert_eq!(usage_log.model, "gpt-5.1-codex");
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_anthropic_signature_rectifier_retries_same_provider_over_http() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, requests, upstream_handle, mut captured) =
+        spawn_rectifier_retry_upstream().await;
+    let (app, _) = make_app_with_claude_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_provider_with_base_url(&upstream_base),
+    );
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{listen_url}/v1/messages"))
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "thinking": { "type": "enabled" },
+            "messages": [{
+                "role": "assistant",
+                "content": [
+                    { "type": "thinking", "thinking": "private", "signature": "bad" },
+                    { "type": "text", "text": "visible", "signature": "stray" }
+                ]
+            }]
+        }))
+        .send()
+        .await
+        .expect("rectified proxy request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+
+    let first = next_captured_request(&mut captured).await;
+    let second = next_captured_request(&mut captured).await;
+    assert_eq!(first.method, Method::POST);
+    assert_eq!(second.method, Method::POST);
+    let first_body: Value = serde_json::from_slice(&first.body).expect("first request body");
+    let second_body: Value = serde_json::from_slice(&second.body).expect("retry request body");
+    assert_eq!(first_body["messages"][0]["content"][0]["type"], "thinking");
+    assert!(second_body.get("thinking").is_none());
+    assert_eq!(
+        second_body["messages"][0]["content"],
+        json!([{ "type": "text", "text": "visible" }])
+    );
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_claude_desktop_openai_chat_http_conformance_maps_both_directions() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) = spawn_capture_upstream(
+        StatusCode::OK,
+        "application/json",
+        r#"{
+            "id":"chatcmpl-conformance",
+            "model":"gpt-4.1",
+            "choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"chat ok"}}],
+            "usage":{"prompt_tokens":12,"completion_tokens":5}
+        }"#,
+    )
+    .await;
+    let (app, state) = make_app_with_claude_desktop_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_desktop_protocol_provider(&upstream_base, "openai_chat", "gpt-4.1"),
+    );
+    state
+        .db
+        .set_setting("claude_desktop_gateway_token", "desktop-gateway-token")
+        .expect("store gateway token");
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{listen_url}/claude-desktop/v1/messages?trace=chat"
+        ))
+        .bearer_auth("desktop-gateway-token")
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "system": "Be concise.",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "tool_choice": { "type": "tool", "name": "lookup_price" },
+            "tools": [{
+                "name": "lookup_price",
+                "input_schema": { "type": "object" }
+            }]
+        }))
+        .send()
+        .await
+        .expect("Claude Desktop OpenAI Chat request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response_body: Value = response.json().await.expect("Anthropic response body");
+    assert_eq!(response_body["type"], json!("message"));
+    assert_eq!(response_body["content"][0]["text"], json!("chat ok"));
+    assert_eq!(response_body["usage"]["input_tokens"], json!(12));
+    assert_eq!(response_body["usage"]["output_tokens"], json!(5));
+
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(request.path_and_query, "/v1/chat/completions?trace=chat");
+    assert_eq!(
+        request
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer openai-desktop-token")
+    );
+    let body: Value = serde_json::from_slice(&request.body).expect("OpenAI Chat body");
+    assert_eq!(body["model"], json!("gpt-4.1"));
+    assert_eq!(body["messages"][0]["role"], json!("system"));
+    assert_eq!(
+        body["tool_choice"],
+        json!({ "type": "function", "function": { "name": "lookup_price" } })
+    );
+    assert_eq!(body["tools"][0]["function"]["name"], json!("lookup_price"));
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_claude_desktop_openai_responses_http_conformance_maps_both_directions() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) = spawn_capture_upstream(
+        StatusCode::OK,
+        "application/json",
+        r#"{
+            "id":"resp-conformance",
+            "model":"gpt-5.1",
+            "status":"completed",
+            "output":[{"type":"message","content":[{"type":"output_text","text":"responses ok"}]}],
+            "usage":{"input_tokens":20,"output_tokens":4}
+        }"#,
+    )
+    .await;
+    let (app, state) = make_app_with_claude_desktop_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_desktop_protocol_provider(&upstream_base, "openai_responses", "gpt-5.1"),
+    );
+    state
+        .db
+        .set_setting("claude_desktop_gateway_token", "desktop-gateway-token")
+        .expect("store gateway token");
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{listen_url}/claude-desktop/v1/messages?trace=responses"
+        ))
+        .bearer_auth("desktop-gateway-token")
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "thinking": { "type": "enabled", "budget_tokens": 2000 },
+            "tool_choice": { "type": "tool", "name": "lookup_price" },
+            "tools": [{
+                "name": "lookup_price",
+                "input_schema": { "type": "object" }
+            }]
+        }))
+        .send()
+        .await
+        .expect("Claude Desktop Responses request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response_body: Value = response.json().await.expect("Anthropic response body");
+    assert_eq!(response_body["content"][0]["text"], json!("responses ok"));
+    assert_eq!(response_body["usage"]["input_tokens"], json!(20));
+    assert_eq!(response_body["usage"]["output_tokens"], json!(4));
+
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(request.path_and_query, "/v1/responses?trace=responses");
+    let body: Value = serde_json::from_slice(&request.body).expect("Responses body");
+    assert_eq!(body["model"], json!("gpt-5.1"));
+    assert_eq!(body["input"][0]["role"], json!("user"));
+    assert_eq!(body["reasoning"], json!({ "effort": "low" }));
+    assert_eq!(
+        body["tool_choice"],
+        json!({ "type": "function", "name": "lookup_price" })
+    );
+    assert_eq!(body["tools"][0]["name"], json!("lookup_price"));
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_claude_desktop_gemini_native_http_conformance_maps_both_directions() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) = spawn_capture_upstream(
+        StatusCode::OK,
+        "application/json",
+        r#"{
+            "responseId":"gemini-conformance",
+            "modelVersion":"gemini-2.5-pro",
+            "candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"gemini ok"}]}}],
+            "usageMetadata":{"promptTokenCount":10,"totalTokenCount":13}
+        }"#,
+    )
+    .await;
+    let (app, state) = make_app_with_claude_desktop_provider_and_state(
+        "password",
+        "csrf-token",
+        claude_desktop_protocol_provider(&upstream_base, "gemini_native", "gemini-2.5-pro"),
+    );
+    state
+        .db
+        .set_setting("claude_desktop_gateway_token", "desktop-gateway-token")
+        .expect("store gateway token");
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{listen_url}/claude-desktop/v1/messages?trace=gemini"
+        ))
+        .bearer_auth("desktop-gateway-token")
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "tool_choice": { "type": "tool", "name": "lookup_price" },
+            "tools": [{
+                "name": "lookup_price",
+                "input_schema": { "type": "object" }
+            }]
+        }))
+        .send()
+        .await
+        .expect("Claude Desktop Gemini request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response_body: Value = response.json().await.expect("Anthropic response body");
+    assert_eq!(response_body["content"][0]["text"], json!("gemini ok"));
+    assert_eq!(response_body["usage"]["input_tokens"], json!(10));
+    assert_eq!(response_body["usage"]["output_tokens"], json!(3));
+
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(
+        request.path_and_query,
+        "/v1beta/models/gemini-2.5-pro:generateContent?trace=gemini"
+    );
+    assert_eq!(
+        request
+            .headers
+            .get("x-goog-api-key")
+            .and_then(|value| value.to_str().ok()),
+        Some("gemini-desktop-token")
+    );
+    let body: Value = serde_json::from_slice(&request.body).expect("Gemini body");
+    assert!(body.get("model").is_none());
+    assert_eq!(body["contents"][0]["parts"][0]["text"], json!("hello"));
+    assert_eq!(
+        body["toolConfig"]["functionCallingConfig"],
+        json!({ "mode": "ANY", "allowedFunctionNames": ["lookup_price"] })
+    );
+
+    stop_test_proxy(&app).await;
+    upstream_handle.abort();
+}
+
+#[tokio::test]
+#[serial]
+async fn proxy_vertex_full_endpoint_http_conformance_does_not_append_request_path() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    let _account_guard = setup();
+    let (upstream_base, upstream_handle, mut captured) =
+        spawn_capture_upstream(StatusCode::OK, "application/json", r#"{"ok":true}"#).await;
+    let endpoint = format!(
+        "{upstream_base}/v1/projects/p/locations/us/publishers/anthropic/models/claude:rawPredict?api-version=1"
+    );
+    let mut provider = claude_provider_with_base_url(&endpoint);
+    provider.meta = Some(ProviderMeta {
+        is_full_url: Some(true),
+        ..ProviderMeta::default()
+    });
+    let app = make_app_with_claude_provider("password", "csrf-token", provider);
+    let listen_url = start_test_proxy(&app, free_tcp_port()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{listen_url}/v1/messages?stream=false&trace=vertex"
+        ))
+        .json(&json!({
+            "model": "claude-sonnet-4-6",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .send()
+        .await
+        .expect("Vertex full endpoint request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+
+    let request = next_captured_request(&mut captured).await;
+    assert_eq!(request.method, Method::POST);
+    assert_eq!(
+        request.path_and_query,
+        "/v1/projects/p/locations/us/publishers/anthropic/models/claude:rawPredict?api-version=1&stream=false&trace=vertex"
+    );
+
+    stop_test_proxy(&app).await;
     upstream_handle.abort();
 }
 
@@ -1790,7 +2652,13 @@ async fn proxy_streaming_response_is_passed_through_without_conversion() {
                     "port": proxy_port,
                     "bindApp": "claude",
                     "streamingFirstByteTimeout": 1,
-                    "streamingIdleTimeout": 1
+                    "streamingIdleTimeout": 1,
+                    "apps": {
+                        "claude": {
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 1
+                        }
+                    }
                 }
             })),
         ),
@@ -1852,7 +2720,13 @@ async fn proxy_streaming_request_logs_update_usage_after_stream_finishes() {
                     "bindApp": "claude",
                     "enableLogging": true,
                     "streamingFirstByteTimeout": 1,
-                    "streamingIdleTimeout": 1
+                    "streamingIdleTimeout": 1,
+                    "apps": {
+                        "claude": {
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 1
+                        }
+                    }
                 }
             })),
         ),
@@ -1920,7 +2794,13 @@ async fn proxy_streaming_first_byte_timeout_returns_bad_gateway() {
                     "port": proxy_port,
                     "bindApp": "claude",
                     "streamingFirstByteTimeout": 1,
-                    "streamingIdleTimeout": 5
+                    "streamingIdleTimeout": 5,
+                    "apps": {
+                        "claude": {
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 5
+                        }
+                    }
                 }
             })),
         ),
@@ -1974,7 +2854,13 @@ async fn proxy_streaming_idle_timeout_terminates_body_after_first_chunk() {
                     "port": proxy_port,
                     "bindApp": "claude",
                     "streamingFirstByteTimeout": 1,
-                    "streamingIdleTimeout": 1
+                    "streamingIdleTimeout": 1,
+                    "apps": {
+                        "claude": {
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 1
+                        }
+                    }
                 }
             })),
         ),
@@ -2040,8 +2926,11 @@ async fn proxy_failover_switches_backup_provider_to_current() {
                     "bindApp": "claude",
                     "apps": {
                         "claude": {
+                            "enabled": true,
                             "autoFailoverEnabled": true,
-                            "maxRetries": 1
+                            "maxRetries": 1,
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 5
                         }
                     }
                 }
@@ -2059,11 +2948,14 @@ async fn proxy_failover_switches_backup_provider_to_current() {
         .send()
         .await
         .expect("proxy request");
-    assert_eq!(proxy_response.status(), reqwest::StatusCode::OK);
+    let proxy_status = proxy_response.status();
+    let proxy_body = proxy_response.text().await.expect("proxy response body");
     assert_eq!(
-        proxy_response.text().await.expect("proxy response body"),
-        r#"{"ok":true}"#
+        proxy_status,
+        reqwest::StatusCode::OK,
+        "unexpected proxy response: {proxy_body}"
     );
+    assert_eq!(proxy_body, r#"{"ok":true}"#);
 
     let res = dispatch(
         app.clone(),
@@ -2133,6 +3025,7 @@ async fn proxy_failover_uses_db_queue_before_backup_current() {
                     "bindApp": "claude",
                     "apps": {
                         "claude": {
+                            "enabled": true,
                             "autoFailoverEnabled": true,
                             "maxRetries": 1
                         }
@@ -2204,8 +3097,11 @@ async fn proxy_streaming_first_byte_timeout_fails_over_before_sending_body() {
                     "streamingIdleTimeout": 5,
                     "apps": {
                         "claude": {
+                            "enabled": true,
                             "autoFailoverEnabled": true,
-                            "maxRetries": 1
+                            "maxRetries": 1,
+                            "streamingFirstByteTimeout": 1,
+                            "streamingIdleTimeout": 5
                         }
                     }
                 }

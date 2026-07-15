@@ -2,7 +2,9 @@ pub mod auth;
 pub mod balance;
 pub mod coding_plan;
 pub mod config;
+#[cfg(feature = "desktop")]
 pub mod env_checker;
+#[cfg(feature = "desktop")]
 pub mod env_manager;
 pub mod mcp;
 pub mod model_fetch;
@@ -14,6 +16,7 @@ pub mod skill;
 pub mod speedtest;
 pub mod sql_helpers;
 pub mod stream_check;
+pub mod subscription;
 pub mod usage_stats;
 
 pub use auth::{AuthService, CodexOAuthManager, CopilotAuthManager};
@@ -28,3 +31,4 @@ pub use skill::{
     SkillUpdateInfo, SkillsShSearchResult,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
+pub use subscription::{SubscriptionProvider, SubscriptionQuota, SubscriptionService};

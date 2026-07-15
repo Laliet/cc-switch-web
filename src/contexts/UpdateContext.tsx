@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import type { UpdateInfo, UpdateHandle } from "../lib/updater";
 import { checkForUpdate } from "../lib/updater";
+import { useCapabilitiesQuery } from "@/lib/query";
 
 interface UpdateContextValue {
   // 更新状态
@@ -38,6 +39,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
+  const { data: capabilities } = useCapabilitiesQuery();
+  const appUpdateSupported = capabilities?.features.appUpdate === true;
 
   const safeGetItem = useCallback((key: string) => {
     if (typeof window === "undefined" || !window?.localStorage) return null;
@@ -115,6 +118,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const isCheckingRef = useRef(false);
 
   const checkUpdate = useCallback(async () => {
+    if (!appUpdateSupported) return "skipped";
     if (isCheckingRef.current) return "skipped";
     isCheckingRef.current = true;
     setIsChecking(true);
@@ -148,7 +152,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       setIsChecking(false);
       isCheckingRef.current = false;
     }
-  }, [getDismissedVersion]);
+  }, [appUpdateSupported, getDismissedVersion]);
 
   const dismissUpdate = useCallback(() => {
     setIsDismissed(true);
@@ -164,13 +168,14 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
 
   // 应用启动时自动检查更新
   useEffect(() => {
+    if (!appUpdateSupported) return;
     // 延迟1秒后检查，避免影响启动体验
     const timer = setTimeout(() => {
       void checkUpdate();
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [checkUpdate]);
+  }, [appUpdateSupported, checkUpdate]);
 
   const value: UpdateContextValue = {
     hasUpdate,

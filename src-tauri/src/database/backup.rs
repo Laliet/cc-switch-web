@@ -13,15 +13,19 @@ const SQL_EXPORT_HEADER: &str = "-- CC Switch SQLite export";
 
 // Runtime and machine-local data is not transferred between devices.
 const SYNC_SKIP_TABLES: &[&str] = &[
+    "managed_auth_accounts",
     "proxy_request_logs",
     "provider_health",
     "usage_daily_rollups",
     "session_log_sync",
+    "stream_check_logs",
 ];
 const SYNC_PRESERVE_TABLES: &[&str] = &[
+    "managed_auth_accounts",
     "proxy_request_logs",
     "usage_daily_rollups",
     "session_log_sync",
+    "stream_check_logs",
 ];
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -53,10 +57,9 @@ impl Database {
 
     pub fn import_sql(&self, source_path: &Path) -> Result<String, AppError> {
         if !source_path.is_file() {
-            return Err(AppError::InvalidInput(format!(
-                "SQL backup does not exist: {}",
-                source_path.display()
-            )));
+            return Err(AppError::InvalidInput(
+                "SQL backup does not exist".to_string(),
+            ));
         }
         let sql =
             fs::read_to_string(source_path).map_err(|error| AppError::io(source_path, error))?;
@@ -589,6 +592,39 @@ mod tests {
         Ok(())
     }
 
+    fn insert_stream_check_log(db: &Database, provider_id: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(db.conn);
+        conn.execute(
+            "INSERT INTO stream_check_logs (
+                provider_id, provider_name, app_type, status, success, message,
+                model_used, tested_at
+             ) VALUES (?1, ?1, 'claude', 'success', 1, 'local diagnostic',
+                       'test-model', 1)",
+            [provider_id],
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
+    fn insert_managed_auth_account(
+        db: &Database,
+        id: &str,
+        access_token: &str,
+        refresh_token: &str,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(db.conn);
+        conn.execute(
+            "INSERT INTO managed_auth_accounts (
+                id, provider, label, is_default, created_at, updated_at,
+                access_token, refresh_token, status
+             ) VALUES (?1, 'codex_oauth', ?1, 1, '2026-07-13T00:00:00Z',
+                       '2026-07-13T00:00:00Z', ?2, ?3, 'active')",
+            rusqlite::params![id, access_token, refresh_token],
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
     #[test]
     fn sql_export_import_round_trip() -> Result<(), AppError> {
         let source = Database::memory()?;
@@ -622,11 +658,27 @@ mod tests {
     fn sync_import_preserves_local_usage_data() -> Result<(), AppError> {
         let source = Database::memory()?;
         insert_provider(&source, "remote")?;
+        insert_managed_auth_account(
+            &source,
+            "remote-account",
+            "remote-access-token-must-not-sync",
+            "remote-refresh-token-must-not-sync",
+        )?;
         let sql = source.export_sql_string_for_sync()?;
         assert!(!sql.contains("VALUES ('request-local'"));
+        assert!(!sql.contains("remote-access-token-must-not-sync"));
+        assert!(!sql.contains("remote-refresh-token-must-not-sync"));
+        assert!(!sql.contains("INSERT INTO \"managed_auth_accounts\""));
 
         let target = Database::memory()?;
         insert_provider(&target, "local")?;
+        insert_stream_check_log(&target, "check-local")?;
+        insert_managed_auth_account(
+            &target,
+            "local-account",
+            "local-access-token",
+            "local-refresh-token",
+        )?;
         {
             let conn = lock_conn!(target.conn);
             conn.execute(
@@ -648,6 +700,75 @@ mod tests {
             )
             .map_err(|error| AppError::Database(error.to_string()))?;
         assert_eq!(logs, 1);
+        let stream_checks: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM stream_check_logs WHERE provider_id='check-local'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        assert_eq!(stream_checks, 1);
+        let local_auth: (String, String) = conn
+            .query_row(
+                "SELECT access_token, refresh_token FROM managed_auth_accounts
+                 WHERE provider='codex_oauth' AND id='local-account'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        assert_eq!(
+            local_auth,
+            (
+                "local-access-token".to_string(),
+                "local-refresh-token".to_string()
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_import_migrates_v6_and_preserves_local_stream_check_history() -> Result<(), AppError> {
+        let source = Database::memory()?;
+        insert_provider(&source, "remote-v6")?;
+        {
+            let conn = lock_conn!(source.conn);
+            conn.execute_batch(
+                "DROP TABLE stream_check_logs;
+                 PRAGMA user_version = 6;",
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+        let sql = source.export_sql_string_for_sync()?;
+        assert!(sql.contains("PRAGMA user_version=6"));
+        assert!(!sql.contains("CREATE TABLE stream_check_logs"));
+
+        let target = Database::memory()?;
+        insert_stream_check_log(&target, "check-before-v6-restore")?;
+        target.import_sql_string_for_sync(&sql)?;
+
+        let conn = lock_conn!(target.conn);
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let provider_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM providers WHERE id='remote-v6'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let stream_check_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM stream_check_logs
+                 WHERE provider_id='check-before-v6-restore'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| AppError::Database(error.to_string()))?;
+
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(provider_count, 1);
+        assert_eq!(stream_check_count, 1);
         Ok(())
     }
 

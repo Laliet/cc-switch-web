@@ -228,7 +228,7 @@ pub fn parse_and_merge_config(
         "claude" => merge_claude_config(&mut merged, &config_value)?,
         "codex" => merge_codex_config(&mut merged, &config_value),
         "gemini" => merge_gemini_config(&mut merged, &config_value),
-        "opencode" => merge_additive_config(&mut merged, &config_value),
+        "opencode" | "openclaw" => merge_additive_config(&mut merged, &config_value),
         "" => {}
         other => {
             return Err(AppError::InvalidInput(format!(
@@ -445,9 +445,12 @@ fn parse_provider_params(
         .ok_or_else(|| AppError::InvalidInput("Missing 'app' parameter".to_string()))?
         .clone();
 
-    if !matches!(app.as_str(), "claude" | "codex" | "gemini" | "opencode") {
+    if !matches!(
+        app.as_str(),
+        "claude" | "codex" | "gemini" | "opencode" | "openclaw"
+    ) {
         return Err(AppError::InvalidInput(format!(
-            "Invalid app type: must be 'claude', 'codex', 'gemini', or 'opencode', got '{app}'"
+            "Invalid app type: must be 'claude', 'codex', 'gemini', 'opencode', or 'openclaw', got '{app}'"
         )));
     }
 
@@ -800,7 +803,7 @@ fn parse_mcp_apps(apps: &str) -> Result<crate::app_config::McpApps, AppError> {
             AppType::Claude | AppType::Codex | AppType::Gemini | AppType::Opencode => {
                 parsed.set_enabled_for(&app_type, true);
             }
-            AppType::ClaudeDesktop | AppType::Omo | AppType::OmoSlim => {
+            AppType::ClaudeDesktop | AppType::OpenClaw | AppType::Omo | AppType::OmoSlim => {
                 return Err(AppError::InvalidInput(format!(
                     "MCP deep link does not support app '{}'",
                     app_type.as_str()
@@ -1043,6 +1046,16 @@ requires_openai_auth = true
 
             json!({ "env": env })
         }
+        AppType::OpenClaw => json!({
+            "baseUrl": endpoint,
+            "apiKey": api_key,
+            "api": "openai-completions",
+            "models": request
+                .model
+                .iter()
+                .map(|model| json!({ "id": model }))
+                .collect::<Vec<_>>()
+        }),
         AppType::ClaudeDesktop | AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
             return Err(AppError::localized(
                 "app_not_supported_yet",

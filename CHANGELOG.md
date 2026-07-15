@@ -5,6 +5,38 @@ All notable changes to CC Switch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.20.0] - 2026-07-15
+
+### Features / 新特性
+
+- Add a desktop/Web runtime capability contract and host-aware UI boundaries.
+- Add OpenClaw phase-one provider/default-model, Workspace/daily-memory, and Session Manager workflows.
+- Add persisted Stream Check configuration/history and provider subscription quota summaries.
+- Add snapshot-bound Session pagination with per-provider incremental scan caches.
+
+### Reliability / 可靠性
+
+- Add real HTTP proxy conformance for Anthropic, Responses, Gemini, Vertex, and Claude Desktop conversion paths.
+- Preserve failover queue order, improve usage-presence parsing, and correlate session/cache keys with request logs.
+- Add Claude Desktop process-aware restart status.
+- Upgrade SQLite to Schema v7 and retain local Stream Check history across WebDAV restores.
+- Read and restore WebDAV db-v6 snapshots/history while writing new snapshots to db-v7.
+
+### Security / 安全
+
+- Reject Session and OpenClaw symlink/path escapes and bind pagination cursors to a scan snapshot.
+- Validate WebDAV manifest identity against artifact hashes.
+- Prevent Web error responses from exposing internal failures, credentials, Workspace content, or server absolute paths.
+
+### Compatibility / 兼容性
+
+- Pin the upstream comparison baseline to `farion1231/cc-switch v3.15.0` commit `9e3f1689038febb36da08993cd47281426b5dd7c`.
+- Return coded HTTP 501 responses for known apps whose requested feature is outside the capability matrix; unknown app names remain HTTP 400.
+- Keep OMO/OMO Slim MCP and Skills mapped to shared OpenCode storage while continuing to reject proxy takeover.
+- Keep legacy v0.18 JSON WebDAV snapshots as a read-only restore source.
+
 ## [0.19.1] - 2026-07-11
 
 ### Fixes / 修复

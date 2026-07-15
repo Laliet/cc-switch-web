@@ -203,21 +203,14 @@ impl McpService {
             AppType::Gemini => {
                 mcp::sync_single_server_to_gemini(cfg, &server.id, &server.server)?;
             }
-            AppType::Opencode => {
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
                 mcp::sync_single_server_to_opencode(cfg, &server.id, &server.server)?;
             }
-            AppType::ClaudeDesktop => {
+            AppType::ClaudeDesktop | AppType::OpenClaw => {
                 return Err(AppError::localized(
                     "mcp.app_not_supported",
-                    "Claude Desktop 暂不支持 MCP 同步。",
-                    "Claude Desktop does not support MCP sync yet.",
-                ));
-            }
-            AppType::Omo | AppType::OmoSlim => {
-                return Err(AppError::localized(
-                    "app_not_supported_yet",
-                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                    format!("App '{}' is not supported yet.", app.as_str()),
+                    format!("{} 暂不支持 MCP 同步。", app.as_str()),
+                    format!("{} does not support MCP sync yet.", app.as_str()),
                 ));
             }
         }
@@ -242,15 +235,10 @@ impl McpService {
             AppType::Claude => mcp::remove_server_from_claude(id)?,
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,
-            AppType::Opencode => mcp::remove_server_from_opencode(id)?,
-            AppType::ClaudeDesktop => {}
-            AppType::Omo | AppType::OmoSlim => {
-                return Err(AppError::localized(
-                    "app_not_supported_yet",
-                    format!("应用 '{}' 暂未支持，敬请期待。", app.as_str()),
-                    format!("App '{}' is not supported yet.", app.as_str()),
-                ));
+            AppType::Opencode | AppType::Omo | AppType::OmoSlim => {
+                mcp::remove_server_from_opencode(id)?
             }
+            AppType::ClaudeDesktop | AppType::OpenClaw => {}
         }
         Ok(())
     }

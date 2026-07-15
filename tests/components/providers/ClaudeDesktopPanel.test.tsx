@@ -32,6 +32,7 @@ describe("ClaudeDesktopPanel", () => {
     providerApiMocks.getClaudeDesktopStatus.mockResolvedValueOnce({
       supported: true,
       configured: true,
+      desktopRunning: true,
       appliedId: "provider-1",
       profilePath: "/profiles/cc-switch/profile.json",
       configLibraryPath: "/profiles/cc-switch",
@@ -54,10 +55,14 @@ describe("ClaudeDesktopPanel", () => {
       screen.getByText("Missing codex_oauth managed auth default account."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Restart Claude Desktop to reload the applied profile."),
+      screen.getByText(
+        "The profile changed while Claude Desktop was running. Fully quit and reopen Claude Desktop to load it.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Required")).toBeInTheDocument();
-    expect(screen.getByText("MCP / Prompt unsupported")).toBeInTheDocument();
+    expect(
+      screen.getByText("MCP / Prompt / Skills unsupported"),
+    ).toBeInTheDocument();
   });
 
   it("imports Claude Code providers and refreshes status", async () => {
@@ -65,6 +70,7 @@ describe("ClaudeDesktopPanel", () => {
       .mockResolvedValueOnce({
         supported: true,
         configured: false,
+        desktopRunning: false,
         appliedId: null,
         profilePath: "/profile.json",
         configLibraryPath: "/library",
@@ -82,6 +88,7 @@ describe("ClaudeDesktopPanel", () => {
       .mockResolvedValueOnce({
         supported: true,
         configured: true,
+        desktopRunning: true,
         appliedId: "provider-1",
         profilePath: "/profile.json",
         configLibraryPath: "/library",

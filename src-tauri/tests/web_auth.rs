@@ -55,6 +55,67 @@ async fn test_basic_auth_valid() {
 
 #[tokio::test]
 #[serial]
+async fn capabilities_expose_web_host_boundaries() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+    let app = make_app("password", "csrf-token");
+
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("/api/capabilities")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .body(Body::empty())
+        .expect("build request");
+    let response = dispatch(app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read response body");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("parse response");
+
+    assert_eq!(value["runtime"], "web");
+    assert_eq!(value["host"], "server");
+    assert_eq!(value["features"]["directoryPicker"], false);
+    assert_eq!(value["features"]["environmentManagement"], false);
+    assert_eq!(value["features"]["appUpdate"], false);
+    assert_eq!(value["features"]["workspace"], true);
+    assert_eq!(
+        value["appFeatures"]["openclaw"]["additiveProviderMode"],
+        true
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn unsupported_host_operation_returns_coded_501() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+    let app = make_app("password", "csrf-token");
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/unsupported/restart_app")
+        .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+        .header("x-csrf-token", HeaderValue::from_static("csrf-token"))
+        .body(Body::empty())
+        .expect("build request");
+    let response = dispatch(app, request).await;
+    assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read response body");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("parse response");
+
+    assert_eq!(value["code"], "restart_app_unavailable");
+    assert!(value["error"]
+        .as_str()
+        .is_some_and(|message| message.contains("not available")));
+}
+
+#[tokio::test]
+#[serial]
 async fn test_basic_auth_invalid_password() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();
@@ -223,7 +284,7 @@ async fn test_security_headers_present() {
         .unwrap();
 
     let res = dispatch(app, req).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status(), StatusCode::NOT_IMPLEMENTED);
 
     let headers = res.headers();
     assert_eq!(

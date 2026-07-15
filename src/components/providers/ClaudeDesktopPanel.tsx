@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,10 +18,21 @@ interface ClaudeDesktopPanelProps {
   refreshKey?: number;
 }
 
+const KNOWN_BACKEND_ISSUES = new Set([
+  "Claude Desktop 3P profile management is only supported on macOS and Windows.",
+  "CC Switch profile has not been applied to Claude Desktop yet.",
+  "Claude Desktop profile base URL does not match the selected provider.",
+  "Local proxy is not running, so proxy-mode Desktop routes will fail.",
+  "Profile contains raw upstream model IDs; reapply the provider profile.",
+  "Current provider is missing Claude Desktop model route mappings.",
+  "Gateway token is not configured for the local Claude Desktop route.",
+]);
+
 export function ClaudeDesktopPanel({
   onProvidersChanged,
   refreshKey = 0,
 }: ClaudeDesktopPanelProps) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<ClaudeDesktopStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -36,12 +48,14 @@ export function ClaudeDesktopPanel({
       const message =
         loadError instanceof Error && loadError.message
           ? loadError.message
-          : "Failed to load Claude Desktop status";
+          : t("claudeDesktopPanel.loadFailed", {
+              defaultValue: "Failed to load Claude Desktop status",
+            });
       setError(message);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadStatus();
@@ -49,16 +63,21 @@ export function ClaudeDesktopPanel({
 
   const issues = useMemo(() => {
     if (!status) return [];
-    if (status.issues?.length) return status.issues;
-    const next: string[] = [];
     if (!status.supported) {
-      next.push(
-        "3P profile management is currently supported on macOS and Windows.",
-      );
+      return [
+        t("claudeDesktopPanel.unsupported", {
+          defaultValue:
+            "Claude Desktop 3P profile management is available only on macOS and Windows.",
+        }),
+      ];
     }
-    if (status.supported && !status.configured) {
+    const next: string[] = [];
+    if (!status.configured) {
       next.push(
-        "CC Switch profile has not been applied to Claude Desktop yet.",
+        t("claudeDesktopPanel.issueNotApplied", {
+          defaultValue:
+            "CC Switch profile has not been applied to Claude Desktop yet.",
+        }),
       );
     }
     if (
@@ -67,31 +86,51 @@ export function ClaudeDesktopPanel({
       status.expectedBaseUrl !== status.actualBaseUrl
     ) {
       next.push(
-        "Claude Desktop profile base URL does not match the selected provider.",
+        t("claudeDesktopPanel.issueBaseUrlMismatch", {
+          defaultValue:
+            "Claude Desktop profile base URL does not match the selected provider.",
+        }),
       );
     }
     if (status.mode === "proxy" && !status.proxyRunning) {
       next.push(
-        "Local proxy is not running, so proxy-mode Desktop routes will fail.",
+        t("claudeDesktopPanel.issueProxyStopped", {
+          defaultValue:
+            "Local proxy is not running, so proxy-mode Desktop routes will fail.",
+        }),
       );
     }
     if (status.staleRawModels) {
       next.push(
-        "Profile contains raw upstream model IDs; reapply the provider profile.",
+        t("claudeDesktopPanel.issueStaleModels", {
+          defaultValue:
+            "Profile contains raw upstream model IDs; reapply the provider profile.",
+        }),
       );
     }
     if (status.missingRouteMappings) {
       next.push(
-        "Current provider is missing Claude Desktop model route mappings.",
+        t("claudeDesktopPanel.issueMissingRoutes", {
+          defaultValue:
+            "Current provider is missing Claude Desktop model route mappings.",
+        }),
       );
     }
     if (status.mode === "proxy" && !status.gatewayTokenConfigured) {
       next.push(
-        "Gateway token is not configured for the local Claude Desktop route.",
+        t("claudeDesktopPanel.issueGatewayToken", {
+          defaultValue:
+            "Gateway token is not configured for the local Claude Desktop route.",
+        }),
       );
     }
+    for (const issue of status.issues ?? []) {
+      if (!KNOWN_BACKEND_ISSUES.has(issue) && !next.includes(issue)) {
+        next.push(issue);
+      }
+    }
     return next;
-  }, [status]);
+  }, [status, t]);
 
   const handleImport = async () => {
     if (isImporting) return;
@@ -101,8 +140,13 @@ export function ClaudeDesktopPanel({
         await providersApi.importClaudeDesktopProvidersFromClaude();
       toast.success(
         imported > 0
-          ? `Imported ${imported} Claude Code provider(s)`
-          : "No compatible Claude Code providers to import",
+          ? t("claudeDesktopPanel.importSuccess", {
+              defaultValue: "Imported {{count}} Claude Code provider(s)",
+              count: imported,
+            })
+          : t("claudeDesktopPanel.importEmpty", {
+              defaultValue: "No compatible Claude Code providers to import",
+            }),
       );
       await loadStatus();
       onProvidersChanged?.();
@@ -110,7 +154,9 @@ export function ClaudeDesktopPanel({
       toast.error(
         importError instanceof Error && importError.message
           ? importError.message
-          : "Failed to import Claude Code providers",
+          : t("claudeDesktopPanel.importFailed", {
+              defaultValue: "Failed to import Claude Code providers",
+            }),
       );
     } finally {
       setIsImporting(false);
@@ -123,12 +169,17 @@ export function ClaudeDesktopPanel({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <FileJson className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-base font-semibold">Claude Desktop Profile</h2>
+            <h2 className="text-base font-semibold">
+              {t("claudeDesktopPanel.title", {
+                defaultValue: "Claude Desktop Profile",
+              })}
+            </h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            Applies a 3P profile for Claude Desktop. MCP and Prompt management
-            stay disabled here because Desktop does not consume the same live
-            config files as Claude Code.
+            {t("claudeDesktopPanel.description", {
+              defaultValue:
+                "Applies a 3P profile on the host running CC Switch. Claude Desktop does not consume the same MCP, Prompt, or Skills configuration as Claude Code.",
+            })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -139,7 +190,11 @@ export function ClaudeDesktopPanel({
             disabled={isLoading}
           >
             <RefreshCw className="h-4 w-4" />
-            {isLoading ? "Refreshing..." : "Refresh"}
+            {isLoading
+              ? t("claudeDesktopPanel.refreshing", {
+                  defaultValue: "Refreshing...",
+                })
+              : t("claudeDesktopPanel.refresh", { defaultValue: "Refresh" })}
           </Button>
           <Button
             type="button"
@@ -148,7 +203,13 @@ export function ClaudeDesktopPanel({
             disabled={isImporting}
           >
             <Import className="h-4 w-4" />
-            {isImporting ? "Importing..." : "Import Claude Code"}
+            {isImporting
+              ? t("claudeDesktopPanel.importing", {
+                  defaultValue: "Importing...",
+                })
+              : t("claudeDesktopPanel.importClaude", {
+                  defaultValue: "Import Claude Code",
+                })}
           </Button>
         </div>
       </div>
@@ -161,57 +222,141 @@ export function ClaudeDesktopPanel({
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatusTile
-          label="3P profile"
-          value={status?.configured ? "Applied" : "Not applied"}
+          label={t("claudeDesktopPanel.profile", {
+            defaultValue: "3P profile",
+          })}
+          value={
+            status?.configured
+              ? t("claudeDesktopPanel.applied", { defaultValue: "Applied" })
+              : t("claudeDesktopPanel.notApplied", {
+                  defaultValue: "Not applied",
+                })
+          }
           ok={Boolean(status?.configured)}
           loading={isLoading && !status}
+          loadingText={t("common.loading", { defaultValue: "Loading..." })}
         />
         <StatusTile
-          label="Mode"
+          label={t("claudeDesktopPanel.mode", { defaultValue: "Mode" })}
           value={
             status?.mode === "proxy"
-              ? "Local routing"
-              : (status?.mode ?? "Unknown")
+              ? t("claudeDesktopPanel.localRouting", {
+                  defaultValue: "Local routing",
+                })
+              : status?.mode === "direct"
+                ? t("claudeDesktopPanel.direct", { defaultValue: "Direct" })
+                : t("common.unknown", { defaultValue: "Unknown" })
           }
           ok={Boolean(status?.mode)}
           loading={isLoading && !status}
+          loadingText={t("common.loading", { defaultValue: "Loading..." })}
         />
         <StatusTile
-          label="Local proxy"
-          value={status?.proxyRunning ? "Running" : "Stopped"}
+          label={t("claudeDesktopPanel.localProxy", {
+            defaultValue: "Local proxy",
+          })}
+          value={
+            status?.proxyRunning
+              ? t("claudeDesktopPanel.running", { defaultValue: "Running" })
+              : t("claudeDesktopPanel.stopped", { defaultValue: "Stopped" })
+          }
           ok={Boolean(status?.proxyRunning)}
           loading={isLoading && !status}
+          loadingText={t("common.loading", { defaultValue: "Loading..." })}
         />
         <StatusTile
-          label="Desktop restart"
-          value={status?.needsRestart ? "Required" : "Not required"}
-          ok={Boolean(status && !status.needsRestart)}
+          label={t("claudeDesktopPanel.desktopRestart", {
+            defaultValue: "Desktop restart",
+          })}
+          value={
+            !status?.supported
+              ? t("claudeDesktopPanel.unsupportedValue", {
+                  defaultValue: "Unsupported",
+                })
+              : status.needsRestart
+                ? t("claudeDesktopPanel.restartRequired", {
+                    defaultValue: "Required",
+                  })
+                : status.desktopRunning
+                  ? t("claudeDesktopPanel.restartLoaded", {
+                      defaultValue: "Profile loaded",
+                    })
+                  : t("claudeDesktopPanel.restartOnNextLaunch", {
+                      defaultValue: "Applies on next launch",
+                    })
+          }
+          ok={Boolean(status?.supported && !status.needsRestart)}
           loading={isLoading && !status}
+          loadingText={t("common.loading", { defaultValue: "Loading..." })}
         />
       </div>
 
-      {status?.restartHint ? (
+      {status?.needsRestart ? (
         <div className="mt-4 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
-          {status.restartHint}
+          {t("claudeDesktopPanel.restartHint", {
+            defaultValue:
+              "The profile changed while Claude Desktop was running. Fully quit and reopen Claude Desktop to load it.",
+          })}
         </div>
       ) : null}
 
       <div className="mt-4 grid gap-3 text-xs md:grid-cols-2">
-        <InfoLine label="Profile path" value={status?.profilePath} />
-        <InfoLine label="Config library" value={status?.configLibraryPath} />
-        <InfoLine label="Expected base URL" value={status?.expectedBaseUrl} />
-        <InfoLine label="Actual base URL" value={status?.actualBaseUrl} />
+        <InfoLine
+          label={t("claudeDesktopPanel.profilePath", {
+            defaultValue: "Profile path",
+          })}
+          value={status?.profilePath}
+          fallback={t("claudeDesktopPanel.notDetected", {
+            defaultValue: "Not detected",
+          })}
+        />
+        <InfoLine
+          label={t("claudeDesktopPanel.configLibrary", {
+            defaultValue: "Config library",
+          })}
+          value={status?.configLibraryPath}
+          fallback={t("claudeDesktopPanel.notDetected", {
+            defaultValue: "Not detected",
+          })}
+        />
+        <InfoLine
+          label={t("claudeDesktopPanel.expectedBaseUrl", {
+            defaultValue: "Expected base URL",
+          })}
+          value={status?.expectedBaseUrl}
+          fallback={t("claudeDesktopPanel.notDetected", {
+            defaultValue: "Not detected",
+          })}
+        />
+        <InfoLine
+          label={t("claudeDesktopPanel.actualBaseUrl", {
+            defaultValue: "Actual base URL",
+          })}
+          value={status?.actualBaseUrl}
+          fallback={t("claudeDesktopPanel.notDetected", {
+            defaultValue: "Not detected",
+          })}
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <CapabilityBadge icon={Route} label="Provider cards show route mode" />
+        <CapabilityBadge
+          icon={Route}
+          label={t("claudeDesktopPanel.routeMode", {
+            defaultValue: "Provider cards show route mode",
+          })}
+        />
         <CapabilityBadge
           icon={GitBranch}
-          label="Failover routes use Proxy settings"
+          label={t("claudeDesktopPanel.failover", {
+            defaultValue: "Failover routes use Proxy settings",
+          })}
         />
         <CapabilityBadge
           icon={AlertTriangle}
-          label="MCP / Prompt unsupported"
+          label={t("claudeDesktopPanel.unsupportedFeatures", {
+            defaultValue: "MCP / Prompt / Skills unsupported",
+          })}
           muted
         />
       </div>
@@ -220,7 +365,9 @@ export function ClaudeDesktopPanel({
         <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
           <div className="mb-2 flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">
             <AlertTriangle className="h-4 w-4" />
-            Attention needed
+            {t("claudeDesktopPanel.attention", {
+              defaultValue: "Attention needed",
+            })}
           </div>
           <ul className="space-y-1 text-muted-foreground">
             {issues.map((issue) => (
@@ -231,7 +378,9 @@ export function ClaudeDesktopPanel({
       ) : status ? (
         <div className="mt-4 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4" />
-          Claude Desktop profile status looks consistent.
+          {t("claudeDesktopPanel.consistent", {
+            defaultValue: "Claude Desktop profile status looks consistent.",
+          })}
         </div>
       ) : null}
     </section>
@@ -243,11 +392,13 @@ function StatusTile({
   value,
   ok,
   loading,
+  loadingText,
 }: {
   label: string;
   value: string;
   ok: boolean;
   loading: boolean;
+  loadingText: string;
 }) {
   return (
     <div className="rounded-md border border-border-default bg-muted/30 px-3 py-2">
@@ -260,18 +411,26 @@ function StatusTile({
               : "h-2 w-2 rounded-full bg-amber-500"
           }
         />
-        {loading ? "Loading..." : value}
+        {loading ? loadingText : value}
       </div>
     </div>
   );
 }
 
-function InfoLine({ label, value }: { label: string; value?: string | null }) {
+function InfoLine({
+  label,
+  value,
+  fallback,
+}: {
+  label: string;
+  value?: string | null;
+  fallback: string;
+}) {
   return (
     <div className="min-w-0 rounded-md bg-muted/30 px-3 py-2">
       <div className="text-muted-foreground">{label}</div>
-      <div className="mt-1 truncate font-mono" title={value || "Not detected"}>
-        {value || "Not detected"}
+      <div className="mt-1 truncate font-mono" title={value || fallback}>
+        {value || fallback}
       </div>
     </div>
   );
