@@ -3,6 +3,7 @@
  */
 import { ProviderCategory } from "../types";
 import type { PresetTheme } from "./claudeProviderPresets";
+import { upstreamCodexProviderPresetsV315 } from "./upstreamCodexProviderPresetsV315";
 
 export interface CodexProviderPreset {
   name: string;
@@ -90,7 +91,7 @@ wire_api = "responses"
 requires_openai_auth = true`;
 }
 
-export const codexProviderPresets: CodexProviderPreset[] = [
+const localCodexProviderPresets: CodexProviderPreset[] = [
   {
     name: "OpenAI Official",
     websiteUrl: "https://chatgpt.com/codex",
@@ -394,4 +395,26 @@ requires_openai_auth = true`,
     ),
     endpointCandidates: ["https://new.xychatai.com/codex/v1"],
   },
+];
+
+const codexPresetKey = (preset: CodexProviderPreset) =>
+  preset.name.trim().toLowerCase();
+
+const localCodexKeys = new Set(localCodexProviderPresets.map(codexPresetKey));
+
+export const codexPresetSyncReportV315 = upstreamCodexProviderPresetsV315.map(
+  (preset) => ({
+    name: preset.name,
+    key: codexPresetKey(preset),
+    disposition: localCodexKeys.has(codexPresetKey(preset))
+      ? ("duplicate_local_preferred" as const)
+      : ("merged" as const),
+  }),
+);
+
+export const codexProviderPresets: CodexProviderPreset[] = [
+  ...localCodexProviderPresets,
+  ...upstreamCodexProviderPresetsV315.filter(
+    (preset) => !localCodexKeys.has(codexPresetKey(preset)),
+  ),
 ];

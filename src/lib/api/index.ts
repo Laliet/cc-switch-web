@@ -33,11 +33,21 @@ export type {
 } from "./capabilities";
 export type {
   OpenClawDefaultModel,
+  OpenClawModelCatalogEntry,
+  OpenClawAgentsDefaults,
+  OpenClawEnvConfig,
+  OpenClawToolsConfig,
+  OpenClawToolsProfile,
+  OpenClawSection,
   OpenClawHealthWarning,
   OpenClawLiveModelSummary,
   OpenClawLiveProviderSummary,
   OpenClawLiveStatus,
   OpenClawWriteOutcome,
+  OpenClawReconciliationStatus,
+  OpenClawReconciliationItem,
+  OpenClawReconciliationPreview,
+  OpenClawReconciliationOutcome,
 } from "./openclaw";
 export type { Prompt } from "./prompts";
 export type { HealthStatus, ProviderHealth } from "./healthCheck";

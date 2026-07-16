@@ -9,6 +9,7 @@ import { AlertTriangle, PowerOff } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { Provider } from "@/types";
+import type { ProxyProviderHealth } from "@/types";
 import { providersApi, type AppId, type ProviderHealth } from "@/lib/api";
 import { useDragSort } from "@/hooks/useDragSort";
 import { ProviderCard } from "@/components/providers/ProviderCard";
@@ -18,6 +19,7 @@ import { useStreamCheck } from "@/hooks/useStreamCheck";
 import { useLatestStreamCheckHistory } from "@/hooks/useStreamCheckHistory";
 import { StreamCheckHistoryPanel } from "./StreamCheckHistoryPanel";
 import { useOpenClawStatusQuery } from "@/lib/query";
+import { useProviderRoutingStatus } from "@/hooks/useProviderRoutingStatus";
 
 interface ProviderListProps {
   providers: Record<string, Provider>;
@@ -68,6 +70,7 @@ export function ProviderList({
     useStreamCheck(appId);
   const { data: latestStreamChecks } = useLatestStreamCheckHistory(appId);
   const { data: openClawStatus } = useOpenClawStatusQuery(appId === "openclaw");
+  const { data: routingSnapshot } = useProviderRoutingStatus(appId);
   const [isDisablingOmo, setIsDisablingOmo] = useState(false);
   const [omoDisableError, setOmoDisableError] = useState<string | null>(null);
   const openClawDefaultProviderId = openClawStatus?.defaultModel?.primary.split(
@@ -87,6 +90,39 @@ export function ProviderList({
         (latestStreamChecks ?? []).map((log) => [log.providerId, log] as const),
       ),
     [latestStreamChecks],
+  );
+  const failoverPriorityByProvider = useMemo(
+    () =>
+      new Map(
+        (routingSnapshot?.queue ?? []).map((item, index) => [
+          item.providerId,
+          index + 1,
+        ]),
+      ),
+    [routingSnapshot?.queue],
+  );
+  const proxyHealthByProvider = useMemo(
+    () =>
+      new Map(
+        (routingSnapshot?.status.providerHealth ?? [])
+          .filter((health) => health.appType === routingSnapshot?.routeApp)
+          .map((health) => [health.providerId, health]),
+      ),
+    [routingSnapshot],
+  );
+  const activeRouteProviderId = routingSnapshot?.status.activeTargets.find(
+    (target) => target.appType === routingSnapshot.routeApp,
+  )?.providerId;
+  const autoFailoverEnabled = routingSnapshot
+    ? (routingSnapshot.settings.apps[routingSnapshot.configApp]
+        ?.autoFailoverEnabled ?? false)
+    : false;
+  const failoverActive = Boolean(
+    routingSnapshot?.status.running &&
+      autoFailoverEnabled &&
+      (routingSnapshot.routeApp === "claude-desktop"
+        ? activeRouteProviderId
+        : routingSnapshot.status.takeover[routingSnapshot.configApp]),
   );
 
   useEffect(() => {
@@ -263,6 +299,10 @@ export function ProviderList({
               onAutoFailover={onAutoFailover}
               healthStatus={healthMap?.[provider.id]}
               streamCheckLog={latestStreamCheckByProvider.get(provider.id)}
+              failoverPriority={failoverPriorityByProvider.get(provider.id)}
+              failoverActive={failoverActive}
+              proxyHealth={proxyHealthByProvider.get(provider.id)}
+              isActiveRoute={provider.id === activeRouteProviderId}
             />
           ))}
         </div>
@@ -278,6 +318,10 @@ interface SortableProviderCardProps {
   healthStatus?: ProviderHealth;
   streamCheckLog?: import("@/lib/api/model-test").StreamCheckLog;
   isLiveConfigured?: boolean;
+  failoverPriority?: number;
+  failoverActive?: boolean;
+  proxyHealth?: ProxyProviderHealth;
+  isActiveRoute?: boolean;
   appId: AppId;
   isEditMode: boolean;
   onSwitch: (provider: Provider) => void;
@@ -298,6 +342,10 @@ function SortableProviderCard({
   healthStatus,
   streamCheckLog,
   isLiveConfigured,
+  failoverPriority,
+  failoverActive,
+  proxyHealth,
+  isActiveRoute,
   appId,
   isEditMode,
   onSwitch,
@@ -346,6 +394,10 @@ function SortableProviderCard({
         healthStatus={healthStatus}
         streamCheckLog={streamCheckLog}
         isLiveConfigured={isLiveConfigured}
+        failoverPriority={failoverPriority}
+        failoverActive={failoverActive}
+        proxyHealth={proxyHealth}
+        isActiveRoute={isActiveRoute}
         dragHandleProps={{
           attributes,
           listeners,

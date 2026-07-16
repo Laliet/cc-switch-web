@@ -1,11 +1,15 @@
 #![cfg(feature = "web-server")]
 
-use axum::{extract::Path, http::StatusCode, Json};
+use axum::{
+    extract::{Path, Query},
+    http::StatusCode,
+    Json,
+};
 use serde::Deserialize;
 
 use crate::workspace::{
-    self, DailyMemoryInfo, WorkspaceBackupInfo, WorkspaceError, WorkspaceFileContent,
-    WorkspaceFileInfo, WorkspaceWriteOutcome,
+    self, DailyMemoryDeleteOutcome, DailyMemoryInfo, DailyMemorySearchResult, WorkspaceBackupInfo,
+    WorkspaceError, WorkspaceFileContent, WorkspaceFileInfo, WorkspaceWriteOutcome,
 };
 
 use super::{ApiError, ApiResult};
@@ -22,6 +26,18 @@ pub struct WritePayload {
 pub struct RestorePayload {
     pub backup_id: String,
     pub expected_etag: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyMemorySearchQuery {
+    query: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpectedEtagQuery {
+    expected_etag: Option<String>,
 }
 
 pub async fn list_files() -> ApiResult<Vec<WorkspaceFileInfo>> {
@@ -72,6 +88,20 @@ pub async fn write_daily_memory(
         workspace::write_daily_memory(&date, &payload.content, payload.expected_etag.as_deref())
     })
     .await
+}
+
+pub async fn search_daily_memory(
+    Query(query): Query<DailyMemorySearchQuery>,
+) -> ApiResult<Vec<DailyMemorySearchResult>> {
+    run_blocking(move || workspace::search_daily_memory(&query.query)).await
+}
+
+pub async fn delete_daily_memory(
+    Path(date): Path<String>,
+    Query(query): Query<ExpectedEtagQuery>,
+) -> ApiResult<DailyMemoryDeleteOutcome> {
+    run_blocking(move || workspace::delete_daily_memory(&date, query.expected_etag.as_deref()))
+        .await
 }
 
 async fn run_blocking<T, F>(operation: F) -> ApiResult<T>

@@ -1,7 +1,7 @@
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app_config::{AppType, MultiAppConfig};
@@ -18,6 +18,48 @@ use crate::usage_script;
 
 /// 供应商相关业务逻辑
 pub struct ProviderService;
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenClawReconciliationStatus {
+    New,
+    Changed,
+    Unchanged,
+    Invalid,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawReconciliationItem {
+    pub provider_id: String,
+    pub display_name: String,
+    pub status: OpenClawReconciliationStatus,
+    pub model_count: usize,
+    pub has_api_key: bool,
+    pub live_config_managed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawReconciliationPreview {
+    pub etag: String,
+    pub live_count: usize,
+    pub stored_count: usize,
+    pub items: Vec<OpenClawReconciliationItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawReconciliationOutcome {
+    pub imported: usize,
+    pub updated: usize,
+    pub unchanged: usize,
+    pub ignored: usize,
+    pub invalid: usize,
+    pub etag: String,
+}
 
 #[derive(Clone)]
 enum LiveSnapshot {
@@ -1177,6 +1219,270 @@ impl ProviderService {
 
             Ok((true, action))
         })
+    }
+
+    pub fn preview_openclaw_provider_reconciliation(
+        state: &AppState,
+    ) -> Result<OpenClawReconciliationPreview, AppError> {
+        let etag_before = crate::openclaw_config::get_config_etag()?;
+        let live = crate::openclaw_config::get_providers()?;
+        let etag_after = crate::openclaw_config::get_config_etag()?;
+        if etag_before != etag_after {
+            return Err(AppError::Conflict(
+                "OpenClaw config changed while it was being scanned".to_string(),
+            ));
+        }
+
+        let config = state.load_config()?;
+        let stored = config
+            .get_manager(&AppType::OpenClaw)
+            .map(|manager| &manager.providers);
+        let stored_count = stored.map_or(0, HashMap::len);
+        let mut items = Vec::with_capacity(live.len());
+
+        for (provider_id, fragment) in live {
+            let parsed = serde_json::from_value::<crate::openclaw_config::OpenClawProviderConfig>(
+                fragment.clone(),
+            );
+            let existing = stored.and_then(|providers| providers.get(&provider_id));
+            let live_config_managed = existing
+                .and_then(|provider| provider.meta.as_ref())
+                .and_then(|meta| meta.live_config_managed)
+                .unwrap_or(false);
+
+            let (display_name, model_count, has_api_key, status, reason) = match parsed {
+                Ok(provider)
+                    if Self::valid_openclaw_provider_id(&provider_id)
+                        && !provider.models.is_empty() =>
+                {
+                    let display_name = Self::openclaw_live_display_name(&provider_id, &provider);
+                    let model_count = provider.models.len();
+                    let has_api_key = provider
+                        .api_key
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty());
+                    let status = match existing {
+                        None => OpenClawReconciliationStatus::New,
+                        Some(existing)
+                            if Self::openclaw_fragment(existing)
+                                .map(|value| value == fragment)
+                                .unwrap_or(false) =>
+                        {
+                            OpenClawReconciliationStatus::Unchanged
+                        }
+                        Some(_) => OpenClawReconciliationStatus::Changed,
+                    };
+                    (display_name, model_count, has_api_key, status, None)
+                }
+                _ => (
+                    provider_id.clone(),
+                    0,
+                    false,
+                    OpenClawReconciliationStatus::Invalid,
+                    Some("Provider must have a valid ID and at least one model".to_string()),
+                ),
+            };
+
+            items.push(OpenClawReconciliationItem {
+                provider_id,
+                display_name,
+                status,
+                model_count,
+                has_api_key,
+                live_config_managed,
+                reason,
+            });
+        }
+        items.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+
+        Ok(OpenClawReconciliationPreview {
+            etag: etag_after,
+            live_count: items.len(),
+            stored_count,
+            items,
+        })
+    }
+
+    pub fn apply_openclaw_provider_reconciliation(
+        state: &AppState,
+        provider_ids: &[String],
+        update_existing: bool,
+        expected_etag: Option<&str>,
+    ) -> Result<OpenClawReconciliationOutcome, AppError> {
+        if provider_ids.len() > 500 {
+            return Err(AppError::InvalidInput(
+                "Too many OpenClaw providers selected".to_string(),
+            ));
+        }
+        let selected = provider_ids
+            .iter()
+            .map(|id| id.trim().to_string())
+            .collect::<HashSet<_>>();
+        if selected.len() != provider_ids.len()
+            || selected
+                .iter()
+                .any(|id| !Self::valid_openclaw_provider_id(id))
+        {
+            return Err(AppError::InvalidInput(
+                "OpenClaw provider selection contains invalid or duplicate IDs".to_string(),
+            ));
+        }
+
+        let etag_before = crate::openclaw_config::get_config_etag()?;
+        if expected_etag.is_some_and(|expected| expected != etag_before) {
+            return Err(AppError::Conflict(
+                "OpenClaw config changed since reconciliation was previewed".to_string(),
+            ));
+        }
+        let live = crate::openclaw_config::get_providers()?;
+        let etag_after = crate::openclaw_config::get_config_etag()?;
+        if etag_before != etag_after {
+            return Err(AppError::Conflict(
+                "OpenClaw config changed while reconciliation was applied".to_string(),
+            ));
+        }
+        if let Some(missing) = selected.iter().find(|id| !live.contains_key(*id)) {
+            return Err(AppError::InvalidInput(format!(
+                "OpenClaw provider is no longer present: {missing}"
+            )));
+        }
+
+        let default_provider = crate::openclaw_config::get_default_model()?
+            .and_then(|model| model.primary.split_once('/').map(|(id, _)| id.to_string()));
+        let now = Self::now_millis();
+        let etag = etag_after.clone();
+
+        state.update_config(move |config| {
+            config.ensure_app(&AppType::OpenClaw);
+            let manager = config
+                .get_manager_mut(&AppType::OpenClaw)
+                .ok_or_else(|| Self::app_not_found(&AppType::OpenClaw))?;
+            let mut outcome = OpenClawReconciliationOutcome {
+                etag: etag.clone(),
+                ..Default::default()
+            };
+            let mut next_sort_index = manager
+                .providers
+                .values()
+                .filter_map(|provider| provider.sort_index)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+
+            for (provider_id, fragment) in live {
+                if !selected.contains(&provider_id) {
+                    outcome.ignored += 1;
+                    continue;
+                }
+                let Ok(typed) = serde_json::from_value::<
+                    crate::openclaw_config::OpenClawProviderConfig,
+                >(fragment.clone()) else {
+                    outcome.invalid += 1;
+                    continue;
+                };
+                if typed.models.is_empty() || !Self::valid_openclaw_provider_id(&provider_id) {
+                    outcome.invalid += 1;
+                    continue;
+                }
+
+                if let Some(existing) = manager.providers.get_mut(&provider_id) {
+                    let unchanged = Self::openclaw_fragment(existing)
+                        .map(|value| value == fragment)
+                        .unwrap_or(false);
+                    if unchanged {
+                        outcome.unchanged += 1;
+                        continue;
+                    }
+                    if !update_existing {
+                        outcome.ignored += 1;
+                        continue;
+                    }
+                    existing.settings_config = fragment;
+                    existing
+                        .meta
+                        .get_or_insert_with(ProviderMeta::default)
+                        .live_config_managed = Some(true);
+                    outcome.updated += 1;
+                    continue;
+                }
+
+                let mut provider = Provider::with_id(
+                    provider_id.clone(),
+                    Self::openclaw_live_display_name(&provider_id, &typed),
+                    fragment,
+                    None,
+                );
+                provider.category = Some("custom".to_string());
+                provider.created_at = Some(now);
+                provider.sort_index = Some(next_sort_index);
+                next_sort_index = next_sort_index.saturating_add(1);
+                provider.meta = Some(ProviderMeta {
+                    live_config_managed: Some(true),
+                    ..Default::default()
+                });
+                manager.providers.insert(provider_id, provider);
+                outcome.imported += 1;
+            }
+
+            if let Some(default_provider) =
+                default_provider.filter(|id| manager.providers.contains_key(id))
+            {
+                manager.current = default_provider;
+            } else if manager.current.is_empty()
+                || !manager.providers.contains_key(&manager.current)
+            {
+                manager.current = manager.providers.keys().min().cloned().unwrap_or_default();
+            }
+            Ok(outcome)
+        })
+    }
+
+    pub fn import_openclaw_providers_from_live(state: &AppState) -> Result<usize, AppError> {
+        let preview = Self::preview_openclaw_provider_reconciliation(state)?;
+        let provider_ids = preview
+            .items
+            .iter()
+            .filter(|item| {
+                item.status == OpenClawReconciliationStatus::New
+                    || (item.status == OpenClawReconciliationStatus::Changed
+                        && item.live_config_managed)
+            })
+            .map(|item| item.provider_id.clone())
+            .collect::<Vec<_>>();
+        if provider_ids.is_empty() {
+            return Ok(0);
+        }
+        let outcome = Self::apply_openclaw_provider_reconciliation(
+            state,
+            &provider_ids,
+            true,
+            Some(&preview.etag),
+        )?;
+        Ok(outcome.imported + outcome.updated)
+    }
+
+    fn valid_openclaw_provider_id(id: &str) -> bool {
+        let trimmed = id.trim();
+        !trimmed.is_empty()
+            && trimmed.len() <= 128
+            && trimmed != "."
+            && trimmed != ".."
+            && !trimmed.contains('/')
+            && !trimmed.contains('\\')
+    }
+
+    fn openclaw_live_display_name(
+        provider_id: &str,
+        provider: &crate::openclaw_config::OpenClawProviderConfig,
+    ) -> String {
+        provider
+            .models
+            .first()
+            .and_then(|model| model.name.as_deref().or(Some(model.id.as_str())))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(provider_id)
+            .to_string()
     }
 
     /// 导入当前 live 配置为默认供应商
@@ -2635,6 +2941,7 @@ impl ProviderService {
                 &crate::openclaw_config::OpenClawDefaultModel {
                     primary,
                     fallbacks: Vec::new(),
+                    extra: HashMap::new(),
                 },
             )?;
             return Ok(());

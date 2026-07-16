@@ -50,6 +50,19 @@ import {
   testProxyState,
   getCapabilitiesState,
   getOpenClawStatusState,
+  getOpenClawRawState,
+  setOpenClawRawState,
+  clearOpenClawDefaultModelState,
+  getOpenClawAgentsState,
+  setOpenClawAgentsState,
+  getOpenClawModelCatalogState,
+  setOpenClawModelCatalogState,
+  getOpenClawEnvState,
+  setOpenClawEnvState,
+  getOpenClawToolsState,
+  setOpenClawToolsState,
+  getOpenClawReconciliationState,
+  applyOpenClawReconciliationState,
   setOpenClawDefaultModelState,
   getWorkspaceFilesState,
   getWorkspaceFileState,
@@ -59,6 +72,8 @@ import {
   getDailyMemoryState,
   getDailyMemoryFileState,
   writeDailyMemoryState,
+  searchDailyMemoryState,
+  deleteDailyMemoryState,
   getSessionsPageState,
   getStreamCheckLogsState,
   addStreamCheckLogState,
@@ -77,6 +92,15 @@ const withJson = async <T>(request: Request): Promise<T> => {
 };
 
 const success = <T>(payload: T) => HttpResponse.json(payload as any);
+
+const openClawConflict = () =>
+  HttpResponse.json(
+    {
+      error: "openclaw_etag_conflict",
+      message: "OpenClaw configuration changed since it was loaded",
+    },
+    { status: 409 },
+  );
 
 const getMockConfigDir = (app: AppId): string => {
   switch (app) {
@@ -106,6 +130,23 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/get_openclaw_status`, () =>
     success(getOpenClawStatusState()),
   ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_raw_config`, () =>
+    success(getOpenClawRawState()),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/set_openclaw_raw_config`,
+    async ({ request }) => {
+      const { source = "", expectedEtag } = await withJson<{
+        source?: string;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(setOpenClawRawState(source, expectedEtag));
+      } catch {
+        return openClawConflict();
+      }
+    },
+  ),
   http.post(`${TAURI_ENDPOINT}/get_openclaw_live_providers`, () =>
     success(getOpenClawStatusState().providers),
   ),
@@ -126,15 +167,115 @@ export const handlers = [
   http.post(
     `${TAURI_ENDPOINT}/set_openclaw_default_model`,
     async ({ request }) => {
-      const { model } = await withJson<{
+      const { model, expectedEtag } = await withJson<{
         model: { primary: string; fallbacks?: string[] };
+        expectedEtag?: string | null;
       }>(request);
-      return success(setOpenClawDefaultModelState(model));
+      try {
+        return success(setOpenClawDefaultModelState(model, expectedEtag));
+      } catch {
+        return openClawConflict();
+      }
     },
   ),
-  http.post(`${TAURI_ENDPOINT}/clear_openclaw_default_model`, () =>
-    success(setOpenClawDefaultModelState({ primary: "", fallbacks: [] })),
+  http.post(
+    `${TAURI_ENDPOINT}/clear_openclaw_default_model`,
+    async ({ request }) => {
+      const { expectedEtag } = await withJson<{
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(clearOpenClawDefaultModelState(expectedEtag));
+      } catch {
+        return openClawConflict();
+      }
+    },
   ),
+  http.post(`${TAURI_ENDPOINT}/preview_openclaw_provider_reconciliation`, () =>
+    success(getOpenClawReconciliationState()),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/apply_openclaw_provider_reconciliation`,
+    async ({ request }) => {
+      const { providerIds = [], expectedEtag } = await withJson<{
+        providerIds?: string[];
+        updateExisting?: boolean;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(
+          applyOpenClawReconciliationState(providerIds, expectedEtag),
+        );
+      } catch {
+        return openClawConflict();
+      }
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/import_openclaw_providers_from_live`, () =>
+    success(0),
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_model_catalog`, () =>
+    success(getOpenClawModelCatalogState()),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/set_openclaw_model_catalog`,
+    async ({ request }) => {
+      const { catalog = {}, expectedEtag } = await withJson<{
+        catalog?: Record<string, Record<string, unknown>>;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(setOpenClawModelCatalogState(catalog, expectedEtag));
+      } catch {
+        return openClawConflict();
+      }
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_agents_defaults`, () =>
+    success(getOpenClawAgentsState()),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/set_openclaw_agents_defaults`,
+    async ({ request }) => {
+      const { defaults = {}, expectedEtag } = await withJson<{
+        defaults?: Record<string, unknown>;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(setOpenClawAgentsState(defaults, expectedEtag));
+      } catch {
+        return openClawConflict();
+      }
+    },
+  ),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_env`, () =>
+    success(getOpenClawEnvState()),
+  ),
+  http.post(`${TAURI_ENDPOINT}/set_openclaw_env`, async ({ request }) => {
+    const { env = {}, expectedEtag } = await withJson<{
+      env?: Record<string, unknown>;
+      expectedEtag?: string | null;
+    }>(request);
+    try {
+      return success(setOpenClawEnvState(env, expectedEtag));
+    } catch {
+      return openClawConflict();
+    }
+  }),
+  http.post(`${TAURI_ENDPOINT}/get_openclaw_tools`, () =>
+    success(getOpenClawToolsState()),
+  ),
+  http.post(`${TAURI_ENDPOINT}/set_openclaw_tools`, async ({ request }) => {
+    const { tools = {}, expectedEtag } = await withJson<{
+      tools?: Record<string, unknown>;
+      expectedEtag?: string | null;
+    }>(request);
+    try {
+      return success(setOpenClawToolsState(tools, expectedEtag));
+    } catch {
+      return openClawConflict();
+    }
+  }),
   http.post(`${TAURI_ENDPOINT}/scan_openclaw_config_health`, () => success([])),
 
   http.post(`${TAURI_ENDPOINT}/list_workspace_files`, () =>
@@ -218,6 +359,34 @@ export const handlers = [
         return HttpResponse.json(
           { error: "workspace_etag_conflict" },
           { status: 409 },
+        );
+      }
+    },
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/search_daily_memory_files`,
+    async ({ request }) => {
+      const { query = "" } = await withJson<{ query?: string }>(request);
+      return success(searchDailyMemoryState(query));
+    },
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/delete_daily_memory_file`,
+    async ({ request }) => {
+      const { date, expectedEtag } = await withJson<{
+        date: string;
+        expectedEtag?: string | null;
+      }>(request);
+      try {
+        return success(deleteDailyMemoryState(date, expectedEtag));
+      } catch (error) {
+        const code =
+          error instanceof Error && error.message === "workspace_not_found"
+            ? "workspace_not_found"
+            : "workspace_etag_conflict";
+        return HttpResponse.json(
+          { error: code },
+          { status: code === "workspace_not_found" ? 404 : 409 },
         );
       }
     },

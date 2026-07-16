@@ -16,6 +16,7 @@ import {
   Edit3,
   History,
   FolderOpen,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { Provider } from "@/types";
 import type { EnvConflict } from "@/types/env";
@@ -96,6 +97,11 @@ const WorkspacePanel = lazy(() =>
     default: module.WorkspacePanel,
   })),
 );
+const OpenClawConfigCenter = lazy(() =>
+  import("@/components/openclaw/OpenClawConfigCenter").then((module) => ({
+    default: module.OpenClawConfigCenter,
+  })),
+);
 
 async function validateWebCredentials(url: string): Promise<boolean> {
   const headers = buildWebAuthHeadersForUrl(url);
@@ -144,6 +150,7 @@ function AppContent() {
   const [isUsageDashboardOpen, setIsUsageDashboardOpen] = useState(false);
   const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const [isOpenClawConfigOpen, setIsOpenClawConfigOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [usageProvider, setUsageProvider] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Provider | null>(null);
@@ -776,6 +783,16 @@ function AppContent() {
                 {t("sessionManager.manage")}
               </Button>
             ) : null}
+            {activeApp === "openclaw" ? (
+              <Button
+                variant="outline"
+                onClick={() => setIsOpenClawConfigOpen(true)}
+                className="min-w-[112px]"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                {t("openclaw.config.manage")}
+              </Button>
+            ) : null}
             {activeApp === "openclaw" && workspaceSupported ? (
               <Button
                 variant="outline"
@@ -973,6 +990,14 @@ function AppContent() {
           <WorkspacePanel
             open={isWorkspaceOpen}
             onOpenChange={setIsWorkspaceOpen}
+          />
+        </Suspense>
+      ) : null}
+      {isOpenClawConfigOpen && activeApp === "openclaw" ? (
+        <Suspense fallback={null}>
+          <OpenClawConfigCenter
+            open={isOpenClawConfigOpen}
+            onOpenChange={setIsOpenClawConfigOpen}
           />
         </Suspense>
       ) : null}

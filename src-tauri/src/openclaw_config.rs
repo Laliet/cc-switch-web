@@ -14,6 +14,7 @@ use json_five::rt::parser::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,14 +40,26 @@ pub struct OpenClawWriteOutcome {
     pub backup_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<OpenClawHealthWarning>,
+    pub etag: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenClawDefaultModel {
     pub primary: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallbacks: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawModelCost {
+    pub input: f64,
+    pub output: f64,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -57,6 +70,12 @@ pub struct OpenClawModelEntry {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<OpenClawModelCost>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -72,8 +91,62 @@ pub struct OpenClawProviderConfig {
     pub api: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<OpenClawModelEntry>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawModelCatalogEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawAgentsDefaults {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<OpenClawDefaultModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<HashMap<String, OpenClawModelCatalogEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<u32>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(transparent)]
+pub struct OpenClawEnvConfig(pub HashMap<String, Value>);
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawToolsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deny: Vec<String>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawSection<T> {
+    pub value: T,
+    pub etag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,6 +178,7 @@ pub struct OpenClawLiveStatus {
     pub default_model: Option<OpenClawDefaultModel>,
     pub providers: Vec<OpenClawLiveProviderSummary>,
     pub warnings: Vec<OpenClawHealthWarning>,
+    pub etag: String,
 }
 
 pub fn get_openclaw_dir() -> PathBuf {
@@ -148,6 +222,110 @@ pub fn read_openclaw_config() -> Result<Value, AppError> {
     let content = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
     json5::from_str(&content)
         .map_err(|e| AppError::Config(format!("Failed to parse OpenClaw JSON5: {e}")))
+}
+
+pub fn get_config_etag() -> Result<String, AppError> {
+    let path = get_openclaw_config_path();
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    let metadata = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+    if metadata.len() > MAX_CONFIG_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "OpenClaw config exceeds {} MiB",
+            MAX_CONFIG_BYTES / 1024 / 1024
+        )));
+    }
+    let source = fs::read(&path).map_err(|e| AppError::io(&path, e))?;
+    Ok(source_etag(&source))
+}
+
+pub fn get_raw_config() -> Result<OpenClawSection<String>, AppError> {
+    let path = get_openclaw_config_path();
+    if !path.exists() {
+        return Ok(OpenClawSection {
+            value: DEFAULT_SOURCE.to_string(),
+            etag: String::new(),
+        });
+    }
+    let metadata = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+    if metadata.len() > MAX_CONFIG_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "OpenClaw config exceeds {} MiB",
+            MAX_CONFIG_BYTES / 1024 / 1024
+        )));
+    }
+    let bytes = fs::read(&path).map_err(|e| AppError::io(&path, e))?;
+    let etag = source_etag(&bytes);
+    let value = String::from_utf8(bytes)
+        .map_err(|_| AppError::Config("OpenClaw config is not valid UTF-8".to_string()))?;
+    Ok(OpenClawSection { value, etag })
+}
+
+pub fn set_raw_config(
+    source: &str,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    if source.len() > MAX_CONFIG_BYTES as usize {
+        return Err(AppError::InvalidInput(format!(
+            "OpenClaw config exceeds {} MiB",
+            MAX_CONFIG_BYTES / 1024 / 1024
+        )));
+    }
+    let parsed: Value = json5::from_str(source)
+        .map_err(|e| AppError::Config(format!("Failed to parse OpenClaw JSON5: {e}")))?;
+    if !parsed.is_object() {
+        return Err(AppError::InvalidInput(
+            "OpenClaw config root must be a JSON5 object".to_string(),
+        ));
+    }
+
+    let path = get_openclaw_config_path();
+    let backup_dir = get_app_config_dir()?.join("backups").join("openclaw");
+    let _guard = write_lock()
+        .lock()
+        .map_err(|_| AppError::Database("OpenClaw config lock poisoned".to_string()))?;
+    let current_source = if path.exists() {
+        let metadata = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+        if metadata.len() > MAX_CONFIG_BYTES {
+            return Err(AppError::InvalidInput(format!(
+                "OpenClaw config exceeds {} MiB",
+                MAX_CONFIG_BYTES / 1024 / 1024
+            )));
+        }
+        let source = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+        if source.len() > MAX_CONFIG_BYTES as usize {
+            return Err(AppError::InvalidInput(format!(
+                "OpenClaw config exceeds {} MiB",
+                MAX_CONFIG_BYTES / 1024 / 1024
+            )));
+        }
+        Some(source)
+    } else {
+        None
+    };
+    validate_expected_etag(current_source.as_deref(), expected_etag)?;
+    if current_source.as_deref() == Some(source) {
+        return Ok(OpenClawWriteOutcome {
+            backup_path: None,
+            warnings: scan_health(&parsed),
+            etag: source_etag(source.as_bytes()),
+        });
+    }
+    let backup_path = current_source
+        .as_deref()
+        .map(|current| create_backup(current, &backup_dir))
+        .transpose()?
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        });
+    atomic_write(&path, source.as_bytes())?;
+    Ok(OpenClawWriteOutcome {
+        backup_path,
+        warnings: scan_health(&parsed),
+        etag: source_etag(source.as_bytes()),
+    })
 }
 
 pub fn get_providers() -> Result<Map<String, Value>, AppError> {
@@ -203,6 +381,7 @@ pub fn get_live_status() -> Result<OpenClawLiveStatus, AppError> {
         default_model: get_default_model()?,
         providers: get_live_provider_summaries()?,
         warnings: scan_openclaw_config_health()?,
+        etag: get_config_etag()?,
     })
 }
 
@@ -223,7 +402,7 @@ pub fn set_provider(id: &str, provider: Value) -> Result<OpenClawWriteOutcome, A
         "models",
         config.get("models").expect("models was initialized"),
     )?;
-    document.save()
+    document.save(None)
 }
 
 pub fn merge_providers(providers: Map<String, Value>) -> Result<OpenClawWriteOutcome, AppError> {
@@ -245,7 +424,7 @@ pub fn merge_providers(providers: Map<String, Value>) -> Result<OpenClawWriteOut
         live_providers.insert(id, provider);
     }
     document.set_root_section("models", models)?;
-    document.save()
+    document.save(None)
 }
 
 pub fn remove_provider(id: &str) -> Result<OpenClawWriteOutcome, AppError> {
@@ -261,6 +440,7 @@ pub fn remove_provider(id: &str) -> Result<OpenClawWriteOutcome, AppError> {
     if !removed {
         return Ok(OpenClawWriteOutcome {
             warnings: scan_health(&config),
+            etag: get_config_etag()?,
             ..Default::default()
         });
     }
@@ -268,7 +448,7 @@ pub fn remove_provider(id: &str) -> Result<OpenClawWriteOutcome, AppError> {
         "models",
         config.get("models").expect("models exists after removal"),
     )?;
-    document.save()
+    document.save(None)
 }
 
 pub fn get_default_model() -> Result<Option<OpenClawDefaultModel>, AppError> {
@@ -284,6 +464,7 @@ pub fn get_default_model() -> Result<Option<OpenClawDefaultModel>, AppError> {
         return Ok(Some(OpenClawDefaultModel {
             primary: primary.to_string(),
             fallbacks: Vec::new(),
+            extra: HashMap::new(),
         }));
     }
     serde_json::from_value(value.clone())
@@ -292,6 +473,13 @@ pub fn get_default_model() -> Result<Option<OpenClawDefaultModel>, AppError> {
 }
 
 pub fn set_default_model(model: &OpenClawDefaultModel) -> Result<OpenClawWriteOutcome, AppError> {
+    set_default_model_with_etag(model, None)
+}
+
+pub fn set_default_model_with_etag(
+    model: &OpenClawDefaultModel,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
     if model.primary.trim().is_empty() {
         return Err(AppError::InvalidInput(
             "OpenClaw default model is required".to_string(),
@@ -315,10 +503,16 @@ pub fn set_default_model(model: &OpenClawDefaultModel) -> Result<OpenClawWriteOu
         "agents",
         config.get("agents").expect("agents was initialized"),
     )?;
-    document.save()
+    document.save(expected_etag)
 }
 
 pub fn clear_default_model() -> Result<OpenClawWriteOutcome, AppError> {
+    clear_default_model_with_etag(None)
+}
+
+pub fn clear_default_model_with_etag(
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
     let mut document = OpenClawDocument::load()?;
     let mut config = document.parsed_value()?;
     let removed = config
@@ -330,6 +524,7 @@ pub fn clear_default_model() -> Result<OpenClawWriteOutcome, AppError> {
     if !removed {
         return Ok(OpenClawWriteOutcome {
             warnings: scan_health(&config),
+            etag: get_config_etag()?,
             ..Default::default()
         });
     }
@@ -337,7 +532,197 @@ pub fn clear_default_model() -> Result<OpenClawWriteOutcome, AppError> {
         "agents",
         config.get("agents").expect("agents exists after removal"),
     )?;
-    document.save()
+    document.save(expected_etag)
+}
+
+pub fn get_model_catalog(
+) -> Result<OpenClawSection<Option<HashMap<String, OpenClawModelCatalogEntry>>>, AppError> {
+    let config = read_openclaw_config()?;
+    let value = config
+        .pointer("/agents/defaults/models")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| AppError::Config(format!("Invalid OpenClaw model catalog: {e}")))?;
+    Ok(OpenClawSection {
+        value,
+        etag: get_config_etag()?,
+    })
+}
+
+pub fn set_model_catalog(
+    catalog: &HashMap<String, OpenClawModelCatalogEntry>,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    let mut document = OpenClawDocument::load()?;
+    let mut config = document.parsed_value()?;
+    for reference in catalog.keys() {
+        if !model_reference_exists(&config, reference) {
+            return Err(AppError::InvalidInput(format!(
+                "OpenClaw model catalog reference does not exist: {reference}"
+            )));
+        }
+    }
+    let root = ensure_object(&mut config);
+    let agents = root
+        .entry("agents")
+        .or_insert_with(|| Value::Object(Map::new()));
+    let defaults = ensure_object(agents)
+        .entry("defaults")
+        .or_insert_with(|| Value::Object(Map::new()));
+    ensure_object(defaults).insert(
+        "models".to_string(),
+        serde_json::to_value(catalog).map_err(|e| AppError::JsonSerialize { source: e })?,
+    );
+    document.set_root_section(
+        "agents",
+        config.get("agents").expect("agents was initialized"),
+    )?;
+    document.save(expected_etag)
+}
+
+pub fn get_agents_defaults() -> Result<OpenClawSection<Option<OpenClawAgentsDefaults>>, AppError> {
+    let config = read_openclaw_config()?;
+    let value = config
+        .pointer("/agents/defaults")
+        .cloned()
+        .map(normalize_agents_defaults_value)
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| AppError::Config(format!("Invalid OpenClaw agents.defaults: {e}")))?;
+    Ok(OpenClawSection {
+        value,
+        etag: get_config_etag()?,
+    })
+}
+
+pub fn set_agents_defaults(
+    defaults: &OpenClawAgentsDefaults,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    if let Some(model) = defaults.model.as_ref() {
+        if model.primary.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "OpenClaw default model is required".to_string(),
+            ));
+        }
+    }
+    let legacy_timeout = defaults.extra.get("timeout");
+    if defaults.timeout_seconds.is_some_and(|value| value <= 0.0)
+        || legacy_timeout
+            .is_some_and(|value| value.as_f64().map(|timeout| timeout <= 0.0).unwrap_or(true))
+        || defaults.context_tokens == Some(0)
+        || defaults.max_concurrent == Some(0)
+    {
+        return Err(AppError::InvalidInput(
+            "OpenClaw agents.defaults numeric values must be positive".to_string(),
+        ));
+    }
+
+    let mut document = OpenClawDocument::load()?;
+    let mut config = document.parsed_value()?;
+    if let Some(model) = defaults.model.as_ref() {
+        validate_default_model(&config, model)?;
+    }
+    if let Some(catalog) = defaults.models.as_ref() {
+        for reference in catalog.keys() {
+            if !model_reference_exists(&config, reference) {
+                return Err(AppError::InvalidInput(format!(
+                    "OpenClaw model catalog reference does not exist: {reference}"
+                )));
+            }
+        }
+    }
+
+    let value = agents_defaults_value_for_write(defaults)?;
+    let root = ensure_object(&mut config);
+    let agents = root
+        .entry("agents")
+        .or_insert_with(|| Value::Object(Map::new()));
+    ensure_object(agents).insert("defaults".to_string(), value);
+    document.set_root_section(
+        "agents",
+        config.get("agents").expect("agents was initialized"),
+    )?;
+    document.save(expected_etag)
+}
+
+fn agents_defaults_value_for_write(defaults: &OpenClawAgentsDefaults) -> Result<Value, AppError> {
+    let mut value =
+        serde_json::to_value(defaults).map_err(|e| AppError::JsonSerialize { source: e })?;
+    if let Some(object) = value.as_object_mut() {
+        let legacy_timeout = object.remove("timeout");
+        if !object.contains_key("timeoutSeconds") {
+            if let Some(timeout) = legacy_timeout {
+                object.insert("timeoutSeconds".to_string(), timeout);
+            }
+        }
+    }
+    Ok(value)
+}
+
+pub fn get_env_config() -> Result<OpenClawSection<OpenClawEnvConfig>, AppError> {
+    let config = read_openclaw_config()?;
+    let value = config
+        .get("env")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| AppError::Config(format!("Invalid OpenClaw env config: {e}")))?
+        .unwrap_or_default();
+    Ok(OpenClawSection {
+        value,
+        etag: get_config_etag()?,
+    })
+}
+
+pub fn set_env_config(
+    env: &OpenClawEnvConfig,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    set_root_section_with_etag("env", env, expected_etag)
+}
+
+pub fn get_tools_config() -> Result<OpenClawSection<OpenClawToolsConfig>, AppError> {
+    let config = read_openclaw_config()?;
+    let value = config
+        .get("tools")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| AppError::Config(format!("Invalid OpenClaw tools config: {e}")))?
+        .unwrap_or_default();
+    Ok(OpenClawSection {
+        value,
+        etag: get_config_etag()?,
+    })
+}
+
+pub fn set_tools_config(
+    tools: &OpenClawToolsConfig,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    set_root_section_with_etag("tools", tools, expected_etag)
+}
+
+fn set_root_section_with_etag<T: Serialize>(
+    section: &str,
+    value: &T,
+    expected_etag: Option<&str>,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    let mut document = OpenClawDocument::load()?;
+    let value = serde_json::to_value(value).map_err(|e| AppError::JsonSerialize { source: e })?;
+    document.set_root_section(section, &value)?;
+    document.save(expected_etag)
+}
+
+fn normalize_agents_defaults_value(mut value: Value) -> Value {
+    if let Some(model) = value.get_mut("model") {
+        if let Some(primary) = model.as_str() {
+            *model = json!({ "primary": primary, "fallbacks": [] });
+        }
+    }
+    value
 }
 
 pub fn scan_openclaw_config_health() -> Result<Vec<OpenClawHealthWarning>, AppError> {
@@ -457,7 +842,21 @@ impl OpenClawDocument {
 
     fn load_from(path: PathBuf, backup_dir: PathBuf) -> Result<Self, AppError> {
         let original_source = if path.exists() {
-            Some(fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?)
+            let metadata = fs::metadata(&path).map_err(|e| AppError::io(&path, e))?;
+            if metadata.len() > MAX_CONFIG_BYTES {
+                return Err(AppError::InvalidInput(format!(
+                    "OpenClaw config exceeds {} MiB",
+                    MAX_CONFIG_BYTES / 1024 / 1024
+                )));
+            }
+            let source = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+            if source.len() > MAX_CONFIG_BYTES as usize {
+                return Err(AppError::InvalidInput(format!(
+                    "OpenClaw config exceeds {} MiB",
+                    MAX_CONFIG_BYTES / 1024 / 1024
+                )));
+            }
+            Some(source)
         } else {
             None
         };
@@ -540,7 +939,7 @@ impl OpenClawDocument {
             .map_err(|error| AppError::Config(format!("Failed to parse OpenClaw JSON5: {error}")))
     }
 
-    fn save(self) -> Result<OpenClawWriteOutcome, AppError> {
+    fn save(self, expected_etag: Option<&str>) -> Result<OpenClawWriteOutcome, AppError> {
         let _guard = write_lock()
             .lock()
             .map_err(|_| AppError::Database("OpenClaw config lock poisoned".to_string()))?;
@@ -549,8 +948,9 @@ impl OpenClawDocument {
         } else {
             None
         };
+        validate_expected_etag(current_source.as_deref(), expected_etag)?;
         if current_source != self.original_source {
-            return Err(AppError::Config(
+            return Err(AppError::Conflict(
                 "OpenClaw config changed on disk; reload and retry".to_string(),
             ));
         }
@@ -562,6 +962,7 @@ impl OpenClawDocument {
             return Ok(OpenClawWriteOutcome {
                 backup_path: None,
                 warnings: scan_health(&parsed),
+                etag: source_etag(next_source.as_bytes()),
             });
         }
         let backup_path = current_source
@@ -576,8 +977,31 @@ impl OpenClawDocument {
         Ok(OpenClawWriteOutcome {
             backup_path,
             warnings: scan_health(&parsed),
+            etag: source_etag(next_source.as_bytes()),
         })
     }
+}
+
+fn validate_expected_etag(
+    current_source: Option<&str>,
+    expected_etag: Option<&str>,
+) -> Result<(), AppError> {
+    let Some(expected) = expected_etag else {
+        return Ok(());
+    };
+    match current_source {
+        Some(source) if source_etag(source.as_bytes()) != expected => Err(AppError::Conflict(
+            "OpenClaw config changed since it was loaded".to_string(),
+        )),
+        None if !expected.is_empty() => Err(AppError::Conflict(
+            "OpenClaw config no longer exists".to_string(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+fn source_etag(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
 }
 
 fn create_backup(source: &str, backup_dir: &Path) -> Result<PathBuf, AppError> {
@@ -777,6 +1201,34 @@ fn scan_health(config: &Value) -> Vec<OpenClawHealthWarning> {
             });
         }
     }
+    if config.pointer("/agents/defaults/timeout").is_some() {
+        warnings.push(OpenClawHealthWarning {
+            code: "legacy_agents_timeout".to_string(),
+            message: "agents.defaults.timeout is deprecated; use agents.defaults.timeoutSeconds"
+                .to_string(),
+            path: Some("agents.defaults.timeout".to_string()),
+        });
+    }
+    if config
+        .pointer("/env/vars")
+        .is_some_and(|value| !value.is_object())
+    {
+        warnings.push(OpenClawHealthWarning {
+            code: "stringified_env_vars".to_string(),
+            message: "OpenClaw env.vars should be an object".to_string(),
+            path: Some("env.vars".to_string()),
+        });
+    }
+    if config
+        .pointer("/env/shellEnv")
+        .is_some_and(|value| !value.is_object())
+    {
+        warnings.push(OpenClawHealthWarning {
+            code: "stringified_env_shell_env".to_string(),
+            message: "OpenClaw env.shellEnv should be an object".to_string(),
+            path: Some("env.shellEnv".to_string()),
+        });
+    }
     if let Some(profile) = config
         .get("tools")
         .and_then(|tools| tools.get("profile"))
@@ -796,9 +1248,11 @@ fn scan_health(config: &Value) -> Vec<OpenClawHealthWarning> {
 #[cfg(test)]
 mod tests {
     use super::{
-        scan_health, validate_default_model, validate_id, OpenClawDefaultModel, OpenClawDocument,
+        agents_defaults_value_for_write, scan_health, validate_default_model, validate_id,
+        OpenClawAgentsDefaults, OpenClawDefaultModel, OpenClawDocument,
     };
     use serde_json::json;
+    use std::collections::HashMap;
     use std::fs;
 
     #[test]
@@ -814,6 +1268,56 @@ mod tests {
         assert!(warnings
             .iter()
             .any(|warning| warning.code == "invalid_tools_profile"));
+    }
+
+    #[test]
+    fn reports_legacy_timeout_and_malformed_environment_objects() {
+        let warnings = scan_health(&json!({
+            "models": {},
+            "agents": {"defaults": {"timeout": 30}},
+            "env": {"vars": "[object Object]", "shellEnv": ["TOKEN=value"]}
+        }));
+        let codes = warnings
+            .iter()
+            .map(|warning| warning.code.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(codes.contains(&"legacy_agents_timeout"));
+        assert!(codes.contains(&"stringified_env_vars"));
+        assert!(codes.contains(&"stringified_env_shell_env"));
+    }
+
+    #[test]
+    fn agents_defaults_save_migrates_legacy_timeout() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let path = temp.path().join("openclaw.json");
+        fs::write(&path, "{ agents: { defaults: { timeout: 30 } } }\n").expect("seed config");
+        let defaults: OpenClawAgentsDefaults = serde_json::from_value(json!({
+            "timeout": 30,
+            "futureSetting": {"enabled": true}
+        }))
+        .expect("deserialize legacy defaults");
+        let value = agents_defaults_value_for_write(&defaults).expect("prepare defaults write");
+        let mut document = OpenClawDocument::load_from(path.clone(), temp.path().join("backups"))
+            .expect("load round-trip document");
+        document
+            .set_root_section("agents", &json!({"defaults": value}))
+            .expect("replace agents section");
+
+        document.save(None).expect("save migrated defaults");
+
+        let updated: serde_json::Value =
+            json5::from_str(&fs::read_to_string(path).expect("read migrated config"))
+                .expect("parse migrated config");
+        assert_eq!(
+            updated.pointer("/agents/defaults/timeoutSeconds"),
+            Some(&json!(30))
+        );
+        assert!(updated.pointer("/agents/defaults/timeout").is_none());
+        assert_eq!(
+            updated.pointer("/agents/defaults/futureSetting/enabled"),
+            Some(&json!(true))
+        );
     }
 
     #[test]
@@ -844,7 +1348,7 @@ mod tests {
                 }),
             )
             .expect("replace models section");
-        let outcome = document.save().expect("save round-trip document");
+        let outcome = document.save(None).expect("save round-trip document");
 
         let backup_name = outcome.backup_path.expect("backup name");
         assert!(!backup_name.contains('/') && !backup_name.contains('\\'));
@@ -890,7 +1394,7 @@ mod tests {
         fs::write(&path, external).expect("simulate external edit");
 
         let error = document
-            .save()
+            .save(None)
             .expect_err("concurrent edit must be rejected");
         assert!(error.to_string().contains("changed on disk"));
         assert_eq!(
@@ -913,6 +1417,7 @@ mod tests {
             &OpenClawDefaultModel {
                 primary: "alpha/alpha-1".to_string(),
                 fallbacks: Vec::new(),
+                extra: HashMap::new(),
             }
         )
         .is_ok());
@@ -921,6 +1426,7 @@ mod tests {
             &OpenClawDefaultModel {
                 primary: "alpha/missing".to_string(),
                 fallbacks: Vec::new(),
+                extra: HashMap::new(),
             }
         )
         .is_err());

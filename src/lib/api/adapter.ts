@@ -651,6 +651,17 @@ export function commandToEndpoint(
       return { method: "GET", url: `${apiBase}/capabilities` };
     case "get_openclaw_status":
       return { method: "GET", url: `${apiBase}/openclaw/status` };
+    case "get_openclaw_raw_config":
+      return { method: "GET", url: `${apiBase}/openclaw/raw` };
+    case "set_openclaw_raw_config":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/raw`,
+        body: {
+          value: requireArg(args, "source", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
     case "get_openclaw_live_providers":
       return { method: "GET", url: `${apiBase}/openclaw/providers` };
     case "get_openclaw_live_provider":
@@ -658,16 +669,89 @@ export function commandToEndpoint(
         method: "GET",
         url: `${apiBase}/openclaw/providers/${encode(requireArg(args, "providerId", cmd))}`,
       };
+    case "preview_openclaw_provider_reconciliation":
+      return { method: "GET", url: `${apiBase}/openclaw/reconciliation` };
+    case "apply_openclaw_provider_reconciliation":
+      return {
+        method: "POST",
+        url: `${apiBase}/openclaw/reconciliation`,
+        body: {
+          providerIds: requireArg(args, "providerIds", cmd),
+          updateExisting: Boolean(args.updateExisting),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "import_openclaw_providers_from_live":
+      return {
+        method: "POST",
+        url: `${apiBase}/openclaw/reconciliation/import-new`,
+      };
     case "get_openclaw_default_model":
       return { method: "GET", url: `${apiBase}/openclaw/default-model` };
     case "set_openclaw_default_model":
       return {
         method: "PUT",
         url: `${apiBase}/openclaw/default-model`,
-        body: requireArg(args, "model", cmd),
+        body: {
+          model: requireArg(args, "model", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
       };
-    case "clear_openclaw_default_model":
-      return { method: "DELETE", url: `${apiBase}/openclaw/default-model` };
+    case "clear_openclaw_default_model": {
+      const params = new URLSearchParams();
+      if (args.expectedEtag) {
+        params.set("expectedEtag", String(args.expectedEtag));
+      }
+      const query = params.toString();
+      return {
+        method: "DELETE",
+        url: `${apiBase}/openclaw/default-model${query ? `?${query}` : ""}`,
+      };
+    }
+    case "get_openclaw_model_catalog":
+      return { method: "GET", url: `${apiBase}/openclaw/model-catalog` };
+    case "set_openclaw_model_catalog":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/model-catalog`,
+        body: {
+          value: requireArg(args, "catalog", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "get_openclaw_agents_defaults":
+      return { method: "GET", url: `${apiBase}/openclaw/agents-defaults` };
+    case "set_openclaw_agents_defaults":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/agents-defaults`,
+        body: {
+          value: requireArg(args, "defaults", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "get_openclaw_env":
+      return { method: "GET", url: `${apiBase}/openclaw/env` };
+    case "set_openclaw_env":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/env`,
+        body: {
+          value: requireArg(args, "env", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
+    case "get_openclaw_tools":
+      return { method: "GET", url: `${apiBase}/openclaw/tools` };
+    case "set_openclaw_tools":
+      return {
+        method: "PUT",
+        url: `${apiBase}/openclaw/tools`,
+        body: {
+          value: requireArg(args, "tools", cmd),
+          expectedEtag: args.expectedEtag ?? null,
+        },
+      };
     case "scan_openclaw_config_health":
       return { method: "GET", url: `${apiBase}/openclaw/health` };
     case "query_subscription_quota": {
@@ -691,6 +775,7 @@ export function commandToEndpoint(
       if (args.cursor) params.set("cursor", String(args.cursor));
       if (args.limit) params.set("limit", String(args.limit));
       if (args.providerId) params.set("providerId", String(args.providerId));
+      if (args.query) params.set("query", String(args.query));
       if (args.refresh) params.set("refresh", "true");
       const query = params.toString();
       return {
@@ -769,6 +854,26 @@ export function commandToEndpoint(
           expectedEtag: args.expectedEtag ?? null,
         },
       };
+    case "search_daily_memory_files": {
+      const params = new URLSearchParams({
+        query: String(requireArg(args, "query", cmd)),
+      });
+      return {
+        method: "GET",
+        url: `${apiBase}/workspace/memory/search?${params.toString()}`,
+      };
+    }
+    case "delete_daily_memory_file": {
+      const params = new URLSearchParams();
+      if (args.expectedEtag) {
+        params.set("expectedEtag", String(args.expectedEtag));
+      }
+      const query = params.toString();
+      return {
+        method: "DELETE",
+        url: `${apiBase}/workspace/memory/${encode(requireArg(args, "date", cmd))}${query ? `?${query}` : ""}`,
+      };
+    }
     case "parse_deeplink":
       return {
         method: "POST",
@@ -1227,6 +1332,14 @@ export function commandToEndpoint(
           }
           return payload;
         })(),
+      };
+    case "scan_unmanaged_skills":
+      return { method: "GET", url: `${apiBase}/skills/discovery` };
+    case "import_skills_from_apps":
+      return {
+        method: "POST",
+        url: `${apiBase}/skills/discovery/import`,
+        body: { imports: requireArg(args, "imports", cmd) },
       };
     case "get_skill_backups":
       return { method: "GET", url: `${apiBase}/skills/backups` };

@@ -4,7 +4,7 @@
 
 <sub>🙏 This project is a fork of [farion1231/cc-switch](https://github.com/farion1231/cc-switch) by Jason Young. Thanks to the original author for the excellent work. This fork adds Web Server mode for cloud/headless deployment.</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.20.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.21.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -27,7 +27,7 @@ Whether you're working locally or in a headless cloud environment, cc-switch-web
 - **System prompt editor** with syntax highlighting
 - **Configuration backup/restore** with version history
 - **OpenCode and OMO configuration UI** with presets, model metadata, and OMO Slim support
-- **OpenClaw phase-one management** for additive providers, default models, Workspace files, daily memory, and sessions
+- **OpenClaw configuration center** for models, Agents defaults, Environment, Tools, external Provider reconciliation, Workspace, daily memory, and sessions
 - **Stream health checks and retained history** for validating provider streaming responses
 - **Web server mode** for cloud/headless deployment with Basic Auth
 
@@ -67,7 +67,7 @@ If you have any questions, you can contact me here https://linux.do/t/topic/1217
 - **Prompt Management**: Create and manage system prompts with a built-in CodeMirror editor
 - **OpenCode Provider Presets**: Select AI SDK packages, import preset models, fetch model lists, and edit model variants/options
 - **OMO / OMO Slim UI**: Manage oh-my-opencode and oh-my-opencode-slim configuration with structured fields
-- **OpenClaw Management**: Manage additive providers/default models and edit allowlisted Workspace and daily-memory files with ETag conflict protection and backups
+- **OpenClaw Management**: Manage additive providers, models, Agents defaults, Environment, Tools, raw JSON5, Workspace, and daily memory with ETag conflict protection and backups
 
 ### Extended Features
 
@@ -93,10 +93,10 @@ Download precompiled server binary—no compilation required:
 
 | Architecture              | Download                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/cc-switch-server-linux-aarch64) |
 
-Release page: [v0.20.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)
+Release page: [v0.21.0 downloads](https://github.com/Laliet/cc-switch-web/releases/tag/v0.21.0)
 
 > **Note (glibc)**: Binaries are built on Ubuntu 22.04 (glibc baseline).  
 > If you see `GLIBC_2.xx not found`, use Docker or build from source.  
@@ -179,11 +179,11 @@ Web mode manages files and processes on the **server host**, not on the browser 
 | --- | --- |
 | Claude, Codex, Gemini | Providers, MCP, prompts, skills, usage, sessions, and local routing on the server host |
 | OpenCode | Additive providers plus MCP, prompts, skills, usage, sessions, and local routing |
-| OpenClaw | Additive providers, default model/status, allowlisted Workspace/daily-memory editing, and sessions |
+| OpenClaw | Additive providers, structured/raw configuration, external-provider reconciliation, allowlisted Workspace/daily-memory editing, and sessions |
 | OMO / OMO Slim | Provider profiles plus shared OpenCode MCP/Skills storage; no local proxy takeover |
 | Claude Desktop | Provider/local-routing profiles only on a supported macOS or Windows server host; no MCP, prompts, skills, usage, or sessions |
 
-Native file dialogs, tray integration, app update, portable-mode controls, environment management, and native endpoint testing remain desktop-only. OpenClaw local routing, MCP, prompts, skills, and usage are intentionally outside the v0.20.0 phase-one scope.
+Native file dialogs, tray integration, app update, portable-mode controls, environment management, and native endpoint testing remain desktop-only. OpenClaw local routing, MCP, prompts, skills, and usage remain intentionally unsupported because upstream v3.15.0 does not provide those OpenClaw integrations.
 
 ### Security
 
@@ -225,11 +225,11 @@ Full-featured desktop app with graphical interface, built with Tauri.
 
 | Platform    | Download                                                                                                                                           | Description                              |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **Windows** | [CC-Switch-v0.20.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows.msi)                   | Installer                                |
-|             | [CC-Switch-v0.20.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows-Portable.zip) | Portable (no install)                    |
-| **macOS**   | [CC-Switch-v0.20.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
-| **Linux**   | [CC-Switch-v0.20.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.AppImage)             | AppImage                                 |
-|             | [CC-Switch-v0.20.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.deb)                       | Debian/Ubuntu package                    |
+| **Windows** | [CC-Switch-v0.21.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Windows.msi)                   | Installer                                |
+|             | [CC-Switch-v0.21.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Windows-Portable.zip) | Portable (no install)                    |
+| **macOS**   | [CC-Switch-v0.21.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-macOS.zip)                       | Universal binary (Intel + Apple Silicon) |
+| **Linux**   | [CC-Switch-v0.21.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Linux.AppImage)             | AppImage                                 |
+|             | [CC-Switch-v0.21.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Linux.deb)                       | Debian/Ubuntu package                    |
 
 **macOS Note**: If you see "damaged" warning, run: `xattr -cr "/Applications/CC Switch.app"`
 
@@ -253,7 +253,7 @@ This script will:
 
 ```bash
 # Install a specific release version
-VERSION=v0.20.0 curl -fsSL https://...install.sh | bash
+VERSION=v0.21.0 curl -fsSL https://...install.sh | bash
 
 # Skip checksum verification
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -328,7 +328,7 @@ SQLite is the authoritative store for providers, MCP servers, prompts, skills,
 proxy settings, provider health, request logs, failover queue entries, and
 compatible JSON snapshots used by import/export flows.
 
-v0.20.0 uses SQLite **Schema v7**, which adds retained Stream Check history. WebDAV v2 writes new snapshots under `v2/db-v7/<profile>/`, still reads and restores v0.19.1 `db-v6` snapshots/history, and keeps the legacy 0.18 JSON snapshot as a read-only migration source. Runtime logs, usage data, health state, session sync state, and Stream Check history are not uploaded; existing local diagnostic history is preserved during restore.
+v0.21.0 continues to use SQLite **Schema v7**, which includes retained Stream Check history. WebDAV v2 writes new snapshots under `v2/db-v7/<profile>/`, still reads and restores v0.19.1 `db-v6` snapshots/history, and keeps the legacy 0.18 JSON snapshot as a read-only migration source. Runtime logs, usage data, health state, session sync state, and Stream Check history are not uploaded; existing local diagnostic history is preserved during restore.
 
 ---
 
@@ -366,8 +366,19 @@ pnpm test:unit
 
 ## What's New
 
-> Current release: [v0.20.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)<br>
-> `v0.20.0` completes the Web/headless capability loop, OpenClaw phase one, and proxy diagnostic reliability work.
+> Current release: [v0.21.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.21.0)<br>
+> `v0.21.0` completes OpenClaw phase two, global Session search, installed-Skills discovery, and Provider routing visibility.
+
+### v0.21.0 - OpenClaw Phase Two
+
+- Completes structured OpenClaw models, Agents defaults, Environment, Tools/Profile, and advanced raw JSON5 editing
+- Adds external Provider reconciliation with ETag-bound preview/apply and idempotent startup refresh
+- Adds host-wide Session search plus virtualized long-conversation messages and outlines
+- Adds installed-Skills discovery/import with trusted roots, conflict preview, explicit overwrite, and multi-app synchronization
+- Adds Daily Memory search and backed-up ETag-protected deletion
+- Merges all upstream v3.15.0 OpenClaw, Gemini, and Codex presets while retaining local China-accessible entries
+- Shows failover priority, actual proxy route, circuit state/failures, and latest health-check time on Provider cards
+- Release notes: [v0.21.0](docs/release-note-v0.21.0-en.md)
 
 ### v0.20.0 - Web/Headless + OpenClaw Phase One
 
@@ -427,7 +438,7 @@ pnpm test:unit
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) and [v0.20.0 release notes](docs/release-note-v0.20.0-en.md) - Current release: **v0.20.0**
+See [CHANGELOG.md](CHANGELOG.md) and [v0.21.0 release notes](docs/release-note-v0.21.0-en.md) - Current release: **v0.21.0**
 
 ---
 

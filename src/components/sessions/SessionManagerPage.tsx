@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import {
   CheckSquare,
@@ -90,7 +91,10 @@ export function SessionManagerPage({
   const [deleteTargets, setDeleteTargets] = useState<SessionMeta[] | null>(
     null,
   );
-  const messageRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const tocScrollRef = useRef<HTMLDivElement | null>(null);
+  const sessionRequestVersionRef = useRef(0);
+  const [effectiveSearch, setEffectiveSearch] = useState("");
 
   const selectedSession = useMemo(
     () =>
@@ -98,20 +102,7 @@ export function SessionManagerPage({
     [selectedKey, sessions],
   );
 
-  const filteredSessions = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return sessions.filter((session) => {
-      if (provider !== "all" && session.providerId !== provider) return false;
-      if (!query) return true;
-      return [
-        session.title,
-        session.summary,
-        session.projectDir,
-        session.sessionId,
-        session.providerId,
-      ].some((value) => value?.toLocaleLowerCase().includes(query));
-    });
-  }, [provider, search, sessions]);
+  const filteredSessions = sessions;
 
   const userMessageToc = useMemo(
     () =>
@@ -120,6 +111,53 @@ export function SessionManagerPage({
         .filter(({ message }) => message.role.toLocaleLowerCase() === "user"),
     [messages],
   );
+
+  const messageVirtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => messageScrollRef.current,
+    estimateSize: () => 132,
+    initialRect: { width: 800, height: 600 },
+    observeElementRect: (instance, callback) =>
+      observeElementRect(instance, (rect) =>
+        callback({
+          width: rect.width || 800,
+          height: rect.height || 600,
+        }),
+      ),
+    measureElement: (element) => element.getBoundingClientRect().height || 132,
+    overscan: 6,
+    gap: 12,
+    getItemKey: (index) =>
+      `${messages[index]?.ts ?? "message"}-${index}-${messages[index]?.role ?? ""}`,
+  });
+  const tocVirtualizer = useVirtualizer({
+    count: userMessageToc.length,
+    getScrollElement: () => tocScrollRef.current,
+    estimateSize: () => 44,
+    initialRect: { width: 220, height: 560 },
+    observeElementRect: (instance, callback) =>
+      observeElementRect(instance, (rect) =>
+        callback({
+          width: rect.width || 220,
+          height: rect.height || 560,
+        }),
+      ),
+    measureElement: (element) => element.getBoundingClientRect().height || 44,
+    overscan: 8,
+    gap: 4,
+    getItemKey: (index) => {
+      const item = userMessageToc[index];
+      return `${item?.message.ts ?? "toc"}-${item?.index ?? index}`;
+    },
+  });
+
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setEffectiveSearch(search.trim()),
+      300,
+    );
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     if (filteredSessions.length === 0) {
@@ -136,13 +174,18 @@ export function SessionManagerPage({
 
   const loadFirstPage = useCallback(
     async (refresh = false) => {
+      const requestVersion = ++sessionRequestVersionRef.current;
       setLoading(true);
+      setLoadingMore(false);
+      setNextCursor(undefined);
       try {
         const page = await sessionsApi.listPage({
           limit: 100,
           providerId: provider === "all" ? undefined : provider,
+          query: effectiveSearch || undefined,
           refresh,
         });
+        if (requestVersion !== sessionRequestVersionRef.current) return;
         setSessions(page.sessions);
         setNextCursor(page.nextCursor);
         setTotalSessions(page.total);
@@ -160,23 +203,30 @@ export function SessionManagerPage({
           return page.sessions[0] ? sessionKey(page.sessions[0]) : null;
         });
       } catch (error) {
-        toast.error(extractErrorMessage(error));
+        if (requestVersion === sessionRequestVersionRef.current) {
+          toast.error(extractErrorMessage(error));
+        }
       } finally {
-        setLoading(false);
+        if (requestVersion === sessionRequestVersionRef.current) {
+          setLoading(false);
+        }
       }
     },
-    [provider],
+    [effectiveSearch, provider],
   );
 
   const loadMoreSessions = useCallback(async () => {
     if (!nextCursor || loadingMore) return;
+    const requestVersion = sessionRequestVersionRef.current;
     setLoadingMore(true);
     try {
       const page = await sessionsApi.listPage({
         cursor: nextCursor,
         limit: 100,
         providerId: provider === "all" ? undefined : provider,
+        query: effectiveSearch || undefined,
       });
+      if (requestVersion !== sessionRequestVersionRef.current) return;
       setSessions((current) => {
         const known = new Set(current.map(sessionKey));
         return [
@@ -187,11 +237,15 @@ export function SessionManagerPage({
       setNextCursor(page.nextCursor);
       setTotalSessions(page.total);
     } catch (error) {
-      toast.error(extractErrorMessage(error));
+      if (requestVersion === sessionRequestVersionRef.current) {
+        toast.error(extractErrorMessage(error));
+      }
     } finally {
-      setLoadingMore(false);
+      if (requestVersion === sessionRequestVersionRef.current) {
+        setLoadingMore(false);
+      }
     }
-  }, [loadingMore, nextCursor, provider]);
+  }, [effectiveSearch, loadingMore, nextCursor, provider]);
 
   useEffect(() => {
     if (open) void loadFirstPage(false);
@@ -222,6 +276,12 @@ export function SessionManagerPage({
       cancelled = true;
     };
   }, [selectedSession]);
+
+  useEffect(() => {
+    if (messageScrollRef.current) {
+      messageScrollRef.current.scrollTop = 0;
+    }
+  }, [selectedKey]);
 
   const copyText = async (text: string) => {
     try {
@@ -521,7 +581,11 @@ export function SessionManagerPage({
                       </div>
                     ) : null}
                   </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                  <div
+                    ref={messageScrollRef}
+                    data-testid="session-message-scroll"
+                    className="min-h-0 flex-1 overflow-y-auto p-4"
+                  >
                     {loadingMessages ? (
                       <div className="py-8 text-center text-sm text-muted-foreground">
                         {t("common.loading")}
@@ -531,45 +595,60 @@ export function SessionManagerPage({
                         {t("sessionManager.noMessages")}
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {messages.map((message, index) => (
-                          <div
-                            key={`${message.ts ?? "message"}-${index}`}
-                            ref={(element) => {
-                              messageRefs.current[index] = element;
-                            }}
-                            className="rounded-md border border-border-default bg-background p-3"
-                          >
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <Badge
-                                variant={
-                                  message.role === "user"
-                                    ? "default"
-                                    : "secondary"
-                                }
+                      <div
+                        className="relative w-full"
+                        style={{ height: messageVirtualizer.getTotalSize() }}
+                      >
+                        {messageVirtualizer
+                          .getVirtualItems()
+                          .map((virtualItem) => {
+                            const index = virtualItem.index;
+                            const message = messages[index];
+                            return (
+                              <div
+                                key={virtualItem.key}
+                                data-index={index}
+                                ref={messageVirtualizer.measureElement}
+                                className="absolute left-0 top-0 w-full"
+                                style={{
+                                  transform: `translateY(${virtualItem.start}px)`,
+                                }}
                               >
-                                {message.role}
-                              </Badge>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {message.ts
-                                  ? formatTime(message.ts, i18n.language)
-                                  : null}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
-                                  title={t("common.copy")}
-                                  onClick={() => void copyText(message.content)}
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                </Button>
+                                <div className="rounded-md border border-border-default bg-background p-3">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <Badge
+                                      variant={
+                                        message.role === "user"
+                                          ? "default"
+                                          : "secondary"
+                                      }
+                                    >
+                                      {message.role}
+                                    </Badge>
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                      {message.ts
+                                        ? formatTime(message.ts, i18n.language)
+                                        : null}
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        title={t("common.copy")}
+                                        onClick={() =>
+                                          void copyText(message.content)
+                                        }
+                                      >
+                                        <Copy className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
+                                    {message.content}
+                                  </pre>
+                                </div>
                               </div>
-                            </div>
-                            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
-                              {message.content}
-                            </pre>
-                          </div>
-                        ))}
+                            );
+                          })}
                       </div>
                     )}
                   </div>
@@ -586,31 +665,48 @@ export function SessionManagerPage({
                 <ListTree className="h-4 w-4" />
                 {t("sessionManager.messageToc")}
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              <div
+                ref={tocScrollRef}
+                data-testid="session-message-toc"
+                className="min-h-0 flex-1 overflow-y-auto p-2"
+              >
                 {userMessageToc.length === 0 ? (
                   <div className="p-3 text-xs text-muted-foreground">
                     {t("sessionManager.noToc")}
                   </div>
                 ) : (
-                  userMessageToc.map(({ message, index }, tocIndex) => (
-                    <button
-                      type="button"
-                      key={`${message.ts ?? "toc"}-${index}`}
-                      className="mb-1 block w-full rounded px-2 py-2 text-left text-xs hover:bg-accent"
-                      onClick={() =>
-                        messageRefs.current[index]?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "center",
-                        })
-                      }
-                    >
-                      <span className="mr-1 text-muted-foreground">
-                        {tocIndex + 1}.
-                      </span>
-                      {message.content.slice(0, 70)}
-                      {message.content.length > 70 ? "..." : ""}
-                    </button>
-                  ))
+                  <div
+                    className="relative w-full"
+                    style={{ height: tocVirtualizer.getTotalSize() }}
+                  >
+                    {tocVirtualizer.getVirtualItems().map((virtualItem) => {
+                      const { message, index } =
+                        userMessageToc[virtualItem.index];
+                      return (
+                        <button
+                          type="button"
+                          key={virtualItem.key}
+                          data-index={virtualItem.index}
+                          ref={tocVirtualizer.measureElement}
+                          className="absolute left-0 top-0 block w-full rounded px-2 py-2 text-left text-xs hover:bg-accent"
+                          style={{
+                            transform: `translateY(${virtualItem.start}px)`,
+                          }}
+                          onClick={() =>
+                            messageVirtualizer.scrollToIndex(index, {
+                              align: "center",
+                            })
+                          }
+                        >
+                          <span className="mr-1 text-muted-foreground">
+                            {virtualItem.index + 1}.
+                          </span>
+                          {message.content.slice(0, 70)}
+                          {message.content.length > 70 ? "..." : ""}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </aside>

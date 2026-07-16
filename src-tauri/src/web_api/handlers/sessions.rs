@@ -28,6 +28,7 @@ pub struct SessionPageQuery {
     cursor: Option<String>,
     limit: Option<usize>,
     provider_id: Option<String>,
+    query: Option<String>,
     refresh: Option<bool>,
 }
 
@@ -47,10 +48,11 @@ pub async fn list_sessions(Query(query): Query<SessionListQuery>) -> ApiResult<V
 
 pub async fn list_sessions_page(Query(query): Query<SessionPageQuery>) -> ApiResult<SessionPage> {
     let page = tokio::task::spawn_blocking(move || {
-        session_manager::scan_sessions_page(
+        session_manager::scan_sessions_page_with_query(
             query.cursor.as_deref(),
             query.limit.unwrap_or(100),
             query.provider_id.as_deref(),
+            query.query.as_deref(),
             query.refresh.unwrap_or(false),
         )
     })

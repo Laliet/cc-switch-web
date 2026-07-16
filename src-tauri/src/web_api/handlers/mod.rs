@@ -76,6 +76,7 @@ impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         let status = match &err {
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::InvalidInput(_)
             | AppError::Config(_)
             | AppError::McpValidation(_)
@@ -84,6 +85,7 @@ impl From<AppError> for ApiError {
         };
         let message = match err {
             AppError::Unauthorized(_) => "Authentication failed".to_string(),
+            AppError::Conflict(message) => message,
             AppError::Config(_) => "Invalid configuration".to_string(),
             AppError::McpValidation(_) => "Invalid MCP configuration".to_string(),
             other => other.to_string(),

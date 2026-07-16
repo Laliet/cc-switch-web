@@ -310,6 +310,9 @@ pub struct ProviderMeta {
     /// 0.17 Auth Center 账号绑定：托管账号或手动 API Key。
     #[serde(rename = "authBinding", skip_serializing_if = "Option::is_none")]
     pub auth_binding: Option<ProviderAuthBinding>,
+    /// Provider was discovered from an additive application's live config.
+    #[serde(rename = "liveConfigManaged", skip_serializing_if = "Option::is_none")]
+    pub live_config_managed: Option<bool>,
 }
 
 impl ProviderMeta {

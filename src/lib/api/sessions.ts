@@ -29,6 +29,7 @@ export const sessionsApi = {
       cursor?: string;
       limit?: number;
       providerId?: string;
+      query?: string;
       refresh?: boolean;
     } = {},
   ): Promise<SessionPage> {

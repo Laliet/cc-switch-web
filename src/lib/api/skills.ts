@@ -71,6 +71,46 @@ export interface SkillUpdateInfo {
   installedApps: string[];
 }
 
+export type InstalledSkillDiscoveryStatus = "new" | "identical" | "conflict";
+
+export interface InstalledSkillSource {
+  source: string;
+  path: string;
+  contentHash?: string;
+  matchesTarget: boolean;
+}
+
+export interface InstalledSkillDiscovery {
+  directory: string;
+  name: string;
+  description: string;
+  sources: InstalledSkillSource[];
+  targetPath: string;
+  status: InstalledSkillDiscoveryStatus;
+  managedApps: string[];
+}
+
+export interface ImportInstalledSkillSelection {
+  directory: string;
+  source: string;
+  apps: string[];
+  overwrite?: boolean;
+}
+
+export type InstalledSkillImportStatus =
+  | "imported"
+  | "already_managed"
+  | "conflict"
+  | "not_found";
+
+export interface InstalledSkillImportResult {
+  directory: string;
+  source: string;
+  targetPath: string;
+  status: InstalledSkillImportStatus;
+  enabledApps: string[];
+}
+
 export interface SkillsShDiscoverableSkill {
   key: string;
   name: string;
@@ -184,6 +224,16 @@ export const skillsApi = {
       return { success: result };
     }
     return result as SkillUninstallResult;
+  },
+
+  async discoverInstalled(): Promise<InstalledSkillDiscovery[]> {
+    return await invoke("scan_unmanaged_skills");
+  },
+
+  async importInstalled(
+    imports: ImportInstalledSkillSelection[],
+  ): Promise<InstalledSkillImportResult[]> {
+    return await invoke("import_skills_from_apps", { imports });
   },
 
   async getBackups(): Promise<SkillBackupEntry[]> {

@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import { Activity, MoveVertical, Copy } from "lucide-react";
+import { Activity, MoveVertical, Copy, Route } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
 } from "@dnd-kit/core";
-import type { Provider } from "@/types";
+import type { Provider, ProxyProviderHealth } from "@/types";
 import type { AppId, ProviderHealth } from "@/lib/api";
 import type { StreamCheckLog } from "@/lib/api/model-test";
 import { isUsageApp } from "@/config/apps";
@@ -15,6 +15,8 @@ import { ProviderActions } from "@/components/providers/ProviderActions";
 import UsageFooter from "@/components/UsageFooter";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { SubscriptionQuotaSummary } from "@/components/providers/SubscriptionQuotaSummary";
+import { FailoverPriorityBadge } from "@/components/providers/FailoverPriorityBadge";
+import { ProviderProxyHealthBadge } from "@/components/providers/ProviderProxyHealthBadge";
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
@@ -41,6 +43,10 @@ interface ProviderCardProps {
   healthStatus?: ProviderHealth;
   streamCheckLog?: StreamCheckLog;
   isLiveConfigured?: boolean;
+  failoverPriority?: number;
+  failoverActive?: boolean;
+  proxyHealth?: ProxyProviderHealth;
+  isActiveRoute?: boolean;
 }
 
 const extractApiUrl = (provider: Provider, fallbackText: string) => {
@@ -130,6 +136,10 @@ export function ProviderCard({
   healthStatus,
   streamCheckLog,
   isLiveConfigured,
+  failoverPriority,
+  failoverActive = false,
+  proxyHealth,
+  isActiveRoute = false,
 }: ProviderCardProps) {
   const { t } = useTranslation();
 
@@ -208,7 +218,12 @@ export function ProviderCard({
           defaultValue: "暂无可用率数据",
         })
       }`,
-    ];
+      healthStatus.lastChecked > 0
+        ? `${t("provider.health.lastChecked", { defaultValue: "最近检查" })}: ${new Date(
+            healthStatus.lastChecked,
+          ).toLocaleString()}`
+        : undefined,
+    ].filter(Boolean);
 
     const tooltip = tooltipParts.join(" · ");
 
@@ -340,6 +355,26 @@ export function ProviderCard({
                   </span>
                 </span>
               )}
+              {isActiveRoute ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                  title={t("provider.activeRouteHint", {
+                    defaultValue: "本地代理当前实际路由到此 Provider",
+                  })}
+                >
+                  <Route className="h-3 w-3" aria-hidden="true" />
+                  {t("provider.activeRoute", { defaultValue: "路由中" })}
+                </span>
+              ) : null}
+              {typeof failoverPriority === "number" ? (
+                <FailoverPriorityBadge
+                  priority={failoverPriority}
+                  active={failoverActive}
+                />
+              ) : null}
+              {proxyHealth ? (
+                <ProviderProxyHealthBadge health={proxyHealth} />
+              ) : null}
               {streamCheckIndicator ? (
                 <span
                   className={cn(

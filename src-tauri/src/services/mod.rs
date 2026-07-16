@@ -27,8 +27,9 @@ pub use provider::ProviderService;
 #[cfg(feature = "desktop")]
 pub use provider::ProviderSortUpdate;
 pub use skill::{
-    MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
-    SkillUpdateInfo, SkillsShSearchResult,
+    ImportInstalledSkillSelection, InstalledSkillDiscovery, InstalledSkillImportResult,
+    InstalledSkillImportStatus, MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService,
+    SkillStorageLocation, SkillUpdateInfo, SkillsShSearchResult,
 };
 pub use speedtest::{EndpointLatency, SpeedtestService};
 pub use subscription::{SubscriptionProvider, SubscriptionQuota, SubscriptionService};

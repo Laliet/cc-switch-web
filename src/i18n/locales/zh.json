@@ -28,7 +28,11 @@
     "formatError": "格式化失败：{{error}}",
     "copy": "复制",
     "view": "查看",
-    "none": "无"
+    "none": "无",
+    "refresh": "刷新",
+    "selectAll": "全选",
+    "yes": "是",
+    "no": "否"
   },
   "apiKeyInput": {
     "placeholder": "请输入API Key",
@@ -109,6 +113,19 @@
     "backupUpdateFailed": "备用供应商更新失败：{{error}}",
     "autoFailover": "已自动切换到备用供应商：{{name}}",
     "autoFailoverFailed": "自动切换备用失败：{{error}}",
+    "failoverPriorityTooltip": "故障转移优先级 {{priority}} · {{state}}",
+    "failoverActive": "自动切换已启用",
+    "failoverInactive": "自动切换未运行",
+    "activeRoute": "路由中",
+    "activeRouteHint": "本地代理当前实际路由到此 Provider",
+    "circuit": {
+      "healthy": "路由健康",
+      "halfOpen": "恢复探测",
+      "open": "熔断",
+      "failureCount": "连续失败 {{count}} 次",
+      "window": "窗口失败 {{failed}}/{{total}}",
+      "lastFailure": "最近失败 {{seconds}} 秒前"
+    },
     "geminiConfig": "Gemini 配置",
     "geminiConfigHint": "使用 .env 格式配置 Gemini",
     "form": {
@@ -882,6 +899,26 @@
       "hit": "缓存命中",
       "refreshing": "后台刷新中"
     },
+    "discovery": {
+      "open": "发现已安装",
+      "title": "导入已安装 Skills",
+      "count": "发现 {{count}} 个未纳入统一管理的 Skill",
+      "empty": "没有发现未管理的 Skill",
+      "select": "选择 {{name}}",
+      "source": "来源",
+      "target": "统一存储目标",
+      "apps": "启用客户端",
+      "sameContent": "内容一致",
+      "confirmOverwrite": "使用所选来源覆盖统一存储中的不同内容",
+      "importSelected": "导入所选 ({{count}})",
+      "importSuccess": "已导入 {{count}} 个 Skill",
+      "conflictsRemain": "{{count}} 个冲突未导入",
+      "status": {
+        "new": "待导入",
+        "identical": "内容一致",
+        "conflict": "内容冲突"
+      }
+    },
     "repoManager": "仓库管理",
     "targetApp": "安装目标客户端",
     "count": "共 {{count}} 个技能",
@@ -1075,6 +1112,12 @@
     "restoreSuccess": "已恢复 Workspace 备份",
     "restoreFailed": "恢复备份失败",
     "memorySaved": "Daily Memory 已保存",
+    "memorySearch": "搜索 Daily Memory",
+    "memorySearchFailed": "搜索 Daily Memory 失败",
+    "memoryDeleted": "Daily Memory 已删除并备份",
+    "memoryDeleteFailed": "删除 Daily Memory 失败",
+    "memoryDeleteTitle": "删除 Daily Memory",
+    "memoryDeleteConfirm": "删除 {{date}} 的 Daily Memory？删除前会自动创建备份。",
     "newFile": "新文件",
     "backups": "备份",
     "noBackups": "暂无备份",
@@ -1092,7 +1135,62 @@
     "liveConfigured": "已写入",
     "storedOnly": "仅配置库",
     "liveProviders": "已写入 {{live}} / {{total}} 个 Provider",
-    "configWarnings": "{{count}} 项配置告警"
+    "configWarnings": "{{count}} 项配置告警",
+    "config": {
+      "manage": "OpenClaw 配置",
+      "title": "OpenClaw 配置中心",
+      "path": "配置文件：{{path}}",
+      "tabs": {
+        "agents": "Agents",
+        "env": "环境变量",
+        "tools": "Tools",
+        "reconcile": "Provider 对账",
+        "raw": "高级 JSON5"
+      },
+      "primaryModel": "主模型",
+      "fallbackModels": "后备模型",
+      "workspace": "Workspace",
+      "timeout": "超时秒数",
+      "contextTokens": "上下文 Tokens",
+      "maxConcurrent": "最大并发数",
+      "modelCatalog": "模型目录",
+      "alias": "别名",
+      "noModels": "暂无可配置模型",
+      "toolsProfile": "Tools Profile",
+      "allow": "允许列表",
+      "deny": "拒绝列表",
+      "profile": {
+        "minimal": "Minimal",
+        "coding": "Coding",
+        "messaging": "Messaging",
+        "full": "Full"
+      },
+      "legacyTimeoutTitle": "检测到旧版超时字段",
+      "legacyTimeoutDescription": "当前配置仍使用 agents.defaults.timeout；保存后会迁移为 timeoutSeconds。",
+      "positiveRequired": "必须为正数",
+      "objectRequired": "必须填写 JSON 对象",
+      "saved": "OpenClaw 配置已保存",
+      "saveFailed": "OpenClaw 配置保存失败"
+    },
+    "reconcile": {
+      "liveCount": "实时配置 {{count}} 项",
+      "storedCount": "配置库 {{count}} 项",
+      "provider": "Provider",
+      "models": "模型数",
+      "status": "状态",
+      "selected": "已选择 {{count}} 项",
+      "apply": "应用对账",
+      "empty": "实时配置中没有 Provider",
+      "completed": "Provider 对账完成",
+      "failed": "Provider 对账失败",
+      "result": "导入 {{imported}}，更新 {{updated}}，未变 {{unchanged}}",
+      "statuses": {
+        "new": "新增",
+        "changed": "有变化",
+        "unchanged": "未变化",
+        "invalid": "无效"
+      }
+    }
   },
   "deeplink": {
     "confirmImport": "确认导入供应商配置",

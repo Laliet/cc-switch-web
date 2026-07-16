@@ -28,7 +28,11 @@
     "formatError": "Format failed: {{error}}",
     "copy": "Copy",
     "view": "View",
-    "none": "None"
+    "none": "None",
+    "refresh": "Refresh",
+    "selectAll": "Select all",
+    "yes": "Yes",
+    "no": "No"
   },
   "apiKeyInput": {
     "placeholder": "Enter API Key",
@@ -109,6 +113,19 @@
     "backupUpdateFailed": "Failed to update backup provider: {{error}}",
     "autoFailover": "Auto-switched to backup provider: {{name}}",
     "autoFailoverFailed": "Auto failover failed: {{error}}",
+    "failoverPriorityTooltip": "Failover priority {{priority}} · {{state}}",
+    "failoverActive": "Automatic failover enabled",
+    "failoverInactive": "Automatic failover inactive",
+    "activeRoute": "Active route",
+    "activeRouteHint": "The local proxy is currently routing to this provider",
+    "circuit": {
+      "healthy": "Route healthy",
+      "halfOpen": "Recovery probe",
+      "open": "Circuit open",
+      "failureCount": "{{count}} consecutive failures",
+      "window": "Window failures {{failed}}/{{total}}",
+      "lastFailure": "Last failure {{seconds}} seconds ago"
+    },
     "geminiConfig": "Gemini Configuration",
     "geminiConfigHint": "Use .env format to configure Gemini",
     "form": {
@@ -882,6 +899,26 @@
       "hit": "Cache hit",
       "refreshing": "Background refresh"
     },
+    "discovery": {
+      "open": "Find installed",
+      "title": "Import installed Skills",
+      "count": "{{count}} Skills are not under unified management",
+      "empty": "No unmanaged Skills found",
+      "select": "Select {{name}}",
+      "source": "Source",
+      "target": "Unified storage target",
+      "apps": "Enable in apps",
+      "sameContent": "Same content",
+      "confirmOverwrite": "Replace different unified-storage content with the selected source",
+      "importSelected": "Import selected ({{count}})",
+      "importSuccess": "Imported {{count}} Skills",
+      "conflictsRemain": "{{count}} conflicts were not imported",
+      "status": {
+        "new": "Ready",
+        "identical": "Same content",
+        "conflict": "Content conflict"
+      }
+    },
     "repoManager": "Repository Management",
     "targetApp": "Install target app",
     "count": "{{count}} skills",
@@ -1075,6 +1112,12 @@
     "restoreSuccess": "Workspace backup restored",
     "restoreFailed": "Failed to restore backup",
     "memorySaved": "Daily Memory saved",
+    "memorySearch": "Search Daily Memory",
+    "memorySearchFailed": "Failed to search Daily Memory",
+    "memoryDeleted": "Daily Memory deleted and backed up",
+    "memoryDeleteFailed": "Failed to delete Daily Memory",
+    "memoryDeleteTitle": "Delete Daily Memory",
+    "memoryDeleteConfirm": "Delete Daily Memory for {{date}}? A backup will be created first.",
     "newFile": "New file",
     "backups": "Backups",
     "noBackups": "No backups",
@@ -1092,7 +1135,62 @@
     "liveConfigured": "Live",
     "storedOnly": "Stored only",
     "liveProviders": "{{live}} / {{total}} providers in live config",
-    "configWarnings": "{{count}} config warning(s)"
+    "configWarnings": "{{count}} config warning(s)",
+    "config": {
+      "manage": "OpenClaw Config",
+      "title": "OpenClaw Configuration",
+      "path": "Configuration file: {{path}}",
+      "tabs": {
+        "agents": "Agents",
+        "env": "Environment",
+        "tools": "Tools",
+        "reconcile": "Provider Sync",
+        "raw": "Advanced JSON5"
+      },
+      "primaryModel": "Primary model",
+      "fallbackModels": "Fallback models",
+      "workspace": "Workspace",
+      "timeout": "Timeout seconds",
+      "contextTokens": "Context tokens",
+      "maxConcurrent": "Maximum concurrency",
+      "modelCatalog": "Model catalog",
+      "alias": "Alias",
+      "noModels": "No configurable models",
+      "toolsProfile": "Tools profile",
+      "allow": "Allow list",
+      "deny": "Deny list",
+      "profile": {
+        "minimal": "Minimal",
+        "coding": "Coding",
+        "messaging": "Messaging",
+        "full": "Full"
+      },
+      "legacyTimeoutTitle": "Legacy timeout detected",
+      "legacyTimeoutDescription": "This config still uses agents.defaults.timeout. Saving will migrate it to timeoutSeconds.",
+      "positiveRequired": "must be a positive number",
+      "objectRequired": "A JSON object is required",
+      "saved": "OpenClaw configuration saved",
+      "saveFailed": "Failed to save OpenClaw configuration"
+    },
+    "reconcile": {
+      "liveCount": "{{count}} live",
+      "storedCount": "{{count}} stored",
+      "provider": "Provider",
+      "models": "Models",
+      "status": "Status",
+      "selected": "{{count}} selected",
+      "apply": "Apply sync",
+      "empty": "No providers in the live configuration",
+      "completed": "Provider reconciliation completed",
+      "failed": "Provider reconciliation failed",
+      "result": "Imported {{imported}}, updated {{updated}}, unchanged {{unchanged}}",
+      "statuses": {
+        "new": "New",
+        "changed": "Changed",
+        "unchanged": "Unchanged",
+        "invalid": "Invalid"
+      }
+    }
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",

@@ -57,6 +57,12 @@ let workspaceFiles: Record<string, MockWorkspaceFile> = {};
 let workspaceBackups: Record<string, MockWorkspaceBackup[]> = {};
 let dailyMemory: Record<string, MockWorkspaceFile> = {};
 let openclawDefaultModel: { primary: string; fallbacks: string[] } | undefined;
+let openclawAgentsDefaults: Record<string, unknown> = {};
+let openclawModelCatalog: Record<string, Record<string, unknown>> = {};
+let openclawEnv: Record<string, unknown> = {};
+let openclawTools: Record<string, unknown> = {};
+let openclawRawSource = "{\n  models: { mode: 'merge', providers: {} },\n}\n";
+let openclawEtagVersion = 1;
 let streamCheckLogs: Array<Record<string, unknown>> = [];
 
 const mockSessions = [
@@ -483,6 +489,12 @@ export const resetProviderState = () => {
   workspaceBackups = {};
   dailyMemory = {};
   openclawDefaultModel = undefined;
+  openclawAgentsDefaults = {};
+  openclawModelCatalog = {};
+  openclawEnv = {};
+  openclawTools = {};
+  openclawRawSource = "{\n  models: { mode: 'merge', providers: {} },\n}\n";
+  openclawEtagVersion = 1;
   streamCheckLogs = [];
 };
 
@@ -635,18 +647,176 @@ export const getOpenClawStatusState = () => {
     defaultModel: openclawDefaultModel,
     providers: openclawProviders,
     warnings: [],
+    etag: getOpenClawEtagState(),
   };
 };
 
-export const setOpenClawDefaultModelState = (model: {
-  primary: string;
-  fallbacks?: string[];
-}) => {
+export const getOpenClawEtagState = () =>
+  `mock-openclaw-etag-${openclawEtagVersion}`;
+
+export const getOpenClawRawState = () => ({
+  value: openclawRawSource,
+  etag: getOpenClawEtagState(),
+});
+
+export const setOpenClawRawState = (
+  value: string,
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawRawSource = value;
+  return completeOpenClawWrite();
+};
+
+const assertOpenClawEtag = (expectedEtag?: string | null) => {
+  if (expectedEtag && expectedEtag !== getOpenClawEtagState()) {
+    throw new Error("openclaw_etag_conflict");
+  }
+};
+
+const completeOpenClawWrite = () => {
+  openclawEtagVersion += 1;
+  return { warnings: [], etag: getOpenClawEtagState() };
+};
+
+export const setOpenClawDefaultModelState = (
+  model: { primary: string; fallbacks?: string[] },
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
   openclawDefaultModel = {
     primary: model.primary,
     fallbacks: model.fallbacks ?? [],
   };
-  return { warnings: [] };
+  return completeOpenClawWrite();
+};
+
+export const clearOpenClawDefaultModelState = (
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawDefaultModel = undefined;
+  return completeOpenClawWrite();
+};
+
+export const getOpenClawAgentsState = () => ({
+  value: {
+    ...openclawAgentsDefaults,
+    ...(Object.keys(openclawModelCatalog).length > 0
+      ? { models: openclawModelCatalog }
+      : {}),
+    ...(openclawDefaultModel ? { model: openclawDefaultModel } : {}),
+  },
+  etag: getOpenClawEtagState(),
+});
+
+export const setOpenClawAgentsState = (
+  value: Record<string, unknown>,
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawAgentsDefaults = { ...value };
+  const models = value.models;
+  openclawModelCatalog =
+    models && typeof models === "object" && !Array.isArray(models)
+      ? ({ ...models } as Record<string, Record<string, unknown>>)
+      : {};
+  const model = value.model;
+  openclawDefaultModel =
+    model && typeof model === "object" && !Array.isArray(model)
+      ? {
+          primary: String((model as Record<string, unknown>).primary ?? ""),
+          fallbacks: Array.isArray((model as Record<string, unknown>).fallbacks)
+            ? ((model as Record<string, unknown>).fallbacks as unknown[]).map(
+                String,
+              )
+            : [],
+        }
+      : undefined;
+  return completeOpenClawWrite();
+};
+
+export const getOpenClawModelCatalogState = () => ({
+  value:
+    Object.keys(openclawModelCatalog).length > 0
+      ? { ...openclawModelCatalog }
+      : null,
+  etag: getOpenClawEtagState(),
+});
+
+export const setOpenClawModelCatalogState = (
+  value: Record<string, Record<string, unknown>>,
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawModelCatalog = { ...value };
+  return completeOpenClawWrite();
+};
+
+export const getOpenClawEnvState = () => ({
+  value: { ...openclawEnv },
+  etag: getOpenClawEtagState(),
+});
+
+export const setOpenClawEnvState = (
+  value: Record<string, unknown>,
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawEnv = { ...value };
+  return completeOpenClawWrite();
+};
+
+export const getOpenClawToolsState = () => ({
+  value: { ...openclawTools },
+  etag: getOpenClawEtagState(),
+});
+
+export const setOpenClawToolsState = (
+  value: Record<string, unknown>,
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  openclawTools = { ...value };
+  return completeOpenClawWrite();
+};
+
+export const getOpenClawReconciliationState = () => {
+  const items = getOpenClawStatusState().providers.map((provider) => ({
+    providerId: provider.id,
+    displayName: provider.id,
+    status: "unchanged" as const,
+    modelCount: provider.models.length,
+    hasApiKey: provider.hasApiKey,
+    liveConfigManaged: true,
+  }));
+  return {
+    etag: getOpenClawEtagState(),
+    liveCount: items.length,
+    storedCount: items.length,
+    items,
+  };
+};
+
+export const applyOpenClawReconciliationState = (
+  providerIds: string[],
+  expectedEtag?: string | null,
+) => {
+  assertOpenClawEtag(expectedEtag);
+  const known = new Set(
+    getOpenClawReconciliationState().items.map((item) => item.providerId),
+  );
+  const unchanged = providerIds.filter((providerId) =>
+    known.has(providerId),
+  ).length;
+  return {
+    imported: 0,
+    updated: 0,
+    unchanged,
+    ignored: 0,
+    invalid: providerIds.length - unchanged,
+    etag: getOpenClawEtagState(),
+  };
 };
 
 export const getWorkspaceFilesState = () =>
@@ -729,6 +899,60 @@ export const writeDailyMemoryState = (
   const next = { content, etag: workspaceEtag(content), modifiedAt: now };
   dailyMemory[date] = next;
   return { name: `${date}.md`, ...next };
+};
+
+export const searchDailyMemoryState = (query: string) => {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [];
+
+  return Object.entries(dailyMemory)
+    .flatMap(([date, file]) => {
+      const content = file.content;
+      const lower = content.toLocaleLowerCase();
+      let matchCount = 0;
+      let offset = 0;
+      let firstMatch = -1;
+      while ((offset = lower.indexOf(needle, offset)) !== -1) {
+        if (firstMatch === -1) firstMatch = offset;
+        matchCount += 1;
+        offset += Math.max(needle.length, 1);
+      }
+      const dateMatches = date.toLocaleLowerCase().includes(needle);
+      if (firstMatch === -1 && !dateMatches) return [];
+
+      const snippetStart = Math.max(0, (firstMatch < 0 ? 0 : firstMatch) - 60);
+      return [
+        {
+          date,
+          sizeBytes: content.length,
+          modifiedAt: file.modifiedAt,
+          etag: file.etag,
+          snippet: content.slice(snippetStart, snippetStart + 200),
+          matchCount,
+        },
+      ];
+    })
+    .sort((left, right) => right.date.localeCompare(left.date));
+};
+
+export const deleteDailyMemoryState = (
+  date: string,
+  expectedEtag?: string | null,
+) => {
+  const current = dailyMemory[date];
+  if (!current) return { date, deleted: false, backupId: undefined };
+  if (expectedEtag !== current.etag) {
+    throw new Error("workspace_etag_conflict");
+  }
+
+  const now = Date.now();
+  const backupId = `mock-${now}`;
+  workspaceBackups[`${date}.md`] = [
+    ...(workspaceBackups[`${date}.md`] ?? []),
+    { id: backupId, content: current.content, createdAt: now },
+  ];
+  delete dailyMemory[date];
+  return { date, deleted: true, backupId };
 };
 
 export const getSessionsPageState = (

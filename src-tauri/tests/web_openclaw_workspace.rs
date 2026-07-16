@@ -160,6 +160,246 @@ async fn openclaw_web_provider_lifecycle_updates_live_config_and_default() {
 
 #[tokio::test]
 #[serial]
+async fn openclaw_config_sections_preserve_unknown_fields_and_enforce_etags() {
+    let _guard = test_mutex().lock().await;
+    reset_test_fs();
+    let home = ensure_test_home();
+    let openclaw_dir = home.join(".openclaw");
+    std::fs::create_dir_all(&openclaw_dir).expect("create OpenClaw directory");
+    let config_path = openclaw_dir.join("openclaw.json");
+    std::fs::write(
+        &config_path,
+        r#"{
+  // keep this comment
+  channels: { telegram: { enabled: true } },
+  models: {
+    mode: 'merge',
+    providers: {
+      alpha: { apiKey: 'secret', models: [{ id: 'alpha-1' }] },
+    },
+  },
+}
+"#,
+    )
+    .expect("seed OpenClaw config");
+    let (app, _) = make_app();
+
+    let status = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/openclaw/status", None),
+    )
+    .await;
+    assert_eq!(status.status(), StatusCode::OK);
+    let status = json_body(status).await;
+    let etag = status["etag"].as_str().expect("OpenClaw etag");
+
+    let saved = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/openclaw/agents-defaults",
+            Some(json!({
+                "value": {
+                    "model": { "primary": "alpha/alpha-1", "fallbacks": [] },
+                    "models": { "alpha/alpha-1": { "alias": "Alpha" } },
+                    "workspace": "workspace",
+                    "customField": { "preserved": true }
+                },
+                "expectedEtag": etag
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved = json_body(saved).await;
+    let next_etag = saved["etag"].as_str().expect("updated etag");
+    assert_ne!(next_etag, etag);
+
+    let stale = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/openclaw/env",
+            Some(json!({
+                "value": { "vars": { "OPENCLAW_TEST": "1" } },
+                "expectedEtag": etag
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    let stale = json_body(stale).await;
+    assert_eq!(stale["code"], "openclaw_etag_conflict");
+
+    let raw = dispatch(app.clone(), request(Method::GET, "/api/openclaw/raw", None)).await;
+    assert_eq!(raw.status(), StatusCode::OK);
+    let raw = json_body(raw).await;
+    let raw_source = raw["value"].as_str().expect("raw OpenClaw source");
+    assert!(raw_source.contains("keep this comment"));
+    let invalid_raw = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/openclaw/raw",
+            Some(json!({
+                "value": "{ invalid",
+                "expectedEtag": raw["etag"]
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(invalid_raw.status(), StatusCode::BAD_REQUEST);
+    let updated_raw = raw_source.replacen("channels:", "advancedRawField: true,\n  channels:", 1);
+    let raw_saved = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/openclaw/raw",
+            Some(json!({
+                "value": updated_raw,
+                "expectedEtag": raw["etag"]
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(raw_saved.status(), StatusCode::OK);
+    let raw_saved = json_body(raw_saved).await;
+
+    let tools_saved = dispatch(
+        app.clone(),
+        request(
+            Method::PUT,
+            "/api/openclaw/tools",
+            Some(json!({
+                "value": {
+                    "profile": "future-profile",
+                    "futureToolField": true
+                },
+                "expectedEtag": raw_saved["etag"]
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(tools_saved.status(), StatusCode::OK);
+
+    let source = std::fs::read_to_string(config_path).expect("read OpenClaw config");
+    assert!(source.contains("keep this comment"));
+    let parsed: Value = json5::from_str(&source).expect("parse OpenClaw config");
+    assert_eq!(parsed["advancedRawField"], true);
+    assert_eq!(parsed["tools"]["profile"], "future-profile");
+    assert_eq!(parsed["tools"]["futureToolField"], true);
+    assert_eq!(parsed["channels"]["telegram"]["enabled"], true);
+    assert_eq!(
+        parsed["agents"]["defaults"]["customField"]["preserved"],
+        true
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn openclaw_reconciliation_imports_and_refreshes_live_managed_providers() {
+    let _guard = test_mutex().lock().await;
+    reset_test_fs();
+    let home = ensure_test_home();
+    let openclaw_dir = home.join(".openclaw");
+    std::fs::create_dir_all(&openclaw_dir).expect("create OpenClaw directory");
+    let config_path = openclaw_dir.join("openclaw.json");
+    std::fs::write(
+        &config_path,
+        r#"{
+  models: {
+    mode: 'merge',
+    providers: {
+      external: { apiKey: 'secret', models: [{ id: 'model-1', name: 'External One' }] },
+    },
+  },
+  agents: { defaults: { model: { primary: 'external/model-1' } } },
+}
+"#,
+    )
+    .expect("seed external OpenClaw provider");
+    let (app, state) = make_app();
+
+    let preview = dispatch(
+        app.clone(),
+        request(Method::GET, "/api/openclaw/reconciliation", None),
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    let preview = json_body(preview).await;
+    assert_eq!(preview["items"][0]["status"], "new");
+    assert!(preview["items"][0].get("apiKey").is_none());
+
+    let applied = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/openclaw/reconciliation",
+            Some(json!({
+                "providerIds": ["external"],
+                "updateExisting": false,
+                "expectedEtag": preview["etag"]
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(applied.status(), StatusCode::OK);
+    let applied = json_body(applied).await;
+    assert_eq!(applied["imported"], 1);
+
+    let stored = state.load_config().expect("load reconciled config");
+    let provider = &stored.apps["openclaw"].providers["external"];
+    assert_eq!(
+        provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.live_config_managed),
+        Some(true)
+    );
+
+    let mut live: Value =
+        json5::from_str(&std::fs::read_to_string(&config_path).expect("read live config"))
+            .expect("parse live config");
+    live["models"]["providers"]["external"]["models"][0]["name"] = json!("External Two");
+    std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&live).expect("serialize updated live config"),
+    )
+    .expect("update live config externally");
+
+    let refreshed = dispatch(
+        app.clone(),
+        request(
+            Method::POST,
+            "/api/openclaw/reconciliation/import-new",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    assert_eq!(json_body(refreshed).await, json!(1));
+
+    let stored = state.load_config().expect("load refreshed config");
+    assert_eq!(
+        stored.apps["openclaw"].providers["external"].settings_config["models"][0]["name"],
+        "External Two"
+    );
+
+    let idempotent = dispatch(
+        app,
+        request(
+            Method::POST,
+            "/api/openclaw/reconciliation/import-new",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(idempotent.status(), StatusCode::OK);
+    assert_eq!(json_body(idempotent).await, json!(0));
+}
+
+#[tokio::test]
+#[serial]
 async fn workspace_web_routes_enforce_etags_and_restore_backups() {
     let _guard = test_mutex().lock().await;
     reset_test_fs();
@@ -237,7 +477,6 @@ async fn workspace_web_routes_enforce_etags_and_restore_backups() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
-
     let response = dispatch(
         app.clone(),
         request(Method::GET, "/api/workspace/files/AGENTS.md", None),
@@ -303,6 +542,11 @@ async fn workspace_web_routes_enforce_etags_and_restore_backups() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
+    let memory_updated = json_body(response).await;
+    let memory_updated_etag = memory_updated["etag"]
+        .as_str()
+        .expect("updated memory etag")
+        .to_string();
 
     let response = dispatch(
         app.clone(),
@@ -312,6 +556,45 @@ async fn workspace_web_routes_enforce_etags_and_restore_backups() {
     assert_eq!(response.status(), StatusCode::OK);
     let memory_entries = json_body(response).await;
     assert_eq!(memory_entries[0]["date"], "2026-07-13");
+
+    let response = dispatch(
+        app.clone(),
+        request(
+            Method::GET,
+            "/api/workspace/memory/search?query=second",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let search_results = json_body(response).await;
+    assert_eq!(search_results[0]["date"], "2026-07-13");
+    assert_eq!(search_results[0]["matchCount"], 1);
+
+    let response = dispatch(
+        app.clone(),
+        request(
+            Method::DELETE,
+            "/api/workspace/memory/2026-07-13?expectedEtag=stale",
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let response = dispatch(
+        app.clone(),
+        request(
+            Method::DELETE,
+            &format!("/api/workspace/memory/2026-07-13?expectedEtag={memory_updated_etag}"),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let deleted = json_body(response).await;
+    assert_eq!(deleted["deleted"], true);
+    assert!(deleted["backupId"].as_str().is_some());
 
     let sensitive_content = format!("workspace-secret-must-not-leak{}", "x".repeat(1024 * 1024));
     let response = dispatch(

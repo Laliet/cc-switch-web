@@ -126,7 +126,25 @@ pub fn scan_sessions_page(
     provider_id: Option<&str>,
     refresh: bool,
 ) -> Result<SessionPage, String> {
-    let (cursor_scan_id, offset) = parse_session_cursor(cursor)?;
+    scan_sessions_page_with_query(cursor, limit, provider_id, None, refresh)
+}
+
+pub fn scan_sessions_page_with_query(
+    cursor: Option<&str>,
+    limit: usize,
+    provider_id: Option<&str>,
+    query: Option<&str>,
+    refresh: bool,
+) -> Result<SessionPage, String> {
+    let query = query.map(str::trim).filter(|value| !value.is_empty());
+    if query.is_some_and(|value| value.chars().count() > 256) {
+        return Err("Session search query is too long".to_string());
+    }
+    let signature = session_filter_signature(provider_id, query);
+    let (cursor_scan_id, offset, cursor_signature) = parse_session_cursor(cursor)?;
+    if cursor_signature.is_some_and(|value| value != signature) {
+        return Err("Session cursor does not match the current filters".to_string());
+    }
     let limit = limit.clamp(1, 200);
     let (sessions, scanned_at) = if let Some(cursor_scan_id) = cursor_scan_id {
         let cache = lock_session_cache();
@@ -142,6 +160,7 @@ pub fn scan_sessions_page(
     let sessions = sessions
         .into_iter()
         .filter(|session| provider_id.map_or(true, |id| session.provider_id == id))
+        .filter(|session| query.map_or(true, |query| session_matches_query(session, query)))
         .collect::<Vec<_>>();
     let total = sessions.len();
     let page = sessions
@@ -152,10 +171,39 @@ pub fn scan_sessions_page(
     let next_offset = offset.saturating_add(page.len());
     Ok(SessionPage {
         sessions: page,
-        next_cursor: (next_offset < total).then(|| format!("{scanned_at}:{next_offset}")),
+        next_cursor: (next_offset < total)
+            .then(|| format!("{scanned_at}:{next_offset}:{signature:016x}")),
         total,
         scanned_at,
     })
+}
+
+fn session_filter_signature(provider_id: Option<&str>, query: Option<&str>) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    "session-filter-v1".hash(&mut hasher);
+    provider_id.unwrap_or_default().hash(&mut hasher);
+    query.unwrap_or_default().to_lowercase().hash(&mut hasher);
+    hasher.finish()
+}
+
+fn session_matches_query(session: &SessionMeta, query: &str) -> bool {
+    let haystack = [
+        Some(session.provider_id.as_str()),
+        Some(session.session_id.as_str()),
+        session.title.as_deref(),
+        session.summary.as_deref(),
+        session.project_dir.as_deref(),
+        session.source_path.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("\n")
+    .to_lowercase();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|term| haystack.contains(term))
 }
 
 fn scan_sessions_incremental(
@@ -387,14 +435,20 @@ fn session_scan_lock() -> &'static Mutex<()> {
     SCAN_LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn parse_session_cursor(cursor: Option<&str>) -> Result<(Option<u64>, usize), String> {
+fn parse_session_cursor(cursor: Option<&str>) -> Result<(Option<u64>, usize, Option<u64>), String> {
     let Some(cursor) = cursor else {
-        return Ok((None, 0));
+        return Ok((None, 0, None));
     };
-    let Some((scan_id, offset)) = cursor.split_once(':') else {
+    let mut parts = cursor.split(':');
+    let (Some(scan_id), Some(offset)) = (parts.next(), parts.next()) else {
         return Err("Invalid session cursor".to_string());
     };
-    if scan_id.is_empty() || offset.is_empty() || offset.contains(':') {
+    let signature = parts.next();
+    if scan_id.is_empty()
+        || offset.is_empty()
+        || signature.is_some_and(str::is_empty)
+        || parts.next().is_some()
+    {
         return Err("Invalid session cursor".to_string());
     }
     let scan_id = scan_id
@@ -403,7 +457,11 @@ fn parse_session_cursor(cursor: Option<&str>) -> Result<(Option<u64>, usize), St
     let offset = offset
         .parse::<usize>()
         .map_err(|_| "Invalid session cursor".to_string())?;
-    Ok((Some(scan_id), offset))
+    let signature = signature
+        .map(|value| u64::from_str_radix(value, 16))
+        .transpose()
+        .map_err(|_| "Invalid session cursor".to_string())?;
+    Ok((Some(scan_id), offset, signature))
 }
 
 fn fingerprint_session_tree(root: &Path) -> Option<u64> {
@@ -608,10 +666,27 @@ mod tests {
 
     #[test]
     fn parses_snapshot_bound_session_cursors() {
-        assert_eq!(parse_session_cursor(None).unwrap(), (None, 0));
-        assert_eq!(parse_session_cursor(Some("42:7")).unwrap(), (Some(42), 7));
+        assert_eq!(parse_session_cursor(None).unwrap(), (None, 0, None));
+        assert_eq!(
+            parse_session_cursor(Some("42:7")).unwrap(),
+            (Some(42), 7, None)
+        );
+        assert_eq!(
+            parse_session_cursor(Some("42:7:000000000000000a")).unwrap(),
+            (Some(42), 7, Some(10))
+        );
 
-        for invalid in ["", "7", ":7", "42:", "42:7:1", "scan:7", "42:offset"] {
+        for invalid in [
+            "",
+            "7",
+            ":7",
+            "42:",
+            "42:7:",
+            "42:7:not-hex",
+            "42:7:1:2",
+            "scan:7",
+            "42:offset",
+        ] {
             assert_eq!(
                 parse_session_cursor(Some(invalid)).unwrap_err(),
                 "Invalid session cursor"
@@ -654,9 +729,52 @@ mod tests {
 
         assert_eq!(first.scanned_at, 42);
         assert_eq!(first.sessions[0].session_id, "newer");
-        assert_eq!(cursor, "42:1");
+        assert!(cursor.starts_with("42:1:"));
         assert_eq!(second.sessions[0].session_id, "older");
         assert_eq!(expired, "Session cursor expired; restart pagination");
+    }
+
+    #[test]
+    fn session_page_searches_the_full_snapshot_and_binds_cursor_to_filters() {
+        static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _test_guard = TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut alpha = test_session("alpha", 20);
+        alpha.title = Some("Routine maintenance".to_string());
+        let mut beta = test_session("beta", 10);
+        beta.summary = Some("Quarterly migration".to_string());
+        let original = {
+            let mut cache = lock_session_cache();
+            std::mem::replace(
+                &mut *cache,
+                SessionCache {
+                    providers: BTreeMap::new(),
+                    sessions: vec![alpha, beta],
+                    loaded_at: Instant::now(),
+                    scanned_at: 84,
+                },
+            )
+        };
+
+        let page = scan_sessions_page_with_query(None, 1, None, Some("migration"), false)
+            .expect("search page");
+        assert_eq!(page.total, 1);
+        assert_eq!(page.sessions[0].session_id, "beta");
+
+        let unfiltered =
+            scan_sessions_page_with_query(None, 1, None, None, false).expect("unfiltered page");
+        let cursor = unfiltered.next_cursor.expect("unfiltered cursor");
+        let mismatch =
+            scan_sessions_page_with_query(Some(&cursor), 1, None, Some("migration"), false)
+                .expect_err("cursor must be bound to its search");
+        assert_eq!(
+            mismatch,
+            "Session cursor does not match the current filters"
+        );
+
+        *lock_session_cache() = original;
     }
 
     #[test]

@@ -96,6 +96,25 @@ pub struct DailyMemoryInfo {
     pub preview: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyMemorySearchResult {
+    pub date: String,
+    pub size_bytes: u64,
+    pub modified_at: u64,
+    pub etag: String,
+    pub snippet: String,
+    pub match_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyMemoryDeleteOutcome {
+    pub date: String,
+    pub deleted: bool,
+    pub backup_id: Option<String>,
+}
+
 pub fn list_files() -> Result<Vec<WorkspaceFileInfo>, WorkspaceError> {
     let root = workspace_root(false)?;
     ALLOWED_FILES
@@ -274,6 +293,136 @@ pub fn write_daily_memory(
         content,
         expected_etag,
     )
+}
+
+pub fn search_daily_memory(query: &str) -> Result<Vec<DailyMemorySearchResult>, WorkspaceError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if query.chars().count() > 256 {
+        return Err(WorkspaceError::InvalidInput(
+            "Daily memory search query is too long".to_string(),
+        ));
+    }
+
+    let root = workspace_root(false)?;
+    let memory = root.join("memory");
+    if !memory.exists() {
+        return Ok(Vec::new());
+    }
+    validate_directory(&root, &memory)?;
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+
+    for entry in fs::read_dir(&memory).map_err(|e| io_error("search daily memory", &memory, e))? {
+        let Ok(entry) = entry else { continue };
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(date) = name.strip_suffix(".md") else {
+            continue;
+        };
+        if validate_date(date).is_err() {
+            continue;
+        }
+        let path = entry.path();
+        let bytes = match read_file_bytes(&memory, &path) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let Ok(content) = std::str::from_utf8(&bytes) else {
+            continue;
+        };
+        let mut match_count = 0;
+        let mut first_matching_line = None;
+        for line in content.lines() {
+            let lower = line.to_lowercase();
+            let line_matches = lower.matches(&query_lower).count();
+            if line_matches > 0 && first_matching_line.is_none() {
+                first_matching_line = Some(line.trim());
+            }
+            match_count += line_matches;
+        }
+        let date_matches = date.to_lowercase().contains(&query_lower);
+        if match_count == 0 && !date_matches {
+            continue;
+        }
+        let snippet_source = first_matching_line.unwrap_or(content.trim());
+        let snippet = truncate_chars(snippet_source, 240);
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        results.push(DailyMemorySearchResult {
+            date: date.to_string(),
+            size_bytes: metadata.len(),
+            modified_at: modified_at(&metadata),
+            etag: etag(&bytes),
+            snippet,
+            match_count,
+        });
+    }
+    results.sort_by(|left, right| right.date.cmp(&left.date));
+    results.truncate(200);
+    Ok(results)
+}
+
+pub fn delete_daily_memory(
+    date: &str,
+    expected_etag: Option<&str>,
+) -> Result<DailyMemoryDeleteOutcome, WorkspaceError> {
+    validate_date(date)?;
+    let root = workspace_root(false)?;
+    let memory = root.join("memory");
+    if !memory.exists() {
+        return Ok(DailyMemoryDeleteOutcome {
+            date: date.to_string(),
+            deleted: false,
+            backup_id: None,
+        });
+    }
+    validate_directory(&root, &memory)?;
+    let path = memory.join(format!("{date}.md"));
+    if !path.exists() {
+        return Ok(DailyMemoryDeleteOutcome {
+            date: date.to_string(),
+            deleted: false,
+            backup_id: None,
+        });
+    }
+
+    let _guard = workspace_lock()
+        .lock()
+        .map_err(|_| WorkspaceError::Io("Workspace lock poisoned".to_string()))?;
+    let bytes = read_file_bytes(&memory, &path)?;
+    match expected_etag {
+        Some(expected) if etag(&bytes) != expected => {
+            return Err(WorkspaceError::Conflict(
+                "Daily memory changed since it was loaded".to_string(),
+            ));
+        }
+        None => {
+            return Err(WorkspaceError::Conflict(
+                "expectedEtag is required when deleting daily memory".to_string(),
+            ));
+        }
+        _ => {}
+    }
+    let backup_id = Some(create_backup(&format!("memory-{date}"), &bytes)?);
+    fs::remove_file(&path).map_err(|e| io_error("delete daily memory", &path, e))?;
+    Ok(DailyMemoryDeleteOutcome {
+        date: date.to_string(),
+        deleted: true,
+        backup_id,
+    })
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    let mut chars = value.chars();
+    let result = chars.by_ref().take(limit).collect::<String>();
+    if chars.next().is_some() {
+        format!("{result}...")
+    } else {
+        result
+    }
 }
 
 fn write_named_file(

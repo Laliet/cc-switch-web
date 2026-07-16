@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-16
+
+### Features / 新特性
+
+- Complete the OpenClaw configuration center with model catalog, `agents.defaults`, Environment, Tools/Profile, provider reconciliation, and an advanced raw JSON5 editor.
+- Discover external OpenClaw providers, preview differences, import selected changes idempotently, and refresh live-managed providers during startup.
+- Add host-wide Session search plus virtualized long-conversation messages and user-message outlines.
+- Discover Skills from fixed supported application directories, preview source/target/content conflicts, and import them into unified storage with explicit overwrite and multi-app synchronization.
+- Add Daily Memory search, full-content viewing, ETag-protected deletion, and pre-delete backups.
+- Merge the upstream v3.15.0 OpenClaw, Gemini, and Codex provider presets while preserving local China-accessible providers and recording every merge disposition.
+
+### Reliability / 可靠性
+
+- Bind Session cursors to provider/search filters and discard obsolete frontend search responses.
+- Preserve unknown OpenClaw JSON5 fields and future Tools profiles across structured edits; use SHA-256 ETags, atomic writes, and backups for configuration changes.
+- Show failover priority, actual proxy route, circuit state, failure counters, and the latest external health-check time on Provider cards.
+
+### Security / 安全
+
+- Restrict Skills discovery and import to server-known source labels and direct child directories; reject traversal and skip nested symbolic links while copying.
+- Keep Daily Memory deletion inside the validated Workspace root and require the ETag of the loaded file.
+- Keep OpenClaw reconciliation previews free of API key values and reject stale apply/save operations with HTTP 409 `openclaw_etag_conflict`.
+
+### Tests / 测试
+
+- Add frontend API, hook, component, preset-sync, global-search, virtualization, Skills import, and Provider routing/health coverage.
+- Add Rust unit and real Axum route coverage for OpenClaw JSON5/ETag/reconciliation, Daily Memory search/delete, Session filters, and Skills discovery/import.
+
 ## [0.20.0] - 2026-07-15
 
 ### Features / 新特性

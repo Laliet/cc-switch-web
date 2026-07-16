@@ -656,6 +656,18 @@ pub fn run() {
                 log::error!("初始化配置失败，跳过 ensure_app: {e}");
             }
 
+            match crate::services::provider::ProviderService::import_openclaw_providers_from_live(
+                &app_state,
+            ) {
+                Ok(count) if count > 0 => {
+                    log::info!(
+                        "Imported or refreshed {count} OpenClaw provider(s) from live config"
+                    )
+                }
+                Ok(_) => log::debug!("No OpenClaw live providers required reconciliation"),
+                Err(error) => log::warn!("Failed to reconcile OpenClaw live providers: {error}"),
+            }
+
             // 启动阶段不再无条件保存,避免意外覆盖用户配置。
 
             // 注册 deep-link URL 处理器（使用正确的 DeepLinkExt API）
@@ -888,11 +900,24 @@ pub fn run() {
             commands::query_managed_auth_usage,
             commands::query_subscription_quota,
             commands::get_openclaw_status,
+            commands::get_openclaw_raw_config,
+            commands::set_openclaw_raw_config,
             commands::get_openclaw_live_providers,
             commands::get_openclaw_live_provider,
+            commands::preview_openclaw_provider_reconciliation,
+            commands::apply_openclaw_provider_reconciliation,
+            commands::import_openclaw_providers_from_live,
             commands::get_openclaw_default_model,
             commands::set_openclaw_default_model,
             commands::clear_openclaw_default_model,
+            commands::get_openclaw_model_catalog,
+            commands::set_openclaw_model_catalog,
+            commands::get_openclaw_agents_defaults,
+            commands::set_openclaw_agents_defaults,
+            commands::get_openclaw_env,
+            commands::set_openclaw_env,
+            commands::get_openclaw_tools,
+            commands::set_openclaw_tools,
             commands::scan_openclaw_config_health,
             // Deep link import
             commands::parse_deeplink,
@@ -909,6 +934,8 @@ pub fn run() {
             commands::install_skill,
             commands::uninstall_skill,
             commands::get_skill_backups,
+            commands::scan_unmanaged_skills,
+            commands::import_skills_from_apps,
             commands::delete_skill_backup,
             commands::restore_skill_backup,
             commands::migrate_skill_storage,
@@ -935,6 +962,8 @@ pub fn run() {
             commands::list_daily_memory_files,
             commands::read_daily_memory_file,
             commands::write_daily_memory_file,
+            commands::search_daily_memory_files,
+            commands::delete_daily_memory_file,
         ]);
 
     let app = builder

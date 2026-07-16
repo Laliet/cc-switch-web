@@ -332,11 +332,12 @@ describe("commandToEndpoint", () => {
         cursor: "100",
         limit: 100,
         providerId: "openclaw",
+        query: "migration plan",
         refresh: true,
       }),
     ).toEqual({
       method: "GET",
-      url: "/api/sessions/page?cursor=100&limit=100&providerId=openclaw&refresh=true",
+      url: "/api/sessions/page?cursor=100&limit=100&providerId=openclaw&query=migration+plan&refresh=true",
     });
     expect(
       commandToEndpoint("get_session_messages", {
@@ -695,6 +696,38 @@ describe("commandToEndpoint", () => {
           method: "POST",
           url: "/api/skills/uninstall",
           body: { directory: "/skills/notes", app: "codex" },
+        },
+      },
+      {
+        cmd: "scan_unmanaged_skills",
+        args: {},
+        expected: { method: "GET", url: "/api/skills/discovery" },
+      },
+      {
+        cmd: "import_skills_from_apps",
+        args: {
+          imports: [
+            {
+              directory: "demo",
+              source: "claude",
+              apps: ["claude"],
+              overwrite: false,
+            },
+          ],
+        },
+        expected: {
+          method: "POST",
+          url: "/api/skills/discovery/import",
+          body: {
+            imports: [
+              {
+                directory: "demo",
+                source: "claude",
+                apps: ["claude"],
+                overwrite: false,
+              },
+            ],
+          },
         },
       },
       {

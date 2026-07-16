@@ -18,13 +18,15 @@ pub async fn list_sessions_page(
     cursor: Option<String>,
     limit: Option<usize>,
     providerId: Option<String>,
+    query: Option<String>,
     refresh: Option<bool>,
 ) -> Result<session_manager::SessionPage, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        session_manager::scan_sessions_page(
+        session_manager::scan_sessions_page_with_query(
             cursor.as_deref(),
             limit.unwrap_or(100),
             providerId.as_deref(),
+            query.as_deref(),
             refresh.unwrap_or(false),
         )
     })

@@ -133,6 +133,8 @@ export interface ProviderMeta {
   githubAccountId?: string;
   // Auth Center 账号绑定
   authBinding?: ProviderAuthBinding;
+  // 由 additive app 的实时配置发现并持续对账
+  liveConfigManaged?: boolean;
 }
 
 export interface UniversalProviderApps {
@@ -398,7 +400,7 @@ export interface ProxyActiveTarget {
 }
 
 export interface ProxyProviderHealth {
-  appType: ProxyAppId;
+  appType: ProxyRouteAppId;
   providerId: string;
   state: "healthy" | "open" | "half_open" | string;
   failureCount: number;

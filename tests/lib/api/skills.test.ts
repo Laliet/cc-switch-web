@@ -163,6 +163,57 @@ describe("skills API module", () => {
     });
   });
 
+  it("discovers and imports existing app Skills", async () => {
+    const discovery = {
+      directory: "demo",
+      name: "Demo",
+      description: "Existing Skill",
+      sources: [
+        {
+          source: "claude",
+          path: "/home/me/.claude/skills/demo",
+          contentHash: "abc",
+          matchesTarget: false,
+        },
+      ],
+      targetPath: "/home/me/.cc-switch/skills/demo",
+      status: "new" as const,
+      managedApps: [],
+    };
+    invokeMock.mockResolvedValueOnce([discovery]);
+    invokeMock.mockResolvedValueOnce([
+      {
+        directory: "demo",
+        source: "claude",
+        targetPath: discovery.targetPath,
+        status: "imported",
+        enabledApps: ["claude"],
+      },
+    ]);
+
+    expect(await skillsApi.discoverInstalled()).toEqual([discovery]);
+    await skillsApi.importInstalled([
+      {
+        directory: "demo",
+        source: "claude",
+        apps: ["claude"],
+        overwrite: false,
+      },
+    ]);
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "scan_unmanaged_skills");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "import_skills_from_apps", {
+      imports: [
+        {
+          directory: "demo",
+          source: "claude",
+          apps: ["claude"],
+          overwrite: false,
+        },
+      ],
+    });
+  });
+
   it("lists and restores skill backups", async () => {
     invokeMock.mockResolvedValueOnce([
       {

@@ -2,8 +2,9 @@ use crate::app_config::AppType;
 use crate::error::{format_skill_error, AppError};
 use crate::services::skill::SkillState;
 use crate::services::{
-    MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation,
-    SkillUpdateInfo, SkillsShSearchResult,
+    ImportInstalledSkillSelection, InstalledSkillDiscovery, InstalledSkillImportResult,
+    InstalledSkillImportStatus, MigrationResult, Skill, SkillBackupEntry, SkillRepo, SkillService,
+    SkillStorageLocation, SkillUpdateInfo, SkillsShSearchResult,
 };
 use crate::store::AppState;
 use base64::{engine::general_purpose, Engine};
@@ -233,6 +234,75 @@ pub fn get_skill_repos(
 #[tauri::command]
 pub fn get_skill_backups() -> Result<Vec<SkillBackupEntry>, String> {
     SkillService::list_backups().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn scan_unmanaged_skills(
+    _service: State<'_, SkillServiceState>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<InstalledSkillDiscovery>, String> {
+    let config = app_state.load_config().map_err(|e| e.to_string())?;
+    let service = SkillService::new().map_err(|e| e.to_string())?;
+    service
+        .discover_installed_skills(&config.skills.skills)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_skills_from_apps(
+    imports: Vec<ImportInstalledSkillSelection>,
+    _service: State<'_, SkillServiceState>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<InstalledSkillImportResult>, String> {
+    let states = app_state
+        .load_config()
+        .map_err(|e| e.to_string())?
+        .skills
+        .skills;
+    let service = SkillService::new().map_err(|e| e.to_string())?;
+    let results = service
+        .import_installed_skills(&states, imports)
+        .map_err(|e| e.to_string())?;
+
+    let mut state_updates = Vec::new();
+    for result in &results {
+        if !matches!(
+            result.status,
+            InstalledSkillImportStatus::Imported | InstalledSkillImportStatus::AlreadyManaged
+        ) {
+            continue;
+        }
+        for app in &result.enabled_apps {
+            state_updates.push((
+                parse_skill_app(Some(app.clone()))?,
+                result.directory.clone(),
+            ));
+        }
+    }
+
+    let installed_at = Utc::now();
+    app_state
+        .update_config(|config| {
+            for (app, directory) in &state_updates {
+                let state = config
+                    .skills
+                    .skills
+                    .entry(SkillService::state_key(app, directory))
+                    .or_insert_with(|| SkillState {
+                        installed: true,
+                        installed_at,
+                        repo_owner: None,
+                        repo_name: None,
+                        repo_branch: None,
+                        skills_path: None,
+                    });
+                state.installed = true;
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
 }
 
 #[tauri::command]

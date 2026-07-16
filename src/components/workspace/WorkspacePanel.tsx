@@ -7,6 +7,8 @@ import {
   RefreshCw,
   Save,
   RotateCcw,
+  Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   workspaceApi,
   type DailyMemoryInfo,
+  type DailyMemorySearchResult,
   type WorkspaceBackupInfo,
   type WorkspaceFileInfo,
 } from "@/lib/api/workspace";
@@ -65,6 +68,13 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
   const [memories, setMemories] = useState<DailyMemoryInfo[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memorySaving, setMemorySaving] = useState(false);
+  const [memorySearch, setMemorySearch] = useState("");
+  const [memorySearchResults, setMemorySearchResults] = useState<
+    DailyMemorySearchResult[]
+  >([]);
+  const [memorySearching, setMemorySearching] = useState(false);
+  const [pendingMemoryDelete, setPendingMemoryDelete] =
+    useState<DailyMemoryInfo | null>(null);
 
   const hostLabel =
     capabilities?.host === "server"
@@ -136,6 +146,40 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
     void refreshMemories();
     void loadMemory(new Date().toISOString().slice(0, 10));
   }, [open, refreshFiles, loadFile, refreshMemories, loadMemory]);
+
+  useEffect(() => {
+    if (!open || !memorySearch.trim()) {
+      setMemorySearchResults([]);
+      setMemorySearching(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setMemorySearching(true);
+      workspaceApi
+        .searchDailyMemory(memorySearch.trim())
+        .then((results) => {
+          if (!cancelled) setMemorySearchResults(results);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setMemorySearchResults([]);
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("workspace.memorySearchFailed"),
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setMemorySearching(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [memorySearch, open, t]);
 
   const saveFile = async () => {
     setSaving(true);
@@ -211,9 +255,45 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
     }
   };
 
+  const deleteMemory = async (memory: DailyMemoryInfo) => {
+    try {
+      await workspaceApi.deleteDailyMemory(memory.date, memory.etag);
+      if (memoryDate === memory.date) {
+        setMemoryContent("");
+        setMemoryEtag(undefined);
+      }
+      await refreshMemories();
+      if (memorySearch.trim()) {
+        setMemorySearchResults(
+          await workspaceApi.searchDailyMemory(memorySearch.trim()),
+        );
+      }
+      toast.success(t("workspace.memoryDeleted"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("workspace.memoryDeleteFailed"),
+      );
+    }
+  };
+
   const selectedInfo = useMemo(
     () => files.find((file) => file.name === selected),
     [files, selected],
+  );
+  const displayedMemories = useMemo<DailyMemoryInfo[]>(
+    () =>
+      memorySearch.trim()
+        ? memorySearchResults.map((result) => ({
+            date: result.date,
+            sizeBytes: result.sizeBytes,
+            modifiedAt: result.modifiedAt,
+            etag: result.etag,
+            preview: result.snippet,
+          }))
+        : memories,
+    [memories, memorySearch, memorySearchResults],
   );
 
   return (
@@ -339,12 +419,23 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
             >
               <div className="grid h-full min-h-0 gap-4 md:grid-cols-[220px_1fr]">
                 <aside className="min-h-0 overflow-y-auto border-r pr-3">
+                  <div className="relative mb-3">
+                    <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="search"
+                      value={memorySearch}
+                      onChange={(event) => setMemorySearch(event.target.value)}
+                      placeholder={t("workspace.memorySearch")}
+                      className="h-9 w-full rounded-md border bg-background pl-8 pr-3 text-sm"
+                    />
+                  </div>
                   <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
                     <span>
                       {t("workspace.memoryEntries", {
                         defaultValue: "{{count}} 条记录",
-                        count: memories.length,
+                        count: displayedMemories.length,
                       })}
+                      {memorySearching ? ` · ${t("common.loading")}` : ""}
                     </span>
                     <Button
                       size="icon"
@@ -356,27 +447,38 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
                     </Button>
                   </div>
                   <div className="space-y-1">
-                    {memories.map((memory) => (
-                      <button
-                        key={memory.date}
-                        type="button"
-                        onClick={() => void loadMemory(memory.date)}
-                        className={`w-full rounded-md px-3 py-2 text-left ${
-                          memoryDate === memory.date
-                            ? "bg-accent text-accent-foreground"
-                            : "hover:bg-muted"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <CalendarDays className="h-3.5 w-3.5" />
-                          {memory.date}
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-muted-foreground">
-                          {memory.preview || `${memory.sizeBytes} B`}
-                        </span>
-                      </button>
+                    {displayedMemories.map((memory) => (
+                      <div key={memory.date} className="flex items-start gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void loadMemory(memory.date)}
+                          className={`min-w-0 flex-1 rounded-md px-3 py-2 text-left ${
+                            memoryDate === memory.date
+                              ? "bg-accent text-accent-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {memory.date}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            {memory.preview || `${memory.sizeBytes} B`}
+                          </span>
+                        </button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                          title={t("common.delete")}
+                          onClick={() => setPendingMemoryDelete(memory)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ))}
-                    {memories.length === 0 ? (
+                    {displayedMemories.length === 0 ? (
                       <p className="px-3 py-2 text-xs text-muted-foreground">
                         {t("workspace.noMemory", {
                           defaultValue: "暂无 Daily Memory",
@@ -436,6 +538,20 @@ export function WorkspacePanel({ open, onOpenChange }: WorkspacePanelProps) {
           const backup = pendingBackup;
           setPendingBackup(null);
           if (backup) void restoreBackup(backup);
+        }}
+      />
+      <ConfirmDialog
+        isOpen={pendingMemoryDelete !== null}
+        title={t("workspace.memoryDeleteTitle")}
+        message={t("workspace.memoryDeleteConfirm", {
+          date: pendingMemoryDelete?.date ?? "",
+        })}
+        confirmText={t("common.delete")}
+        onCancel={() => setPendingMemoryDelete(null)}
+        onConfirm={() => {
+          const memory = pendingMemoryDelete;
+          setPendingMemoryDelete(null);
+          if (memory) void deleteMemory(memory);
         }}
       />
     </>

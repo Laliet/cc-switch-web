@@ -38,6 +38,7 @@ describe("sessionsApi", () => {
         cursor: "0",
         limit: 100,
         providerId: "codex",
+        query: "migration",
         refresh: true,
       }),
     ).resolves.toEqual(page);
@@ -45,6 +46,7 @@ describe("sessionsApi", () => {
       cursor: "0",
       limit: 100,
       providerId: "codex",
+      query: "migration",
       refresh: true,
     });
   });

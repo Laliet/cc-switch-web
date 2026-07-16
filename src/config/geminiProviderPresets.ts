@@ -1,4 +1,5 @@
 import type { ProviderCategory } from "@/types";
+import { upstreamGeminiProviderPresetsV315 } from "./upstreamGeminiProviderPresetsV315";
 
 /**
  * Gemini 预设供应商的视觉主题配置
@@ -27,7 +28,7 @@ export interface GeminiProviderPreset {
   theme?: GeminiPresetTheme;
 }
 
-export const geminiProviderPresets: GeminiProviderPreset[] = [
+const localGeminiProviderPresets: GeminiProviderPreset[] = [
   {
     name: "Google Official",
     websiteUrl: "https://ai.google.dev/",
@@ -105,6 +106,30 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
     category: "third_party",
     endpointCandidates: ["https://www.dmxapi.cn"],
   },
+];
+
+const geminiPresetKey = (preset: GeminiProviderPreset) =>
+  (preset.baseURL || preset.name).trim().toLowerCase().replace(/\/+$/, "");
+
+const localGeminiKeys = new Set(
+  localGeminiProviderPresets.map(geminiPresetKey),
+);
+
+export const geminiPresetSyncReportV315 = upstreamGeminiProviderPresetsV315.map(
+  (preset) => ({
+    name: preset.name,
+    key: geminiPresetKey(preset),
+    disposition: localGeminiKeys.has(geminiPresetKey(preset))
+      ? ("duplicate_local_preferred" as const)
+      : ("merged" as const),
+  }),
+);
+
+export const geminiProviderPresets: GeminiProviderPreset[] = [
+  ...localGeminiProviderPresets,
+  ...upstreamGeminiProviderPresetsV315.filter(
+    (preset) => !localGeminiKeys.has(geminiPresetKey(preset)),
+  ),
 ];
 
 export function getGeminiPresetByName(

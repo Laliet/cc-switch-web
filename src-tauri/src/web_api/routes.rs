@@ -63,14 +63,36 @@ pub fn create_router(state: SharedState) -> Router {
 fn openclaw_routes() -> Router<SharedState> {
     Router::new()
         .route("/status", get(openclaw::get_status))
+        .route(
+            "/raw",
+            get(openclaw::get_raw_config).put(openclaw::set_raw_config),
+        )
         .route("/providers", get(openclaw::get_providers))
         .route("/providers/:provider_id", get(openclaw::get_provider))
+        .route(
+            "/reconciliation",
+            get(openclaw::preview_reconciliation).post(openclaw::apply_reconciliation),
+        )
+        .route(
+            "/reconciliation/import-new",
+            post(openclaw::import_live_providers),
+        )
         .route(
             "/default-model",
             get(openclaw::get_default_model)
                 .put(openclaw::set_default_model)
                 .delete(openclaw::clear_default_model),
         )
+        .route(
+            "/model-catalog",
+            get(openclaw::get_model_catalog).put(openclaw::set_model_catalog),
+        )
+        .route(
+            "/agents-defaults",
+            get(openclaw::get_agents_defaults).put(openclaw::set_agents_defaults),
+        )
+        .route("/env", get(openclaw::get_env).put(openclaw::set_env))
+        .route("/tools", get(openclaw::get_tools).put(openclaw::set_tools))
         .route("/health", get(openclaw::get_health))
 }
 
@@ -84,9 +106,12 @@ fn workspace_routes() -> Router<SharedState> {
         .route("/files/:name/backups", get(workspace::list_backups))
         .route("/files/:name/restore", post(workspace::restore_backup))
         .route("/memory", get(workspace::list_daily_memory))
+        .route("/memory/search", get(workspace::search_daily_memory))
         .route(
             "/memory/:date",
-            get(workspace::read_daily_memory).put(workspace::write_daily_memory),
+            get(workspace::read_daily_memory)
+                .put(workspace::write_daily_memory)
+                .delete(workspace::delete_daily_memory),
         )
 }
 
@@ -282,6 +307,8 @@ fn skill_routes() -> Router<SharedState> {
         .route("/", get(skills::list_skills))
         .route("/install", post(skills::install_skill))
         .route("/uninstall", post(skills::uninstall_skill))
+        .route("/discovery", get(skills::scan_unmanaged_skills))
+        .route("/discovery/import", post(skills::import_skills_from_apps))
         .route("/import-zip", post(skills::install_from_zip))
         .route("/storage/migrate", post(skills::migrate_storage))
         .route("/updates", get(skills::check_updates))

@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 use url::Url;
 
@@ -27,6 +27,7 @@ const DEFAULT_MAX_COMPRESSION_RATIO: u64 = 200;
 const DEFAULT_MAX_PATH_COMPONENTS: usize = 64;
 const DEFAULT_MAX_PATH_LENGTH: usize = 240;
 const SKILL_BACKUP_RETAIN_COUNT: usize = 20;
+const MAX_SKILL_IMPORT_BATCH: usize = 100;
 
 /// Skill 同步方式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -223,6 +224,73 @@ pub struct SkillUpdateInfo {
     pub current_hash: Option<String>,
     pub remote_hash: String,
     pub installed_apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstalledSkillDiscoveryStatus {
+    New,
+    Identical,
+    Conflict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkillSource {
+    /// Stable server-known source label. Clients must send this label back
+    /// instead of submitting an arbitrary filesystem path.
+    pub source: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    pub matches_target: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkillDiscovery {
+    pub directory: String,
+    pub name: String,
+    pub description: String,
+    pub sources: Vec<InstalledSkillSource>,
+    pub target_path: String,
+    pub status: InstalledSkillDiscoveryStatus,
+    pub managed_apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportInstalledSkillSelection {
+    pub directory: String,
+    pub source: String,
+    pub apps: Vec<String>,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstalledSkillImportStatus {
+    Imported,
+    AlreadyManaged,
+    Conflict,
+    NotFound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkillImportResult {
+    pub directory: String,
+    pub source: String,
+    pub target_path: String,
+    pub status: InstalledSkillImportStatus,
+    pub enabled_apps: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CanonicalDiscoveryRoot {
+    source: String,
+    path: PathBuf,
 }
 
 /// skills.sh 公共目录搜索结果。
@@ -495,6 +563,437 @@ impl SkillService {
 
     pub fn state_key(app: &AppType, directory: &str) -> String {
         format!("{}:{directory}", app.as_str())
+    }
+
+    fn supported_skill_apps() -> [AppType; 4] {
+        [
+            AppType::Claude,
+            AppType::Codex,
+            AppType::Gemini,
+            AppType::Opencode,
+        ]
+    }
+
+    fn discovery_roots(&self) -> Result<Vec<(String, PathBuf)>> {
+        let mut roots = Self::supported_skill_apps()
+            .into_iter()
+            .filter_map(|app| {
+                Self::get_install_dir_for_app(&app)
+                    .ok()
+                    .map(|path| (app.as_str().to_string(), path))
+            })
+            .collect::<Vec<_>>();
+        let home = get_home_dir().context(format_skill_error(
+            "GET_HOME_DIR_FAILED",
+            &[],
+            Some("checkPermission"),
+        ))?;
+        roots.push(("agents".to_string(), home.join(".agents").join("skills")));
+        roots.push(("cc-switch".to_string(), self.install_dir.clone()));
+        Ok(roots)
+    }
+
+    fn discovery_root(&self, source: &str) -> Result<PathBuf> {
+        self.discovery_roots()?
+            .into_iter()
+            .find_map(|(label, path)| (label == source).then_some(path))
+            .ok_or_else(|| anyhow!("Unknown Skill discovery source: {source}"))
+    }
+
+    fn canonical_discovery_roots(&self) -> Result<Vec<CanonicalDiscoveryRoot>> {
+        let mut roots = Vec::new();
+        for (source, path) in self.discovery_roots()? {
+            match fs::canonicalize(&path) {
+                Ok(path) if path.is_dir() => roots.push(CanonicalDiscoveryRoot { source, path }),
+                Ok(path) => log::warn!("跳过非目录 Skill 发现根路径 {}", path.display()),
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => log::warn!("解析 Skill 发现根路径 {} 失败: {err}", path.display()),
+            }
+        }
+        Ok(roots)
+    }
+
+    fn resolve_discovered_skill_source(
+        roots: &[CanonicalDiscoveryRoot],
+        source: &str,
+        directory: &str,
+    ) -> Option<PathBuf> {
+        let root = roots.iter().find(|root| root.source == source)?;
+        let resolved = fs::canonicalize(root.path.join(directory)).ok()?;
+        if !resolved.is_dir()
+            || !roots
+                .iter()
+                .any(|trusted_root| resolved.starts_with(&trusted_root.path))
+        {
+            return None;
+        }
+
+        let skill_md = fs::symlink_metadata(resolved.join("SKILL.md")).ok()?;
+        if skill_md.file_type().is_symlink() || !skill_md.is_file() {
+            return None;
+        }
+        Some(resolved)
+    }
+
+    fn validate_discovery_directory(directory: &str) -> Result<()> {
+        Self::validate_skill_directory(directory)?;
+        let trimmed = directory.trim();
+        let is_single_component =
+            !trimmed.contains(['/', '\\']) && Path::new(trimmed).components().count() == 1;
+        if !is_single_component || trimmed.starts_with('.') || trimmed.len() > 255 {
+            return Err(anyhow!(format_skill_error(
+                "SKILL_DIR_INVALID",
+                &[("directory", directory)],
+                Some("checkDirectory"),
+            )));
+        }
+        Ok(())
+    }
+
+    fn managed_apps_for_directory(
+        states: &HashMap<String, SkillState>,
+        directory: &str,
+    ) -> Vec<String> {
+        Self::supported_skill_apps()
+            .into_iter()
+            .filter(|app| {
+                states.iter().any(|(key, state)| {
+                    state.installed
+                        && key
+                            .strip_prefix(&format!("{}:", app.as_str()))
+                            .map(|value| value.eq_ignore_ascii_case(directory))
+                            .unwrap_or(false)
+                })
+            })
+            .map(|app| app.as_str().to_string())
+            .collect()
+    }
+
+    fn path_is_present(path: &Path) -> bool {
+        path.exists() || Self::is_symlink(path)
+    }
+
+    fn paths_resolve_to_same_location(left: &Path, right: &Path) -> bool {
+        if left == right {
+            return true;
+        }
+        match (fs::canonicalize(left), fs::canonicalize(right)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        }
+    }
+
+    /// Read-only discovery of Skills already installed in supported client
+    /// directories. Only server-known roots are scanned and only direct child
+    /// directories containing SKILL.md are returned.
+    pub fn discover_installed_skills(
+        &self,
+        states: &HashMap<String, SkillState>,
+    ) -> Result<Vec<InstalledSkillDiscovery>> {
+        let mut grouped: HashMap<String, (String, Vec<InstalledSkillSource>)> = HashMap::new();
+        let roots = self.canonical_discovery_roots()?;
+
+        for root in &roots {
+            let entries = match fs::read_dir(&root.path) {
+                Ok(entries) => entries,
+                Err(err) if err.kind() == ErrorKind::NotFound => continue,
+                Err(err) => {
+                    log::warn!("读取 Skill 发现目录 {} 失败: {err}", root.path.display());
+                    continue;
+                }
+            };
+            for entry in entries.flatten() {
+                let directory = entry.file_name().to_string_lossy().to_string();
+                if Self::validate_discovery_directory(&directory).is_err() {
+                    continue;
+                }
+                let Some(path) =
+                    Self::resolve_discovered_skill_source(&roots, &root.source, &directory)
+                else {
+                    continue;
+                };
+
+                let content_hash = Self::compute_dir_hash(&path).ok();
+                grouped
+                    .entry(directory.to_lowercase())
+                    .or_insert_with(|| (directory.clone(), Vec::new()))
+                    .1
+                    .push(InstalledSkillSource {
+                        source: root.source.clone(),
+                        path: path.display().to_string(),
+                        content_hash,
+                        matches_target: false,
+                    });
+            }
+        }
+
+        let app_labels = Self::supported_skill_apps()
+            .into_iter()
+            .map(|app| app.as_str().to_string())
+            .collect::<HashSet<_>>();
+        let mut discoveries = Vec::new();
+
+        for (_, (directory, mut sources)) in grouped {
+            let target = self.install_dir.join(&directory);
+            let target_is_valid = target.join("SKILL.md").is_file();
+            let target_hash = target_is_valid
+                .then(|| Self::compute_dir_hash(&target).ok())
+                .flatten();
+            for source in &mut sources {
+                source.matches_target = target_hash.is_some()
+                    && source.content_hash.is_some()
+                    && source.content_hash == target_hash;
+            }
+
+            let managed_apps = Self::managed_apps_for_directory(states, &directory);
+            let has_unmanaged_app_source = sources.iter().any(|source| {
+                app_labels.contains(&source.source)
+                    && !managed_apps.iter().any(|app| app == &source.source)
+            });
+            let has_unmanaged_storage_source = managed_apps.is_empty()
+                && sources
+                    .iter()
+                    .any(|source| !app_labels.contains(&source.source));
+            if !has_unmanaged_app_source && !has_unmanaged_storage_source && target_is_valid {
+                continue;
+            }
+
+            let source_hashes = sources
+                .iter()
+                .filter_map(|source| source.content_hash.clone())
+                .collect::<HashSet<_>>();
+            let source_hash_unknown = sources.iter().any(|source| source.content_hash.is_none());
+            let sources_conflict = source_hash_unknown || source_hashes.len() > 1;
+            let status = if sources_conflict {
+                InstalledSkillDiscoveryStatus::Conflict
+            } else if !Self::path_is_present(&target) {
+                InstalledSkillDiscoveryStatus::New
+            } else if target_is_valid && sources.iter().all(|source| source.matches_target) {
+                InstalledSkillDiscoveryStatus::Identical
+            } else {
+                InstalledSkillDiscoveryStatus::Conflict
+            };
+
+            let metadata_source = sources
+                .iter()
+                .find(|source| source.source != "cc-switch")
+                .or_else(|| sources.first())
+                .map(|source| PathBuf::from(&source.path).join("SKILL.md"));
+            let metadata = metadata_source
+                .as_deref()
+                .and_then(|path| self.parse_skill_metadata(path).ok())
+                .unwrap_or(SkillMetadata {
+                    name: None,
+                    description: None,
+                });
+
+            discoveries.push(InstalledSkillDiscovery {
+                directory: directory.clone(),
+                name: metadata.name.unwrap_or_else(|| directory.clone()),
+                description: metadata.description.unwrap_or_default(),
+                sources,
+                target_path: target.display().to_string(),
+                status,
+                managed_apps,
+            });
+        }
+
+        discoveries.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.directory.cmp(&right.directory))
+        });
+        Ok(discoveries)
+    }
+
+    fn import_temp_path(dest: &Path, suffix: &str) -> Result<PathBuf> {
+        let parent = dest
+            .parent()
+            .ok_or_else(|| anyhow!("Skill import target has no parent: {}", dest.display()))?;
+        let name = dest
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("skill");
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        Ok(parent.join(format!(
+            ".{name}.cc-switch-{suffix}-{}-{nonce}",
+            std::process::id()
+        )))
+    }
+
+    fn copy_discovered_skill_atomically(source: &Path, dest: &Path) -> Result<()> {
+        let parent = dest
+            .parent()
+            .ok_or_else(|| anyhow!("Skill import target has no parent: {}", dest.display()))?;
+        fs::create_dir_all(parent)?;
+        let temp = Self::import_temp_path(dest, "import")?;
+        let backup = Self::import_temp_path(dest, "backup")?;
+
+        if let Err(err) = Self::copy_dir_recursive(source, &temp) {
+            let _ = Self::remove_path(&temp);
+            return Err(err);
+        }
+
+        let had_target = Self::path_is_present(dest);
+        if had_target {
+            if let Err(err) = fs::rename(dest, &backup) {
+                let _ = Self::remove_path(&temp);
+                return Err(err.into());
+            }
+        }
+
+        if let Err(err) = fs::rename(&temp, dest) {
+            if had_target {
+                let _ = fs::rename(&backup, dest);
+            }
+            let _ = Self::remove_path(&temp);
+            return Err(err.into());
+        }
+
+        if had_target {
+            Self::remove_path(&backup)?;
+        }
+        Ok(())
+    }
+
+    pub fn import_installed_skills(
+        &self,
+        states: &HashMap<String, SkillState>,
+        selections: Vec<ImportInstalledSkillSelection>,
+    ) -> Result<Vec<InstalledSkillImportResult>> {
+        if selections.len() > MAX_SKILL_IMPORT_BATCH {
+            return Err(anyhow!(
+                "Too many Skills in one import request (maximum {MAX_SKILL_IMPORT_BATCH})"
+            ));
+        }
+
+        let mut results = Vec::with_capacity(selections.len());
+        let mut seen = HashSet::new();
+        let discovery_roots = self.canonical_discovery_roots()?;
+        for selection in selections {
+            Self::validate_discovery_directory(&selection.directory)?;
+            let selection_key = selection.directory.to_lowercase();
+            if !seen.insert(selection_key) {
+                continue;
+            }
+
+            let mut apps = Vec::new();
+            for raw_app in &selection.apps {
+                let app =
+                    AppType::parse_skills_app(raw_app).map_err(|err| anyhow!(err.to_string()))?;
+                if !apps
+                    .iter()
+                    .any(|existing: &AppType| existing.as_str() == app.as_str())
+                {
+                    apps.push(app);
+                }
+            }
+            if apps.is_empty() {
+                return Err(anyhow!(
+                    "At least one target app is required for Skill import"
+                ));
+            }
+
+            let target = self.install_dir.join(&selection.directory);
+            self.discovery_root(&selection.source)?;
+            let Some(source) = Self::resolve_discovered_skill_source(
+                &discovery_roots,
+                &selection.source,
+                &selection.directory,
+            ) else {
+                results.push(InstalledSkillImportResult {
+                    directory: selection.directory,
+                    source: selection.source,
+                    target_path: target.display().to_string(),
+                    status: InstalledSkillImportStatus::NotFound,
+                    enabled_apps: apps.iter().map(|app| app.as_str().to_string()).collect(),
+                });
+                continue;
+            };
+
+            let source_hash = Self::compute_dir_hash(&source)?;
+            let same_location = Self::paths_resolve_to_same_location(&source, &target);
+            let target_present = Self::path_is_present(&target);
+            let target_matches = target
+                .join("SKILL.md")
+                .is_file()
+                .then(|| Self::compute_dir_hash(&target).ok())
+                .flatten()
+                .map(|hash| hash == source_hash)
+                .unwrap_or(false);
+
+            if target_present && !same_location && !target_matches && !selection.overwrite {
+                results.push(InstalledSkillImportResult {
+                    directory: selection.directory,
+                    source: selection.source,
+                    target_path: target.display().to_string(),
+                    status: InstalledSkillImportStatus::Conflict,
+                    enabled_apps: apps.iter().map(|app| app.as_str().to_string()).collect(),
+                });
+                continue;
+            }
+
+            let target_changed = !same_location && !target_matches;
+            if target_changed {
+                Self::copy_discovered_skill_atomically(&source, &target)?;
+            }
+            if !target.join("SKILL.md").is_file() {
+                return Err(anyhow!(
+                    "Imported Skill is missing SKILL.md: {}",
+                    target.display()
+                ));
+            }
+            let target_hash = Self::compute_dir_hash(&target)?;
+            let mut all_previously_managed = true;
+            let mut all_previously_in_sync = true;
+
+            for app in &apps {
+                let state_key = Self::state_key(app, &selection.directory);
+                let was_managed = states
+                    .get(&state_key)
+                    .map(|state| state.installed)
+                    .unwrap_or(false);
+                let app_path = Self::get_install_dir_for_app(app)?.join(&selection.directory);
+                let was_in_sync = app_path
+                    .join("SKILL.md")
+                    .is_file()
+                    .then(|| Self::compute_dir_hash(&app_path).ok())
+                    .flatten()
+                    .map(|hash| hash == target_hash)
+                    .unwrap_or(false);
+                all_previously_managed &= was_managed;
+                all_previously_in_sync &= was_in_sync;
+
+                if !was_managed || !was_in_sync || target_changed {
+                    SkillService {
+                        http_client: self.http_client.clone(),
+                        install_dir: self.install_dir.clone(),
+                        app: app.clone(),
+                        github_mirror_base_url: self.github_mirror_base_url.clone(),
+                    }
+                    .sync_to_current_app(&selection.directory)?;
+                }
+            }
+
+            let status = if all_previously_managed && all_previously_in_sync && !target_changed {
+                InstalledSkillImportStatus::AlreadyManaged
+            } else {
+                InstalledSkillImportStatus::Imported
+            };
+            results.push(InstalledSkillImportResult {
+                directory: selection.directory,
+                source: selection.source,
+                target_path: target.display().to_string(),
+                status,
+                enabled_apps: apps.iter().map(|app| app.as_str().to_string()).collect(),
+            });
+        }
+
+        Ok(results)
     }
 
     fn state_matches_source(
@@ -3190,6 +3689,290 @@ mod tests {
         );
         assert!(!claude.ends_with("skills/skills"));
         assert!(!codex.ends_with("skills/skills"));
+    }
+
+    #[test]
+    #[serial]
+    fn discover_installed_skills_reports_sources_and_content_conflicts() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let claude_skill = temp_dir.path().join(".claude/skills/demo");
+        let codex_skill = temp_dir.path().join(".codex/skills/demo");
+        fs::create_dir_all(&claude_skill).expect("claude skill dir should exist");
+        fs::create_dir_all(&codex_skill).expect("codex skill dir should exist");
+        fs::write(
+            claude_skill.join("SKILL.md"),
+            "---\nname: Demo\ndescription: Claude copy\n---\nclaude\n",
+        )
+        .expect("claude Skill should be written");
+        fs::write(
+            codex_skill.join("SKILL.md"),
+            "---\nname: Demo\ndescription: Codex copy\n---\ncodex\n",
+        )
+        .expect("codex Skill should be written");
+        let install_dir = temp_dir.path().join(".cc-switch/skills");
+        fs::create_dir_all(&install_dir).expect("SSOT should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+
+        let discoveries = service
+            .discover_installed_skills(&HashMap::new())
+            .expect("discovery should succeed");
+
+        assert_eq!(discoveries.len(), 1);
+        let demo = &discoveries[0];
+        assert_eq!(demo.directory, "demo");
+        assert_eq!(demo.name, "Demo");
+        assert_eq!(demo.status, InstalledSkillDiscoveryStatus::Conflict);
+        assert_eq!(
+            demo.target_path,
+            install_dir.join("demo").display().to_string()
+        );
+        assert_eq!(
+            demo.sources
+                .iter()
+                .map(|source| source.source.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["claude", "codex"])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn trusted_root_skill_symlink_is_discovered_and_imported() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let trusted_skill = temp_dir.path().join(".agents/skills/demo");
+        let claude_root = temp_dir.path().join(".claude/skills");
+        fs::create_dir_all(&trusted_skill).expect("trusted skill should exist");
+        fs::create_dir_all(&claude_root).expect("claude root should exist");
+        fs::write(trusted_skill.join("SKILL.md"), "trusted")
+            .expect("trusted Skill should be written");
+        symlink(&trusted_skill, claude_root.join("demo"))
+            .expect("trusted root symlink should be created");
+        let install_dir = temp_dir.path().join(".cc-switch/skills");
+        fs::create_dir_all(&install_dir).expect("SSOT should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+
+        let discoveries = service
+            .discover_installed_skills(&HashMap::new())
+            .expect("trusted symlink discovery should succeed");
+        let demo = discoveries
+            .iter()
+            .find(|skill| skill.directory == "demo")
+            .expect("trusted symlink should be discovered");
+        assert!(demo.sources.iter().any(|source| source.source == "claude"));
+
+        let imported = service
+            .import_installed_skills(
+                &HashMap::new(),
+                vec![ImportInstalledSkillSelection {
+                    directory: "demo".to_string(),
+                    source: "claude".to_string(),
+                    apps: vec!["codex".to_string()],
+                    overwrite: false,
+                }],
+            )
+            .expect("trusted symlink import should succeed");
+        assert_eq!(imported[0].status, InstalledSkillImportStatus::Imported);
+        assert_eq!(
+            fs::read_to_string(install_dir.join("demo/SKILL.md"))
+                .expect("imported Skill should be readable"),
+            "trusted"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn outside_root_skill_symlink_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let outside_skill = temp_dir.path().join("outside/demo");
+        let claude_root = temp_dir.path().join(".claude/skills");
+        fs::create_dir_all(&outside_skill).expect("outside skill should exist");
+        fs::create_dir_all(&claude_root).expect("claude root should exist");
+        fs::write(outside_skill.join("SKILL.md"), "outside")
+            .expect("outside Skill should be written");
+        symlink(&outside_skill, claude_root.join("demo"))
+            .expect("outside root symlink should be created");
+        let install_dir = temp_dir.path().join(".cc-switch/skills");
+        fs::create_dir_all(&install_dir).expect("SSOT should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+
+        assert!(service
+            .discover_installed_skills(&HashMap::new())
+            .expect("unsafe source should be skipped")
+            .is_empty());
+
+        let imported = service
+            .import_installed_skills(
+                &HashMap::new(),
+                vec![ImportInstalledSkillSelection {
+                    directory: "demo".to_string(),
+                    source: "claude".to_string(),
+                    apps: vec!["codex".to_string()],
+                    overwrite: false,
+                }],
+            )
+            .expect("unsafe source should return a controlled result");
+        assert_eq!(imported[0].status, InstalledSkillImportStatus::NotFound);
+        assert!(!install_dir.join("demo").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn nested_skill_symlinks_are_skipped_during_import() {
+        use std::os::unix::fs::symlink;
+
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let source = temp_dir.path().join(".claude/skills/demo");
+        let outside_dir = temp_dir.path().join("outside");
+        fs::create_dir_all(&source).expect("source should exist");
+        fs::create_dir_all(&outside_dir).expect("outside dir should exist");
+        fs::write(source.join("SKILL.md"), "source").expect("source should be written");
+        fs::write(outside_dir.join("secret.txt"), "secret")
+            .expect("outside file should be written");
+        symlink(
+            outside_dir.join("secret.txt"),
+            source.join("linked-file.txt"),
+        )
+        .expect("nested file symlink should be created");
+        symlink(&outside_dir, source.join("linked-directory"))
+            .expect("nested directory symlink should be created");
+        let install_dir = temp_dir.path().join(".cc-switch/skills");
+        fs::create_dir_all(&install_dir).expect("SSOT should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+
+        let imported = service
+            .import_installed_skills(
+                &HashMap::new(),
+                vec![ImportInstalledSkillSelection {
+                    directory: "demo".to_string(),
+                    source: "claude".to_string(),
+                    apps: vec!["codex".to_string()],
+                    overwrite: false,
+                }],
+            )
+            .expect("normal source with nested symlinks should import");
+        assert_eq!(imported[0].status, InstalledSkillImportStatus::Imported);
+        let target = install_dir.join("demo");
+        assert!(target.join("SKILL.md").is_file());
+        assert!(!target.join("linked-file.txt").exists());
+        assert!(!target.join("linked-directory").exists());
+    }
+
+    #[test]
+    #[serial]
+    fn import_installed_skills_requires_overwrite_for_conflicting_ssot() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let source = temp_dir.path().join(".claude/skills/demo");
+        let target = temp_dir.path().join(".cc-switch/skills/demo");
+        fs::create_dir_all(&source).expect("source should exist");
+        fs::create_dir_all(&target).expect("target should exist");
+        fs::write(source.join("SKILL.md"), "source").expect("source should be written");
+        fs::write(target.join("SKILL.md"), "target").expect("target should be written");
+        let service =
+            build_service_with_install_dir(temp_dir.path().join(".cc-switch").join("skills"));
+        let selection = ImportInstalledSkillSelection {
+            directory: "demo".to_string(),
+            source: "claude".to_string(),
+            apps: vec!["claude".to_string()],
+            overwrite: false,
+        };
+
+        let result = service
+            .import_installed_skills(&HashMap::new(), vec![selection.clone()])
+            .expect("conflict should be returned as a result");
+        assert_eq!(result[0].status, InstalledSkillImportStatus::Conflict);
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).expect("target should remain readable"),
+            "target"
+        );
+
+        let result = service
+            .import_installed_skills(
+                &HashMap::new(),
+                vec![ImportInstalledSkillSelection {
+                    overwrite: true,
+                    ..selection
+                }],
+            )
+            .expect("confirmed overwrite should succeed");
+        assert_eq!(result[0].status, InstalledSkillImportStatus::Imported);
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).expect("target should be replaced"),
+            "source"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn import_installed_skills_is_idempotent_after_state_is_recorded() {
+        let temp_dir = tempfile::tempdir().expect("temp dir should exist");
+        let home = temp_dir.path().to_string_lossy().to_string();
+        let _home_guard = EnvGuard::set("HOME", &home);
+        let _user_profile_guard = EnvGuard::set("USERPROFILE", &home);
+        let source = temp_dir.path().join(".claude/skills/demo");
+        fs::create_dir_all(&source).expect("source should exist");
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: Demo\ndescription: Existing\n---\nbody\n",
+        )
+        .expect("source should be written");
+        let install_dir = temp_dir.path().join(".cc-switch/skills");
+        fs::create_dir_all(&install_dir).expect("SSOT should exist");
+        let service = build_service_with_install_dir(install_dir.clone());
+        let selection = ImportInstalledSkillSelection {
+            directory: "demo".to_string(),
+            source: "claude".to_string(),
+            apps: vec!["claude".to_string()],
+            overwrite: false,
+        };
+
+        let first = service
+            .import_installed_skills(&HashMap::new(), vec![selection.clone()])
+            .expect("first import should succeed");
+        assert_eq!(first[0].status, InstalledSkillImportStatus::Imported);
+        assert!(install_dir.join("demo/SKILL.md").is_file());
+
+        let mut states = HashMap::new();
+        states.insert(
+            SkillService::state_key(&AppType::Claude, "demo"),
+            SkillState {
+                installed: true,
+                installed_at: Utc::now(),
+                repo_owner: None,
+                repo_name: None,
+                repo_branch: None,
+                skills_path: None,
+            },
+        );
+        let second = service
+            .import_installed_skills(&states, vec![selection])
+            .expect("repeated import should succeed");
+        assert_eq!(second[0].status, InstalledSkillImportStatus::AlreadyManaged);
+        assert!(service
+            .discover_installed_skills(&states)
+            .expect("managed discovery should succeed")
+            .is_empty());
     }
 
     #[test]

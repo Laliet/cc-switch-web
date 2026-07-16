@@ -1,6 +1,6 @@
 {
   "name": "cc-switch-web",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Cross-platform web-based All-in-One assistant tool for Claude Code, Codex & Gemini CLI",
   "scripts": {
     "dev": "pnpm tauri dev",
@@ -28,7 +28,7 @@
   "author": "Laliet",
   "license": "MIT",
   "devDependencies": {
-    "@tauri-apps/cli": "^2.8.0",
+    "@tauri-apps/cli": "2.9.6",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
@@ -69,7 +69,8 @@
     "@radix-ui/react-visually-hidden": "^1.2.4",
     "@tailwindcss/vite": "^4.1.13",
     "@tanstack/react-query": "^5.90.3",
-    "@tauri-apps/api": "^2.8.0",
+    "@tanstack/react-virtual": "^3.14.6",
+    "@tauri-apps/api": "2.9.1",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-process": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",

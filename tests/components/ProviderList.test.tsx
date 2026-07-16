@@ -14,6 +14,7 @@ const checkProviderMock = vi.fn();
 const checkProvidersMock = vi.fn();
 const isCheckingMock = vi.fn();
 const useLatestStreamCheckHistoryMock = vi.fn();
+const useProviderRoutingStatusMock = vi.fn();
 
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
@@ -120,6 +121,11 @@ vi.mock("@/hooks/useStreamCheckHistory", () => ({
     useLatestStreamCheckHistoryMock(...args),
 }));
 
+vi.mock("@/hooks/useProviderRoutingStatus", () => ({
+  useProviderRoutingStatus: (...args: unknown[]) =>
+    useProviderRoutingStatusMock(...args),
+}));
+
 vi.mock("@/components/providers/StreamCheckHistoryPanel", () => ({
   StreamCheckHistoryPanel: () => <div data-testid="stream-check-history" />,
 }));
@@ -170,6 +176,8 @@ beforeEach(() => {
   isCheckingMock.mockReturnValue(false);
   useLatestStreamCheckHistoryMock.mockReset();
   useLatestStreamCheckHistoryMock.mockReturnValue({ data: [] });
+  useProviderRoutingStatusMock.mockReset();
+  useProviderRoutingStatusMock.mockReturnValue({ data: undefined });
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -459,11 +467,13 @@ describe("ProviderList Component", () => {
     const button = screen.getByTestId("stream-check-opencode-1");
     expect(button).toHaveAttribute("data-enabled", "true");
     expect(button).toHaveAttribute("data-checking", "true");
-    expect(providerCardRenderSpy.mock.calls[0][0].streamCheckLog).toMatchObject({
-      providerId: "opencode-1",
-      responseTimeMs: 84,
-      errorCategory: "authenticationFailed",
-    });
+    expect(providerCardRenderSpy.mock.calls[0][0].streamCheckLog).toMatchObject(
+      {
+        providerId: "opencode-1",
+        responseTimeMs: 84,
+        errorCategory: "authenticationFailed",
+      },
+    );
 
     fireEvent.click(button);
     expect(checkProviderMock).toHaveBeenCalledWith("opencode-1", "OpenCode");
@@ -497,6 +507,122 @@ describe("ProviderList Component", () => {
       "data-enabled",
       "false",
     );
+  });
+
+  it("maps proxy routing, failover priority, and circuit health to cards", () => {
+    const provider = createProvider({ id: "routed", name: "Routed" });
+    const proxyHealth = {
+      appType: "claude",
+      providerId: "routed",
+      state: "half_open",
+      failureCount: 2,
+      recoverySuccessCount: 1,
+      windowRequests: 12,
+      windowFailures: 4,
+    };
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+    useProviderRoutingStatusMock.mockReturnValue({
+      data: {
+        routeApp: "claude",
+        configApp: "claude",
+        status: {
+          running: true,
+          activeTargets: [
+            {
+              appType: "claude",
+              providerId: "routed",
+              providerName: "Routed",
+            },
+          ],
+          providerHealth: [proxyHealth],
+          takeover: { claude: true },
+        },
+        settings: {
+          apps: { claude: { autoFailoverEnabled: true } },
+        },
+        queue: [{ providerId: "routed", providerName: "Routed", position: 0 }],
+      },
+    });
+
+    render(
+      <ProviderList
+        providers={{ routed: provider }}
+        currentProviderId="another-provider"
+        appId="claude"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    const props = providerCardRenderSpy.mock.calls.find(
+      ([value]) => value.provider.id === "routed",
+    )?.[0];
+    expect(useProviderRoutingStatusMock).toHaveBeenCalledWith("claude");
+    expect(props).toMatchObject({
+      failoverPriority: 1,
+      failoverActive: true,
+      isActiveRoute: true,
+      proxyHealth,
+    });
+  });
+
+  it("uses the Claude Desktop route id for proxy circuit health", () => {
+    const provider = createProvider({ id: "desktop-route" });
+    const proxyHealth = {
+      appType: "claude-desktop",
+      providerId: "desktop-route",
+      state: "open",
+      failureCount: 1,
+      recoverySuccessCount: 0,
+      windowRequests: 3,
+      windowFailures: 1,
+    };
+    useDragSortMock.mockReturnValue({
+      sortedProviders: [provider],
+      sensors: [],
+      handleDragEnd: vi.fn(),
+    });
+    useProviderRoutingStatusMock.mockReturnValue({
+      data: {
+        routeApp: "claude-desktop",
+        configApp: "claude",
+        status: {
+          running: true,
+          activeTargets: [],
+          providerHealth: [proxyHealth],
+          takeover: { claude: true },
+        },
+        settings: {
+          apps: { claude: { autoFailoverEnabled: true } },
+        },
+        queue: [],
+      },
+    });
+
+    render(
+      <ProviderList
+        providers={{ "desktop-route": provider }}
+        currentProviderId="desktop-route"
+        appId="claude-desktop"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+      />,
+    );
+
+    const props = providerCardRenderSpy.mock.calls.find(
+      ([value]) => value.provider.id === "desktop-route",
+    )?.[0];
+    expect(props.proxyHealth).toEqual(proxyHealth);
   });
 
   it("does not expose stream check action for OpenClaw additive providers", () => {

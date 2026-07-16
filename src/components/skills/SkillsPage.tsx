@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import {
   Archive,
+  FolderSearch,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -31,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { SkillCard } from "./SkillCard";
 import { RepoManager } from "./RepoManager";
+import { InstalledSkillsImportDialog } from "./InstalledSkillsImportDialog";
 import {
   skillsApi,
   type Skill,
@@ -81,6 +83,7 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
   const isMountedRef = useRef(true);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const [repoManagerOpen, setRepoManagerOpen] = useState(false);
+  const [installedImportOpen, setInstalledImportOpen] = useState(false);
   const [skillBackups, setSkillBackups] = useState<SkillBackupEntry[]>([]);
   const [backupActionId, setBackupActionId] = useState<string | null>(null);
   const [zipImporting, setZipImporting] = useState(false);
@@ -830,6 +833,16 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
             <Button
               variant="mcp"
               size="sm"
+              onClick={() => setInstalledImportOpen(true)}
+            >
+              <FolderSearch className="mr-2 h-4 w-4" />
+              {t("skills.discovery.open", {
+                defaultValue: "发现已安装",
+              })}
+            </Button>
+            <Button
+              variant="mcp"
+              size="sm"
               onClick={() => zipInputRef.current?.click()}
               disabled={zipImporting}
             >
@@ -1241,6 +1254,12 @@ function SkillsPageContent({ onClose: _onClose, appId }: SkillsPageProps = {}) {
         skills={skills}
         onAdd={handleAddRepo}
         onRemove={handleRemoveRepo}
+      />
+      <InstalledSkillsImportDialog
+        open={installedImportOpen}
+        onOpenChange={setInstalledImportOpen}
+        currentApp={currentApp}
+        onImported={() => loadSkills()}
       />
     </div>
   );

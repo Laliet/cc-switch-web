@@ -5,7 +5,7 @@ import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
 } from "@dnd-kit/core";
-import type { Provider } from "@/types";
+import type { Provider, ProxyProviderHealth } from "@/types";
 import type { ProviderHealth } from "@/lib/api";
 import type { StreamCheckLog } from "@/lib/api/model-test";
 import { ProviderCard } from "@/components/providers/ProviderCard";
@@ -83,6 +83,10 @@ const renderProviderCard = (
     dragHandleProps?: DragHandleProps;
     healthStatus?: ProviderHealth;
     streamCheckLog?: StreamCheckLog;
+    proxyHealth?: ProxyProviderHealth;
+    failoverPriority?: number;
+    failoverActive?: boolean;
+    isActiveRoute?: boolean;
     appId?:
       | "claude"
       | "claude-desktop"
@@ -115,6 +119,10 @@ const renderProviderCard = (
       dragHandleProps={options.dragHandleProps}
       healthStatus={options.healthStatus}
       streamCheckLog={options.streamCheckLog}
+      proxyHealth={options.proxyHealth}
+      failoverPriority={options.failoverPriority}
+      failoverActive={options.failoverActive}
+      isActiveRoute={options.isActiveRoute}
     />,
   );
 
@@ -269,7 +277,7 @@ describe("ProviderCard", () => {
       isHealthy: true,
       status: "available",
       latency: 123.4,
-      lastChecked: 1000,
+      lastChecked: 0,
       availability: 98.76,
     };
 
@@ -293,7 +301,7 @@ describe("ProviderCard", () => {
       isHealthy: false,
       status: "degraded",
       latency: 45,
-      lastChecked: 1000,
+      lastChecked: 0,
     };
 
     renderProviderCard({}, { healthStatus });
@@ -309,6 +317,57 @@ describe("ProviderCard", () => {
     expect(indicator.querySelector("span[aria-hidden='true']")).toHaveClass(
       "bg-yellow-500",
     );
+  });
+
+  it("includes the most recent external health check time", () => {
+    renderProviderCard(
+      {},
+      {
+        healthStatus: {
+          isHealthy: true,
+          status: "available",
+          latency: 20,
+          lastChecked: Date.UTC(2026, 0, 2, 3, 4, 5),
+        },
+      },
+    );
+
+    expect(
+      screen.getByLabelText((label) =>
+        label.includes("provider.health.lastChecked"),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows failover priority, active route, and circuit failures", () => {
+    renderProviderCard(
+      {},
+      {
+        failoverPriority: 2,
+        failoverActive: true,
+        isActiveRoute: true,
+        proxyHealth: {
+          appType: "claude",
+          providerId: "provider-1",
+          state: "open",
+          failureCount: 3,
+          recoverySuccessCount: 0,
+          windowRequests: 10,
+          windowFailures: 8,
+          lastFailureSecondsAgo: 12,
+        },
+      },
+    );
+
+    expect(screen.getByText("P2")).toBeInTheDocument();
+    expect(screen.getByText("provider.activeRoute")).toBeInTheDocument();
+    expect(screen.getByText("provider.circuit.open")).toBeInTheDocument();
+    expect(screen.getByText("F3")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText((label) =>
+        label.includes("provider.circuit.window"),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows the latest Stream Check status, latency, and error category", () => {

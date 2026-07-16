@@ -4,7 +4,7 @@
 
 <sub>🙏 本项目是 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)（Jason Young）的 fork 版本。感谢原作者的出色工作。本 fork 添加了 Web 服务器模式，支持云端/无头部署。</sub>
 
-[![Release](https://img.shields.io/badge/Release-v0.20.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v0.21.0-ea7233?style=flat-square&logo=github)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![License](https://img.shields.io/github/license/Laliet/cc-switch-web?style=flat-square)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/Laliet/cc-switch-web/releases/latest)
@@ -27,7 +27,7 @@
 - **提示词编辑器** — 内置语法高亮
 - **配置备份/恢复** — 支持版本历史
 - **OpenCode 与 OMO 配置 UI** — 支持供应商预设、模型元数据和 OMO Slim
-- **OpenClaw 第一阶段管理** — 支持增量供应商、默认模型、Workspace、每日记忆和会话
+- **OpenClaw 配置中心** — 支持模型、Agents defaults、Environment、Tools、外部 Provider 对账、Workspace、每日记忆和会话
 - **流式健康检查与历史** — 验证供应商的流式响应并保留诊断记录
 - **Web 服务器模式** — 支持 Basic Auth，适用于云端/无头部署
 
@@ -63,7 +63,7 @@
 - **提示词管理**：内置 CodeMirror 编辑器创建和管理系统提示词
 - **OpenCode 供应商预设**：选择 AI SDK package、导入推荐模型、拉取模型列表、编辑模型变体和选项
 - **OMO / OMO Slim UI**：用结构化字段管理 oh-my-opencode 与 oh-my-opencode-slim 配置
-- **OpenClaw 管理**：管理增量供应商与默认模型，并通过 ETag 冲突保护和备份编辑白名单 Workspace/每日记忆文件
+- **OpenClaw 管理**：管理增量供应商、模型、Agents defaults、Environment、Tools、原始 JSON5、Workspace 与每日记忆，并提供 ETag 冲突保护和备份
 
 ### 扩展功能
 
@@ -89,10 +89,10 @@
 
 | 架构                      | 下载链接                                                                                                                           |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-x86_64)   |
-| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/cc-switch-server-linux-aarch64) |
+| **Linux x86_64 (glibc)**  | [cc-switch-server-linux-x86_64](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/cc-switch-server-linux-x86_64)   |
+| **Linux aarch64 (glibc)** | [cc-switch-server-linux-aarch64](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/cc-switch-server-linux-aarch64) |
 
-发布页：[v0.20.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)
+发布页：[v0.21.0 下载](https://github.com/Laliet/cc-switch-web/releases/tag/v0.21.0)
 
 > **glibc 说明**：预编译二进制基于 Ubuntu 22.04 构建。  
 > 如果报 `GLIBC_2.xx not found`，请改用 Docker 或源码构建。  
@@ -175,11 +175,11 @@ Web 模式管理的是 **cc-switch-server 所在主机** 的文件与进程，�
 | --- | --- |
 | Claude、Codex、Gemini | 服务器主机上的供应商、MCP、提示词、Skills、用量、会话与 Local Routing |
 | OpenCode | 增量供应商，以及 MCP、提示词、Skills、用量、会话与 Local Routing |
-| OpenClaw | 增量供应商、默认模型/状态、白名单 Workspace/每日记忆编辑与会话 |
+| OpenClaw | 增量供应商、结构化/原始配置、外部 Provider 对账、白名单 Workspace/每日记忆编辑与会话 |
 | OMO / OMO Slim | Provider profile，并复用 OpenCode MCP/Skills 存储；不支持代理接管 |
 | Claude Desktop | 仅在受支持的 macOS/Windows 服务器主机管理 Provider/Local Routing profile；不支持 MCP、提示词、Skills、用量与会话 |
 
-原生文件对话框、系统托盘、应用更新、便携模式设置、环境管理和原生端点测试仍仅限桌面端。OpenClaw Local Routing、MCP、提示词、Skills 与用量不在 v0.20.0 第一阶段范围内。
+原生文件对话框、系统托盘、应用更新、便携模式设置、环境管理和原生端点测试仍仅限桌面端。OpenClaw Local Routing、MCP、提示词、Skills 与用量继续保持不支持，因为上游 v3.15.0 也没有提供这些 OpenClaw 集成。
 
 ### 安全
 
@@ -221,11 +221,11 @@ Web 模式管理的是 **cc-switch-server 所在主机** 的文件与进程，�
 
 | 平台        | 下载链接                                                                                                                                           | 说明                                |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| **Windows** | [CC-Switch-v0.20.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows.msi)                   | 安装版                              |
-|             | [CC-Switch-v0.20.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Windows-Portable.zip) | 绿色版（免安装）                    |
-| **macOS**   | [CC-Switch-v0.20.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
-| **Linux**   | [CC-Switch-v0.20.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.AppImage)             | AppImage                            |
-|             | [CC-Switch-v0.20.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.20.0/CC-Switch-v0.20.0-Linux.deb)                       | Debian/Ubuntu 包                    |
+| **Windows** | [CC-Switch-v0.21.0-Windows.msi](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Windows.msi)                   | 安装版                              |
+|             | [CC-Switch-v0.21.0-Windows-Portable.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Windows-Portable.zip) | 绿色版（免安装）                    |
+| **macOS**   | [CC-Switch-v0.21.0-macOS.zip](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-macOS.zip)                       | 通用二进制（Intel + Apple Silicon） |
+| **Linux**   | [CC-Switch-v0.21.0-Linux.AppImage](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Linux.AppImage)             | AppImage                            |
+|             | [CC-Switch-v0.21.0-Linux.deb](https://github.com/Laliet/cc-switch-web/releases/download/v0.21.0/CC-Switch-v0.21.0-Linux.deb)                       | Debian/Ubuntu 包                    |
 
 **macOS 提示**：如遇"已损坏"警告，在终端执行：`xattr -cr "/Applications/CC Switch.app"`
 
@@ -249,7 +249,7 @@ curl -fsSL https://raw.githubusercontent.com/Laliet/cc-switch-web/main/scripts/i
 
 ```bash
 # 安装指定版本
-VERSION=v0.20.0 curl -fsSL https://...install.sh | bash
+VERSION=v0.21.0 curl -fsSL https://...install.sh | bash
 
 # 跳过校验
 NO_CHECKSUM=1 curl -fsSL https://...install.sh | bash
@@ -323,7 +323,7 @@ CC-Switch 运行时主存储：`~/.cc-switch/cc-switch.db`
 proxy settings、provider health、request logs、failover queue，以及导入/导出
 兼容快照均以 SQLite 为权威存储。
 
-v0.20.0 使用 SQLite **Schema v7**，新增 Stream Check 历史记录。WebDAV v2 的新快照写入 `v2/db-v7/<profile>/`，仍可读取和恢复 v0.19.1 的 `db-v6` 主快照与历史备份，并继续把 v0.18 旧 JSON 快照作为只读迁移来源。运行时日志、用量、健康状态、会话同步状态和 Stream Check 历史不会上传；恢复时会保留服务器本地已有的诊断历史。
+v0.21.0 继续使用 SQLite **Schema v7**，其中包含持久化 Stream Check 历史。WebDAV v2 的新快照写入 `v2/db-v7/<profile>/`，仍可读取和恢复 v0.19.1 的 `db-v6` 主快照与历史备份，并继续把 v0.18 旧 JSON 快照作为只读迁移来源。运行时日志、用量、健康状态、会话同步状态和 Stream Check 历史不会上传；恢复时会保留服务器本地已有的诊断历史。
 
 ---
 
@@ -361,8 +361,19 @@ pnpm test:unit
 
 ## 更新内容
 
-> 当前版本：[v0.20.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.20.0)<br>
-> `v0.20.0` 完成 Web/headless 能力闭环、OpenClaw 第一阶段和代理诊断可靠性建设。
+> 当前版本：[v0.21.0](https://github.com/Laliet/cc-switch-web/releases/tag/v0.21.0)<br>
+> `v0.21.0` 完成 OpenClaw 第二阶段、全局 Session 搜索、已安装 Skills 发现和 Provider 路由状态展示。
+
+### v0.21.0 - OpenClaw 第二阶段
+
+- 补齐 OpenClaw 模型、Agents defaults、Environment、Tools/Profile 结构化配置和高级原始 JSON5 编辑
+- 新增外部 Provider 对账，支持 ETag 绑定的预览/应用和幂等启动刷新
+- 新增主机完整 Session 搜索及长会话消息/目录虚拟化
+- 新增已安装 Skills 发现/导入，包含可信固定目录、冲突预览、明确覆盖和多 App 同步
+- 新增 Daily Memory 搜索及带备份的 ETag 保护删除
+- 合并上游 v3.15.0 全部 OpenClaw、Gemini 和 Codex 预设，同时保留本项目适合中国大陆网络的 Provider
+- Provider 卡片展示故障转移优先级、代理实际路由、熔断状态/失败统计和最新健康检查时间
+- 发布说明：[v0.21.0](docs/release-note-v0.21.0-zh.md)
 
 ### v0.20.0 - Web/Headless 与 OpenClaw 第一阶段
 
@@ -422,7 +433,7 @@ pnpm test:unit
 
 ## 更新日志
 
-参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.20.0 发布说明](docs/release-note-v0.20.0-zh.md) - 当前版本：**v0.20.0**
+参见 [CHANGELOG.md](CHANGELOG.md) 与 [v0.21.0 发布说明](docs/release-note-v0.21.0-zh.md) - 当前版本：**v0.21.0**
 
 ---
 

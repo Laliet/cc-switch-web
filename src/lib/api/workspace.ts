@@ -34,6 +34,21 @@ export interface DailyMemoryInfo {
   preview: string;
 }
 
+export interface DailyMemorySearchResult {
+  date: string;
+  sizeBytes: number;
+  modifiedAt: number;
+  etag: string;
+  snippet: string;
+  matchCount: number;
+}
+
+export interface DailyMemoryDeleteOutcome {
+  date: string;
+  deleted: boolean;
+  backupId?: string;
+}
+
 export const workspaceApi = {
   listFiles(): Promise<WorkspaceFileInfo[]> {
     return invoke("list_workspace_files");
@@ -82,5 +97,14 @@ export const workspaceApi = {
       content,
       expectedEtag: expectedEtag ?? null,
     });
+  },
+  searchDailyMemory(query: string): Promise<DailyMemorySearchResult[]> {
+    return invoke("search_daily_memory_files", { query });
+  },
+  deleteDailyMemory(
+    date: string,
+    expectedEtag: string,
+  ): Promise<DailyMemoryDeleteOutcome> {
+    return invoke("delete_daily_memory_file", { date, expectedEtag });
   },
 };

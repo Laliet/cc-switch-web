@@ -1,5 +1,6 @@
 import type { ProviderCategory } from "@/types";
 import type { PresetTheme, TemplateValueConfig } from "./claudeProviderPresets";
+import { upstreamOpenClawProviderPresetsV315 } from "./upstreamOpenClawProviderPresetsV315";
 
 export const openclawApiProtocols = [
   { value: "openai-completions", label: "OpenAI Completions" },
@@ -69,7 +70,7 @@ const apiKeyTemplate = (placeholder = "sk-...") => ({
  * OpenClaw stores all enabled providers under `models.providers`. These
  * presets are provider fragments, matching the additive format used upstream.
  */
-export const openclawProviderPresets: OpenClawProviderPreset[] = [
+const localOpenClawProviderPresets: OpenClawProviderPreset[] = [
   {
     name: "DeepSeek",
     providerKey: "deepseek",
@@ -336,4 +337,47 @@ export const openclawProviderPresets: OpenClawProviderPreset[] = [
       ...apiKeyTemplate(),
     },
   },
+];
+
+const inferUpstreamProviderKey = (
+  preset: (typeof upstreamOpenClawProviderPresetsV315)[number],
+): string => {
+  const primary = preset.suggestedDefaults?.model?.primary;
+  if (primary?.includes("/")) {
+    return primary.slice(0, primary.indexOf("/"));
+  }
+  if (preset.name === "AWS Bedrock") return "aws-bedrock";
+  if (preset.name === "OpenAI Compatible") return "custom";
+  return preset.name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+};
+
+const upstreamOpenClawPresets = upstreamOpenClawProviderPresetsV315.map(
+  (preset): OpenClawProviderPreset => ({
+    ...preset,
+    providerKey: inferUpstreamProviderKey(preset),
+  }),
+);
+
+const localOpenClawKeys = new Set(
+  localOpenClawProviderPresets.map((preset) => preset.providerKey),
+);
+
+export const openclawPresetSyncReportV315 = upstreamOpenClawPresets.map(
+  (preset) => ({
+    providerKey: preset.providerKey,
+    name: preset.name,
+    disposition: localOpenClawKeys.has(preset.providerKey)
+      ? ("duplicate_local_preferred" as const)
+      : ("merged" as const),
+  }),
+);
+
+export const openclawProviderPresets: OpenClawProviderPreset[] = [
+  ...localOpenClawProviderPresets,
+  ...upstreamOpenClawPresets.filter(
+    (preset) => !localOpenClawKeys.has(preset.providerKey),
+  ),
 ];

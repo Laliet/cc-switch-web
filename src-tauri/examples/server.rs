@@ -92,6 +92,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state: SharedState = Arc::new(AppState::try_new()?);
 
+    match cc_switch_lib::ProviderService::import_openclaw_providers_from_live(&state) {
+        Ok(count) if count > 0 => {
+            info!("Imported or refreshed {count} OpenClaw provider(s) from live config")
+        }
+        Ok(_) => {}
+        Err(error) => error!("Failed to reconcile OpenClaw live providers: {error}"),
+    }
+
     let port = env::var("PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())

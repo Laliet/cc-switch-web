@@ -325,6 +325,7 @@ impl ConfigService {
                         &crate::openclaw_config::OpenClawDefaultModel {
                             primary: format!("{}/{}", provider.id, model_id),
                             fallbacks: Vec::new(),
+                            extra: Default::default(),
                         },
                     )?;
                 }

@@ -63,6 +63,80 @@ async fn response_error_fields(res: axum::response::Response) -> (String, String
     (code, message)
 }
 
+async fn response_json(res: axum::response::Response) -> serde_json::Value {
+    let bytes = to_bytes(res.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    serde_json::from_slice(&bytes).expect("response json")
+}
+
+#[tokio::test]
+#[serial]
+async fn skills_discovery_import_is_read_only_then_idempotent() {
+    let _guard = async_test_mutex().lock().await;
+    reset_test_fs();
+    let home = ensure_test_home();
+    let source = home.join(".claude/skills/demo");
+    std::fs::create_dir_all(&source).expect("create source Skill");
+    std::fs::write(
+        source.join("SKILL.md"),
+        "---\nname: Demo\ndescription: Existing\n---\nbody\n",
+    )
+    .expect("write source Skill");
+
+    let app = make_app("password", "csrf-token");
+    let scan_request = || {
+        Request::builder()
+            .method(Method::GET)
+            .uri("/api/skills/discovery")
+            .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+            .body(Body::empty())
+            .expect("build scan request")
+    };
+    let scan = dispatch(app.clone(), scan_request()).await;
+    assert_eq!(scan.status(), StatusCode::OK);
+    let scan_json = response_json(scan).await;
+    assert_eq!(scan_json[0]["directory"], "demo");
+    assert_eq!(scan_json[0]["status"], "new");
+    assert!(
+        !home.join(".cc-switch/skills/demo/SKILL.md").exists(),
+        "discovery must remain read-only"
+    );
+
+    let import_body = serde_json::json!({
+        "imports": [{
+            "directory": "demo",
+            "source": "claude",
+            "apps": ["claude"],
+            "overwrite": false
+        }]
+    })
+    .to_string();
+    let import_request = || {
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/skills/discovery/import")
+            .header(AUTHORIZATION, basic_auth_header("admin", "password"))
+            .header("x-csrf-token", HeaderValue::from_static("csrf-token"))
+            .header("content-type", HeaderValue::from_static("application/json"))
+            .body(Body::from(import_body.clone()))
+            .expect("build import request")
+    };
+
+    let first = dispatch(app.clone(), import_request()).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(response_json(first).await[0]["status"], "imported");
+    assert!(home.join(".cc-switch/skills/demo/SKILL.md").is_file());
+
+    let second = dispatch(app.clone(), import_request()).await;
+    assert_eq!(second.status(), StatusCode::OK);
+    assert_eq!(response_json(second).await[0]["status"], "already_managed");
+
+    let rescan = dispatch(app, scan_request()).await;
+    assert_eq!(rescan.status(), StatusCode::OK);
+    assert_eq!(response_json(rescan).await, serde_json::json!([]));
+}
+
 #[tokio::test]
 #[serial]
 async fn skills_list_rejects_claude_desktop_query() {

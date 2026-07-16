@@ -16,9 +16,10 @@ use crate::{
     error::format_skill_error,
     error::AppError,
     services::{
-        skill::SkillCommand as ServiceSkillCommand, MigrationResult, Skill as ServiceSkill,
-        SkillBackupEntry, SkillRepo, SkillService, SkillStorageLocation, SkillUpdateInfo,
-        SkillsShSearchResult,
+        skill::SkillCommand as ServiceSkillCommand, ImportInstalledSkillSelection,
+        InstalledSkillDiscovery, InstalledSkillImportResult, InstalledSkillImportStatus,
+        MigrationResult, Skill as ServiceSkill, SkillBackupEntry, SkillRepo, SkillService,
+        SkillStorageLocation, SkillUpdateInfo, SkillsShSearchResult,
     },
     store::AppState,
 };
@@ -219,6 +220,76 @@ pub async fn uninstall_skill(
 pub async fn list_backups() -> ApiResult<Vec<SkillBackupEntry>> {
     let backups = SkillService::list_backups().map_err(internal_error)?;
     Ok(Json(backups))
+}
+
+pub async fn scan_unmanaged_skills(
+    State(state): State<Arc<AppState>>,
+) -> ApiResult<Vec<InstalledSkillDiscovery>> {
+    let config = state.load_config().map_err(ApiError::from)?;
+    let service = SkillService::new().map_err(internal_error)?;
+    let skill_states = config.skills.skills;
+    let discoveries =
+        tokio::task::spawn_blocking(move || service.discover_installed_skills(&skill_states))
+            .await
+            .map_err(internal_error)?
+            .map_err(internal_error)?;
+    Ok(Json(discoveries))
+}
+
+pub async fn import_skills_from_apps(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ImportInstalledSkillsPayload>,
+) -> ApiResult<Vec<InstalledSkillImportResult>> {
+    let states = state.load_config().map_err(ApiError::from)?.skills.skills;
+    let service = SkillService::new().map_err(internal_error)?;
+    let imports = payload.imports;
+    let import_states = states;
+    let results = tokio::task::spawn_blocking(move || {
+        service.import_installed_skills(&import_states, imports)
+    })
+    .await
+    .map_err(internal_error)?
+    .map_err(internal_error)?;
+
+    let mut state_updates = Vec::new();
+    for result in &results {
+        if !matches!(
+            result.status,
+            InstalledSkillImportStatus::Imported | InstalledSkillImportStatus::AlreadyManaged
+        ) {
+            continue;
+        }
+        for app in &result.enabled_apps {
+            state_updates.push((
+                parse_skill_app(Some(app.clone()))?,
+                result.directory.clone(),
+            ));
+        }
+    }
+
+    let installed_at = Utc::now();
+    state
+        .update_config(|config| {
+            for (app, directory) in &state_updates {
+                let skill_state = config
+                    .skills
+                    .skills
+                    .entry(SkillService::state_key(app, directory))
+                    .or_insert_with(|| crate::services::skill::SkillState {
+                        installed: true,
+                        installed_at,
+                        repo_owner: None,
+                        repo_name: None,
+                        repo_branch: None,
+                        skills_path: None,
+                    });
+                skill_state.installed = true;
+            }
+            Ok(())
+        })
+        .map_err(internal_error)?;
+
+    Ok(Json(results))
 }
 
 pub async fn delete_backup(Path(backup_id): Path<String>) -> ApiResult<bool> {
@@ -447,6 +518,12 @@ pub struct InstallPayload {
     pub force: Option<bool>,
     #[serde(default)]
     pub app: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportInstalledSkillsPayload {
+    pub imports: Vec<ImportInstalledSkillSelection>,
 }
 
 #[derive(serde::Deserialize)]
