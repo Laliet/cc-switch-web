@@ -398,6 +398,31 @@ impl ConfigService {
         };
 
         crate::codex_config::write_codex_live_atomic(auth, cfg_text)?;
+
+        // v3.7.0+ 运行时配置从 SQLite 加载，MCP 服务器只存在于统一结构
+        // `mcp.servers`，旧的分应用结构恒为空。与 McpService::sync_all_enabled
+        // 一致，先把统一结构中启用了 Codex 的条目投影到旧结构，否则
+        // sync_enabled_to_codex 会误判为“无启用项”而清空 live config.toml 的
+        // [mcp_servers] 表（旧结构中已有的条目保持不变）。
+        if let Some(servers) = &config.mcp.servers {
+            let projected: Vec<(String, Value)> = servers
+                .values()
+                .filter(|server| server.apps.codex)
+                .map(|server| {
+                    (
+                        server.id.clone(),
+                        serde_json::json!({
+                            "id": server.id,
+                            "enabled": true,
+                            "server": server.server,
+                        }),
+                    )
+                })
+                .collect();
+            for (id, entry) in projected {
+                config.mcp.codex.servers.entry(id).or_insert(entry);
+            }
+        }
         crate::mcp::sync_enabled_to_codex(config)?;
 
         let cfg_text_after = crate::codex_config::read_and_validate_codex_config_text()?;
