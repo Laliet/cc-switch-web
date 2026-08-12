@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use cc_switch_lib::{
     get_claude_settings_path, get_codex_config_path, read_json_file, write_codex_live_atomic,
-    AppError, AppState, AppType, MultiAppConfig, Provider, ProviderMeta, ProviderService,
+    AppError, AppState, AppType, ConfigService, MultiAppConfig, Provider, ProviderMeta,
+    ProviderService,
 };
 
 #[path = "support.rs"]
@@ -1115,6 +1116,113 @@ fn provider_service_update_current_codex_preserves_mcp_in_live_and_snapshot() {
     let manager = guard
         .get_manager(&AppType::Codex)
         .expect("codex manager after update");
+    let current = manager
+        .providers
+        .get("current")
+        .expect("current provider should still exist");
+    let snapshot_config = current
+        .settings_config
+        .get("config")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        snapshot_config.contains("mcp_servers.relay-pulse"),
+        "stored provider snapshot should match live config with MCP servers"
+    );
+}
+
+#[test]
+fn sync_current_providers_preserves_codex_mcp_in_live_and_snapshot() {
+    let _guard = test_mutex().lock().expect("acquire test mutex");
+    reset_test_fs();
+    let _home = ensure_test_home();
+
+    let mut config = MultiAppConfig::default();
+    {
+        let manager = config
+            .get_manager_mut(&AppType::Codex)
+            .expect("codex manager");
+        manager.current = "current".to_string();
+        manager.providers.insert(
+            "current".to_string(),
+            Provider::with_id(
+                "current".to_string(),
+                "Current Codex".to_string(),
+                json!({
+                    "auth": {"OPENAI_API_KEY": "stale-key"},
+                    "config": "model = \"gpt-4.1\"\n"
+                }),
+                None,
+            ),
+        );
+    }
+
+    config.mcp.codex.servers.insert(
+        "relay-pulse".into(),
+        json!({
+            "id": "relay-pulse",
+            "enabled": true,
+            "server": {
+                "type": "stdio",
+                "command": "relay-pulse"
+            }
+        }),
+    );
+
+    // 与上面的官方场景一致，但经 AppState/SQLite 往返：加载回来的配置只有
+    // 统一结构 mcp.servers，旧的分应用结构恒为空（v3.7.0+ 的生产形态）。
+    let state = AppState::new_for_tests(config).expect("test app state");
+
+    ProviderService::update(
+        &state,
+        AppType::Codex,
+        Provider::with_id(
+            "current".to_string(),
+            "Current Codex".to_string(),
+            json!({
+                "auth": {"OPENAI_API_KEY": "fresh-key"},
+                "config": "model = \"gpt-5\"\n"
+            }),
+            None,
+        ),
+    )
+    .expect("updating current codex provider should succeed");
+
+    let config_path = unwrap_path(get_codex_config_path());
+    let before = std::fs::read_to_string(&config_path).expect("read config.toml");
+    assert!(
+        before.contains("mcp_servers.relay-pulse"),
+        "sanity: live config.toml should contain MCP server before sync-current"
+    );
+
+    // POST /api/providers/sync-current（web 前端每次切换供应商后必调）、
+    // POST /api/config/import、备份恢复等入口共用的确切调用。
+    state
+        .update_config(ConfigService::sync_current_providers_to_live)
+        .expect("sync current providers to live");
+
+    let auth_path = unwrap_path(cc_switch_lib::get_codex_auth_path());
+    let auth_value: serde_json::Value = read_json_file(&auth_path).expect("read auth.json");
+    assert_eq!(
+        auth_value.get("OPENAI_API_KEY").and_then(|v| v.as_str()),
+        Some("fresh-key"),
+        "live auth.json should keep updated provider auth"
+    );
+
+    let config_text = std::fs::read_to_string(&config_path).expect("read config.toml");
+    assert!(
+        config_text.contains("mcp_servers.relay-pulse"),
+        "config.toml should preserve enabled MCP servers after syncing current providers"
+    );
+    assert!(
+        config_text.contains("command = \"relay-pulse\""),
+        "config.toml should contain relay-pulse command after sync"
+    );
+
+    let guard = state.load_config().expect("read config after sync");
+    let manager = guard
+        .get_manager(&AppType::Codex)
+        .expect("codex manager after sync");
     let current = manager
         .providers
         .get("current")
